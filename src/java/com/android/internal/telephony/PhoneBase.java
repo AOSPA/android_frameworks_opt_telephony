@@ -1124,7 +1124,7 @@ public abstract class PhoneBase extends Handler implements Phone {
 
     private void updateSavedNetworkOperator(NetworkSelectMessage nsm) {
         int subId = getSubId();
-        if (SubscriptionManager.isValidSubscriptionId(subId)) {
+        if (SubscriptionController.getInstance().isActiveSubId(subId)) {
             // open the shared preferences editor, and write the value.
             // nsm.operatorNumeric is "" if we're in automatic.selection.
             SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
@@ -2705,7 +2705,7 @@ public abstract class PhoneBase extends Handler implements Phone {
         // Update the cached value
         mRadioCapability.set(rc);
 
-        if (SubscriptionManager.isValidSubscriptionId(getSubId())) {
+        if (SubscriptionController.getInstance().isActiveSubId(getSubId())) {
             sendSubscriptionSettings(true);
         }
     }
@@ -2723,7 +2723,7 @@ public abstract class PhoneBase extends Handler implements Phone {
 
     protected void setPreferredNetworkTypeIfSimLoaded() {
         int subId = getSubId();
-        if (SubscriptionManager.isValidSubscriptionId(subId)) {
+        if (SubscriptionController.getInstance().isActiveSubId(subId)) {
             int type = PhoneFactory.calculatePreferredNetworkType(mContext, getSubId());
             setPreferredNetworkType(type, null);
         }
