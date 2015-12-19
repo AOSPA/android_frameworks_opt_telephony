@@ -54,6 +54,9 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     <!-- plmn name override enabled-->
     <bool name="config_plmn_name_override_enabled">false</bool>
 
+    <!-- control not to show SPN in carrier text -->
+    <bool name="config_spn_display_control">false</bool>
+
     <string name="sdn"></string>
     <string name="summary_sdn"></string>
     <string name="launch_sdn"></string>
