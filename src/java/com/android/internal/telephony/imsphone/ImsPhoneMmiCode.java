@@ -698,12 +698,16 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                 || (mSc != null && mSc.equals(SC_BS_MT))
                 || (mSc != null && mSc.equals(SC_BAICa))) {
 
-            int serviceClass = siToServiceClass(mSib);
-            if (serviceClass != SERVICE_CLASS_NONE
-                    && serviceClass != SERVICE_CLASS_VOICE) {
-                return false;
+            try {
+                int serviceClass = siToServiceClass(mSib);
+                if (serviceClass != SERVICE_CLASS_NONE
+                        && serviceClass != SERVICE_CLASS_VOICE) {
+                    return false;
+                }
+                return true;
+            } catch (RuntimeException exc) {
+                Rlog.d(LOG_TAG, "Invalid service class " + exc);
             }
-            return true;
         } else if (isPinPukCommand()
                 || (mSc != null
                     && (mSc.equals(SC_PWD) || mSc.equals(SC_CLIP) || mSc.equals(SC_CLIR)))) {
@@ -1050,6 +1054,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                     boolean cffEnabled = (msg.arg2 == 1);
                     mPhone.setVoiceCallForwardingFlag(1, cffEnabled, mDialingNumber);
                     mPhone.setCallForwardingPreference(cffEnabled);
+                    mPhone.setVideoCallForwardingPreference(cffEnabled);
                 }
 
                 onSetComplete(msg, ar);

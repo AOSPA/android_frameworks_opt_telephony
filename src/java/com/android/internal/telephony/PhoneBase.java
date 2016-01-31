@@ -32,6 +32,8 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.Registrant;
 import android.os.RegistrantList;
+import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.os.SystemProperties;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
@@ -204,6 +206,8 @@ public abstract class PhoneBase extends Handler implements Phone {
     public static final String VM_SIM_IMSI = "vm_sim_imsi_key";
     // Key used to read/write if Call Forwarding is enabled
     public static final String CF_ENABLED = "cf_enabled_key";
+    // Key used to read/write if Video Call Forwarding is enabled
+    public static final String CF_ENABLED_VIDEO = "cf_enabled_key_video";
 
     // Key used for storing call forwarding status
     public static final String CF_STATUS = "cf_status_key";
@@ -1564,6 +1568,10 @@ public abstract class PhoneBase extends Handler implements Phone {
     public boolean getCallForwardingPreference() {
         Rlog.d(LOG_TAG, "Get callforwarding info from perferences");
 
+        if (!isCurrentSubValid()) {
+            return false;
+        }
+
         SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
         boolean cf = false;
         // Migrate CF enabled flag from phoneid based preference to subId based.
@@ -1590,6 +1598,51 @@ public abstract class PhoneBase extends Handler implements Phone {
             return cf;
         }
         cf = sp.getBoolean(CF_ENABLED + getSubId(), false);
+        return cf;
+    }
+
+    /**
+     * This method stores the CF_ENABLED_VIDEO flag in preferences
+     * @param enabled
+     */
+    public void setVideoCallForwardingPreference(boolean enabled) {
+        Rlog.d(LOG_TAG, "Set video call forwarding info to preferences");
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+        SharedPreferences.Editor edit = sp.edit();
+        edit.putBoolean(CF_ENABLED_VIDEO + getSubId(), enabled);
+        edit.commit();
+
+        // set the sim imsi to be able to track when the sim card is changed.
+        setSimImsi(getSubscriberId());
+    }
+
+    /**
+     * This method gets Video Call Forwarding enabled/disabled from preferences
+     */
+    public boolean getVideoCallForwardingPreference() {
+        Rlog.d(LOG_TAG, "Get video call forwarding info from preferences");
+
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+        boolean cf = false;
+        if (TelephonyManager.getDefault().isMultiSimEnabled()) {
+            if (!sp.contains(CF_ENABLED_VIDEO + getSubId()) &&
+                    sp.contains(CF_ENABLED_VIDEO + mPhoneId)) {
+                cf = sp.getBoolean(CF_ENABLED_VIDEO + mPhoneId, false);
+                setVideoCallForwardingPreference(cf);
+                SharedPreferences.Editor edit = sp.edit();
+                edit.remove(CF_ENABLED_VIDEO + mPhoneId);
+                edit.commit();
+            }
+        } else {
+            if (!sp.contains(CF_ENABLED_VIDEO + getSubId()) && sp.contains(CF_ENABLED_VIDEO)) {
+                cf = sp.getBoolean(CF_ENABLED_VIDEO, false);
+                setVideoCallForwardingPreference(cf);
+                SharedPreferences.Editor edit = sp.edit();
+                edit.remove(CF_ENABLED_VIDEO);
+                edit.commit();
+            }
+        }
+        cf = sp.getBoolean(CF_ENABLED_VIDEO + getSubId(), false);
         return cf;
     }
 
@@ -1627,6 +1680,29 @@ public abstract class PhoneBase extends Handler implements Phone {
         SharedPreferences.Editor editor = sp.edit();
         editor.putString(SIM_IMSI + getSubId(), imsi);
         editor.apply();
+    }
+
+    private boolean isCurrentSubValid() {
+        final int PROVISIONED = 1;
+        final int INVALID_STATE = -1;
+        int provisionStatus = PROVISIONED;
+        SubscriptionManager subscriptionManager = SubscriptionManager.from(mContext);
+        IExtTelephony mExtTelephony = IExtTelephony.Stub.
+                asInterface(ServiceManager.getService("extphone"));
+        if (TelephonyManager.getDefault().isMultiSimEnabled()) {
+            try {
+                //get current provision state of the SIM.
+                provisionStatus =
+                        mExtTelephony.getCurrentUiccCardProvisioningStatus(mPhoneId);
+            } catch (RemoteException ex) {
+                provisionStatus = INVALID_STATE;
+            } catch (NullPointerException ex) {
+                provisionStatus = INVALID_STATE;
+            }
+        }
+        Rlog.d(LOG_TAG, "ProvisionStatus: " + provisionStatus);
+        return subscriptionManager.isActiveSubId(getSubId()) &&
+                (provisionStatus == PROVISIONED);
     }
 
     /**
@@ -2738,6 +2814,19 @@ public abstract class PhoneBase extends Handler implements Phone {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public void getCallForwardingOption(int commandInterfaceCFReason,
+            int commandInterfaceServiceClass, Message onComplete) {
+        logUnexpectedCdmaMethodCall("getCallForwardingOption with Serviceclass");
+    }
+
+    @Override
+    public void setCallForwardingOption(int commandInterfaceCFReason,
+            int commandInterfaceCFAction, String dialingNumber,
+            int commandInterfaceServiceClass, int timerSeconds, Message onComplete) {
+        logUnexpectedCdmaMethodCall("setCallForwardingOption with Serviceclass");
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
