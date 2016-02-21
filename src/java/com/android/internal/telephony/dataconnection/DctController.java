@@ -696,7 +696,7 @@ public class DctController extends Handler {
         return name;
     }
 
-    protected int getRequestPhoneId(NetworkRequest networkRequest) {
+    public int getRequestPhoneId(NetworkRequest networkRequest) {
         String specifier = networkRequest.networkCapabilities.getNetworkSpecifier();
         int subId;
         if (specifier == null || specifier.equals("")) {
