@@ -1392,8 +1392,12 @@ public abstract class PhoneBase extends Handler implements Phone {
 
     @Override
     public void updatePhoneObject(int voiceRadioTech) {
+        Rlog.d(LOG_TAG, "updatePhoneObject: phoneid = " + mPhoneId + " rat = " + voiceRadioTech);
         // Only the PhoneProxy can update the phone object.
-        PhoneFactory.getDefaultPhone().updatePhoneObject(voiceRadioTech);
+        Phone phoneProxy = PhoneFactory.getPhone(mPhoneId);
+        if (phoneProxy != null) {
+            phoneProxy.updatePhoneObject(voiceRadioTech);
+        }
     }
 
     /**
@@ -1524,7 +1528,10 @@ public abstract class PhoneBase extends Handler implements Phone {
 
     public void setVoiceCallForwardingFlag(int line, boolean enable, String number) {
         setCallForwardingIndicatorInSharedPref(enable);
-        mIccRecords.get().setVoiceCallForwardingFlag(line, enable, number);
+        IccRecords r = mIccRecords.get();
+        if (r != null) {
+            r.setVoiceCallForwardingFlag(line, enable, number);
+        }
     }
 
     protected void setVoiceCallForwardingFlag(IccRecords r, int line, boolean enable,
