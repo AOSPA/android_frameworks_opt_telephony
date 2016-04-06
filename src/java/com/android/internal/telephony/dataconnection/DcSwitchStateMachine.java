@@ -292,14 +292,14 @@ public class DcSwitchStateMachine extends StateMachine {
                         loge("EVENT_DATA_ALLOWED ignored arg1=" + msg.arg1 + ", seq=" +
                                 mCurrentAllowedSequence);
                     } else {
+                        if (mResponseMsg != null) {
+                            // Inform DctController about the response.
+                            Message responseMsg = Message.obtain(mResponseMsg);
+                            responseMsg.obj = new AsyncResult(null, null, ar.exception);
+                            responseMsg.sendToTarget();
+                        }
                         if (ar.exception != null) {
                             loge("EVENT_DATA_ALLOWED failed, " + ar.exception);
-                            if (mResponseMsg != null) {
-                                // Inform DctController about the failure.
-                                Message responseMsg = Message.obtain(mResponseMsg);
-                                responseMsg.obj = new AsyncResult(null, null, ar.exception);
-                                responseMsg.sendToTarget();
-                            }
                         } else {
                             logd("EVENT_DATA_ALLOWED success");
                             mResponseMsg = null;
