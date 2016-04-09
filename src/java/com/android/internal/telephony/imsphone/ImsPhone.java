@@ -148,6 +148,8 @@ public class ImsPhone extends ImsPhoneBase {
 
     private final RegistrantList mSilentRedialRegistrants = new RegistrantList();
 
+    private final RegistrantList mServiceStateChangeRegistrants = new RegistrantList();
+
     private boolean mImsRegistered = false;
 
     // List of Registrants to send supplementary service notifications to.
@@ -1158,6 +1160,14 @@ public class ImsPhone extends ImsPhoneBase {
         mSilentRedialRegistrants.remove(h);
     }
 
+    public void registerForServiceStateChange(Handler h, int what, Object obj) {
+        mServiceStateChangeRegistrants.addUnique(h, what, obj);
+    }
+
+    public void unregisterForServiceStateChange(Handler h) {
+        mServiceStateChangeRegistrants.remove(h);
+    }
+
     @Override
     public void registerForSuppServiceNotification(
             Handler h, int what, Object obj) {
@@ -1665,5 +1675,12 @@ public class ImsPhone extends ImsPhoneBase {
         } else if (onComplete != null) {
             sendErrorResponse(onComplete);
         }
+    }
+
+    @Override
+    protected void notifyServiceStateChangedP(ServiceState serviceState) {
+        if (DBG) Rlog.d(LOG_TAG, "notifyServiceStateChangedP to " + serviceState);
+        AsyncResult ar = new AsyncResult(null, serviceState, null);
+        mServiceStateRegistrants.notifyRegistrants(ar);
     }
 }
