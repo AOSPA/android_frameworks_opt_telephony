@@ -361,6 +361,12 @@ public class PhoneFactory {
             networkType = android.provider.Settings.Global.getInt(context.getContentResolver(),
                     android.provider.Settings.Global.PREFERRED_NETWORK_MODE + phoneSubId,
                     phoneIdNetworkType);
+            //Update phone id based network type with Sub ID based.
+            if (networkType != phoneIdNetworkType) {
+                TelephonyManager.putIntAtIndex(context.getContentResolver(),
+                        Settings.Global.PREFERRED_NETWORK_MODE, phoneId,
+                        networkType);
+            }
         } else {
             Rlog.d(LOG_TAG, "calculatePreferredNetworkType: phoneSubId = " + phoneSubId +
                     " is not a active SubId");
