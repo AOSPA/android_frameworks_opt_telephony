@@ -117,4 +117,34 @@ oneway interface IQtiImsInterface {
      */
     void registerForViceRefreshInfo(IQtiImsInterfaceListener listener);
 
+   /**
+     * sendCallTransferRequest
+     * Transfer an established call to given number or call id
+     *
+     * @param phoneId indicates the phone instance which triggered the request
+     * @param type is one of the values QTI_IMS_TRANSFER_TYPE_*, as defined in
+     *        <code>org.codeaurora.ims.qtiims.QtiImsInterfaceUtils.</code>
+     * @param number indicates the target number to transfer
+     * @param listener an IQtiImsInterfaceListener instance to indicate the response
+     * @return void
+     */
+    void sendCallTransferRequest(int phoneId, int type, String number,
+            IQtiImsInterfaceListener listener);
+
+    /**
+     * Query Vops information
+     *
+     * @param listener an IQtiImsInterfaceListener instance to indicate the response
+     * @return void
+     */
+    void queryVopsStatus(IQtiImsInterfaceListener listener);
+
+   /**
+     * Query Ssac information
+     *
+     * @param listener an IQtiImsInterfaceListener instance to indicate the response
+     * @return void
+     */
+    void querySsacStatus(IQtiImsInterfaceListener listener);
+
 }

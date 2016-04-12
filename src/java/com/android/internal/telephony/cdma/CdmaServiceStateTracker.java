@@ -1992,7 +1992,7 @@ public class CdmaServiceStateTracker extends ServiceStateTracker {
         mPhone.mCT.mRingingCall.hangupIfAlive();
         mPhone.mCT.mBackgroundCall.hangupIfAlive();
         mPhone.mCT.mForegroundCall.hangupIfAlive();
-        mCi.setRadioPower(false, null);
+        mCi.setRadioPower(false, obtainMessage(EVENT_RADIO_POWER_OFF_DONE));
     }
 
     protected void parseSidNid (String sidStr, String nidStr) {
