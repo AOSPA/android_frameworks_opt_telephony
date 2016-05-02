@@ -138,7 +138,7 @@ public class DcSwitchStateMachine extends StateMachine {
                         log("IdleState: EVENT_DATA_ATTACHED");
                     }
 
-                    if (ddsPhoneId == mId) {
+                    if (DctController.getInstance().isDataAllowedOnPhoneId(mId)) {
                         if (DBG) {
                             log("IdleState: DDS sub reported ATTACHed in IDLE state");
                         }
@@ -147,6 +147,8 @@ public class DcSwitchStateMachine extends StateMachine {
                          */
                         deferMessage(msg);
                         transitionTo(mAttachingState);
+                    } else {
+                        if (DBG) log("IdleState: ignore ATATCHed event as data is not allowed");
                     }
                     retVal = HANDLED;
                     break;
@@ -290,14 +292,14 @@ public class DcSwitchStateMachine extends StateMachine {
                         loge("EVENT_DATA_ALLOWED ignored arg1=" + msg.arg1 + ", seq=" +
                                 mCurrentAllowedSequence);
                     } else {
+                        if (mResponseMsg != null) {
+                            // Inform DctController about the response.
+                            Message responseMsg = Message.obtain(mResponseMsg);
+                            responseMsg.obj = new AsyncResult(null, null, ar.exception);
+                            responseMsg.sendToTarget();
+                        }
                         if (ar.exception != null) {
                             loge("EVENT_DATA_ALLOWED failed, " + ar.exception);
-                            if (mResponseMsg != null) {
-                                // Inform DctController about the failure.
-                                Message responseMsg = Message.obtain(mResponseMsg);
-                                responseMsg.obj = new AsyncResult(null, null, ar.exception);
-                                responseMsg.sendToTarget();
-                            }
                         } else {
                             logd("EVENT_DATA_ALLOWED success");
                             mResponseMsg = null;
