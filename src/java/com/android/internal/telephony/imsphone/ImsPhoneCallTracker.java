@@ -1612,6 +1612,7 @@ public final class ImsPhoneCallTracker extends CallTracker {
             if (DBG) log("onImsConnected");
             mPhone.setServiceState(ServiceState.STATE_IN_SERVICE);
             mPhone.setImsRegistered(true);
+            mPhone.notifyServiceStateChanged(mPhone.getServiceState());
         }
 
         @Override
@@ -1620,6 +1621,7 @@ public final class ImsPhoneCallTracker extends CallTracker {
             mPhone.setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
             mPhone.setImsRegistered(false);
             mPhone.processDisconnectReason(imsReasonInfo);
+            mPhone.notifyServiceStateChanged(mPhone.getServiceState());
         }
 
         @Override
@@ -1627,18 +1629,21 @@ public final class ImsPhoneCallTracker extends CallTracker {
             if (DBG) log("onImsProgressing");
             mPhone.setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
             mPhone.setImsRegistered(false);
+            mPhone.notifyServiceStateChanged(mPhone.getServiceState());
         }
 
         @Override
         public void onImsResumed() {
             if (DBG) log("onImsResumed");
             mPhone.setServiceState(ServiceState.STATE_IN_SERVICE);
+            mPhone.notifyServiceStateChanged(mPhone.getServiceState());
         }
 
         @Override
         public void onImsSuspended() {
             if (DBG) log("onImsSuspended");
             mPhone.setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
+            mPhone.notifyServiceStateChanged(mPhone.getServiceState());
         }
 
         @Override

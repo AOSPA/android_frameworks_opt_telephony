@@ -225,7 +225,7 @@ abstract class ImsPhoneBase extends PhoneBase {
     }
 
     void notifyServiceStateChanged(ServiceState ss) {
-        super.notifyServiceStateChangedP(ss);
+        notifyServiceStateChangedP(ss);
     }
 
     @Override

@@ -183,8 +183,9 @@ public abstract class PhoneBase extends Handler implements Phone {
     protected static final int EVENT_CONFIG_LCE                     = 37;
     private static final int EVENT_CHECK_FOR_NETWORK_AUTOMATIC      = 38;
     protected static final int EVENT_GET_CALLFORWARDING_STATUS      = 39;
+    protected static final int EVENT_IMS_SERVICE_STATE_CHANGED      = 40;
     protected static final int EVENT_LAST                           =
-            EVENT_GET_CALLFORWARDING_STATUS;
+            EVENT_IMS_SERVICE_STATE_CHANGED;
 
     // For shared prefs.
     private static final String GSM_ROAMING_LIST_OVERRIDE_PREFIX = "gsm_roaming_list_";
@@ -556,6 +557,7 @@ public abstract class PhoneBase extends Handler implements Phone {
             ImsPhone imsPhone = mImsPhone;
             if (imsPhone != null) {
                 imsPhone.unregisterForSilentRedial(this);
+                imsPhone.unregisterForServiceStateChange(this);
                 imsPhone.dispose();
             }
         }
@@ -697,6 +699,14 @@ public abstract class PhoneBase extends Handler implements Phone {
                 onCheckForNetworkSelectionModeAutomatic(msg);
                 break;
             }
+
+            case EVENT_IMS_SERVICE_STATE_CHANGED:
+                Rlog.d(LOG_TAG, "Event EVENT_IMS_SERVICE_STATE_CHANGED Received");
+                ar = (AsyncResult) msg.obj;
+                if ((ar.exception == null) && (ar.result != null)) {
+                    notifyServiceStateChangedP(getServiceState());
+                }
+                break;
             default:
                 throw new RuntimeException("unexpected event not handled");
         }
@@ -2449,6 +2459,7 @@ public abstract class PhoneBase extends Handler implements Phone {
 
             CallManager.getInstance().unregisterPhone(imsPhone);
             imsPhone.unregisterForSilentRedial(this);
+            imsPhone.unregisterForServiceStateChange(this);
 
             return imsPhone;
         }
@@ -2477,6 +2488,8 @@ public abstract class PhoneBase extends Handler implements Phone {
             CallManager.getInstance().registerPhone(mImsPhone);
             mImsPhone.registerForSilentRedial(
                     this, EVENT_INITIATE_SILENT_REDIAL, null);
+            mImsPhone.registerForServiceStateChange(
+                    this, EVENT_IMS_SERVICE_STATE_CHANGED, null);
         }
     }
 
@@ -2489,9 +2502,12 @@ public abstract class PhoneBase extends Handler implements Phone {
             CallManager.getInstance().registerPhone(mImsPhone);
             mImsPhone.registerForSilentRedial(
                     this, EVENT_INITIATE_SILENT_REDIAL, null);
+            mImsPhone.registerForServiceStateChange(
+                    this, EVENT_IMS_SERVICE_STATE_CHANGED, null);
         } else if (!mImsServiceReady && (mImsPhone != null)) {
             CallManager.getInstance().unregisterPhone(mImsPhone);
             mImsPhone.unregisterForSilentRedial(this);
+            mImsPhone.unregisterForServiceStateChange(this);
 
             mImsPhone.dispose();
             // Potential GC issue if someone keeps a reference to ImsPhone.
