@@ -298,7 +298,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
     // When we are testing emergency calls
     AtomicBoolean mTestingEmergencyCall = new AtomicBoolean(false);
 
-    private Integer mInstanceId;
+    protected Integer mInstanceId;
     private List<String> mOldRilFeatures;
 
     private TelephonyEventLog mEventLog;
@@ -599,10 +599,10 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return messageLength;
     }
 
-    class RILReceiver implements Runnable {
+    protected class RILReceiver implements Runnable {
         byte[] buffer;
 
-        RILReceiver() {
+        protected RILReceiver() {
             buffer = new byte[RIL_MAX_COMMAND_BYTES];
         }
 
@@ -769,7 +769,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
             riljLog("Not starting RILReceiver: wifi-only");
         } else {
             riljLog("Starting RILReceiver" + mInstanceId);
-            mReceiver = new RILReceiver();
+            mReceiver = createRILReceiver();
             mReceiverThread = new Thread(mReceiver, "RILReceiver" + mInstanceId);
             mReceiverThread.start();
 
@@ -789,6 +789,10 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
         TelephonyDevController tdc = TelephonyDevController.getInstance();
         tdc.registerRIL(this);
+    }
+
+    protected RILReceiver createRILReceiver() {
+        return new RILReceiver();
     }
 
     //***** CommandsInterface implementation
@@ -2553,7 +2557,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
      * happen often.
      */
 
-    private void
+    protected void
     acquireWakeLock(RILRequest rr, int wakeLockType) {
         synchronized(rr) {
             if(rr.mWakeLockType != INVALID_WAKELOCK) {
@@ -3011,7 +3015,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return rr;
     }
 
-    private RadioCapability makeStaticRadioCapability() {
+    protected RadioCapability makeStaticRadioCapability() {
         // default to UNKNOWN so we fail fast.
         int raf = RadioAccessFamily.RAF_UNKNOWN;
 
@@ -3671,7 +3675,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return response;
     }
 
-    private Object
+    protected Object
     responseFailCause(Parcel p) {
         LastCallFailCause failCause = new LastCallFailCause();
         failCause.causeCode = p.readInt();
@@ -3792,7 +3796,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return new IccIoResult(sw1, sw2, s);
     }
 
-    private Object
+    protected Object
     responseICC_IOBase64(Parcel p) {
         int sw1, sw2;
         Message ret;
@@ -4291,7 +4295,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    private ArrayList<CellInfo> responseCellInfoList(Parcel p) {
+    protected ArrayList<CellInfo> responseCellInfoList(Parcel p) {
         int numberOfInfoRecs;
         ArrayList<CellInfo> response;
 
@@ -4310,7 +4314,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return response;
     }
 
-   private Object
+   protected Object
    responseHardwareConfig(Parcel p) {
       int num;
       ArrayList<HardwareConfig> response;
@@ -4348,7 +4352,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
       return response;
    }
 
-    private Object
+    protected Object
     responseRadioCapability(Parcel p) {
         int version = p.readInt();
         int session = p.readInt();
@@ -4368,7 +4372,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return rc;
     }
 
-    private Object responseLceData(Parcel p) {
+    protected Object responseLceData(Parcel p) {
         final ArrayList<Integer> capacityResponse = new ArrayList<Integer>();
         final int capacityDownKbps = p.readInt();
         final int confidenceLevel = p.readByte();
@@ -4385,7 +4389,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return capacityResponse;
     }
 
-    private Object responseLceStatus(Parcel p) {
+    protected Object responseLceStatus(Parcel p) {
         final ArrayList<Integer> statusResponse = new ArrayList<Integer>();
         final int lceStatus = (int)p.readByte();
         final int actualInterval = p.readInt();
@@ -4398,7 +4402,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return statusResponse;
     }
 
-    private Object responseActivityData(Parcel p) {
+    protected Object responseActivityData(Parcel p) {
         final int sleepModeTimeMs = p.readInt();
         final int idleModeTimeMs = p.readInt();
         int [] txModeTimeMs = new int[ModemActivityInfo.TX_POWER_LEVELS];
