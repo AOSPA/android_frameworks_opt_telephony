@@ -83,11 +83,12 @@ public class PhoneSwitcher extends Handler {
     private final static int EVENT_RELEASE_NETWORK              = 104;
     private final static int EVENT_EMERGENCY_TOGGLE             = 105;
     private final static int EVENT_RESEND_DATA_ALLOWED          = 106;
-    protected final static int EVENT_ALLOW_DATA_RESPONSE        = 107;
+    protected final static int EVENT_ALLOW_DATA_TRUE_RESPONSE   = 107;
     protected final static int EVENT_VOICE_CALL_ENDED           = 108;
     protected final static int EVENT_DATA_RAT_CHANGED           = 109;
     protected static final int EVENT_UNSOL_MAX_DATA_ALLOWED_CHANGED = 110;
     protected static final int EVENT_OEM_HOOK_SERVICE_READY = 111;
+    protected final static int EVENT_ALLOW_DATA_FALSE_RESPONSE   = 112;
 
     private final static int MAX_LOCAL_LOG_LINES = 30;
 
