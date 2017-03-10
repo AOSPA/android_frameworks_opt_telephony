@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "fa81d914_24c74e14",
+        "filename": "/COMMIT_MSG",
+        "patchSetId": 2
+      },
+      "lineNbr": 7,
+      "author": {
+        "id": 1000011
+      },
+      "writtenOn": "2017-03-10T22:10:02Z",
+      "side": 1,
+      "message": "too long, also a description of the use case here would be useful.",
+      "revId": "92f337696731c1e8d0ce907ed8c43111d0bb4677",
+      "serverId": "3162e3d8-d894-470e-abd9-724f7b0effad",
+      "unresolved": false
+    }
+  ]
+}
