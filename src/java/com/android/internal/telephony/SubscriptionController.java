@@ -42,6 +42,8 @@ import android.util.Log;
 import java.util.Objects;
 import com.android.internal.telephony.IccCardConstants.State;
 
+import org.codeaurora.internal.IExtTelephony;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -597,6 +599,29 @@ public class SubscriptionController extends ISub.Stub {
                     }
                 });
 
+                int simStateNotProvisioned = 0;
+
+                Iterator<SubscriptionInfo> info = subList.iterator();
+                try {
+                    IExtTelephony extTelephony = IExtTelephony.Stub.asInterface(
+                            ServiceManager.getService("extphone"));
+
+                    while (info.hasNext()) {
+                        if (extTelephony == null) {
+                            break;
+                        }
+                        SubscriptionInfo subInfo = info.next();
+                        int slotId = subInfo.getSimSlotIndex();
+                        if (extTelephony.getCurrentUiccCardProvisioningStatus(slotId)
+                                == simStateNotProvisioned && subList.contains(subInfo)
+                                && getSimStateForSlotIdx(slotId)
+                                == TelephonyManager.SIM_STATE_NOT_READY) {
+                            info.remove();
+                        }
+                    }
+                } catch (RemoteException e) {
+                    Log.d(LOG_TAG, "remote exception while trying to get ExtTelephony", e);
+                }
                 if (VDBG) logdl("[getActiveSubInfoList]- " + subList.size() + " infos return");
             } else {
                 if (DBG) logdl("[getActiveSubInfoList]- no info return");
