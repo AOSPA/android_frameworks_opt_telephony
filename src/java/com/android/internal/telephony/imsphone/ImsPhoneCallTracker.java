@@ -398,6 +398,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         mPhone.getContext().unregisterReceiver(mReceiver);
         mPhone.getDefaultPhone().unregisterForDataEnabledChanged(this);
         removeMessages(EVENT_GET_IMS_SERVICE);
+        try {
+            if (mImsManager != null) {
+                mImsManager.close(mServiceId);
+            }
+        } catch (ImsException e) {
+            log("dispose " + e.getMessage());
+        }
     }
 
     @Override
