@@ -116,6 +116,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             "UTLTE", "UTWiFi"};
 
     private TelephonyMetrics mMetrics;
+    private boolean mCarrierConfigLoaded = false;
 
     private BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
@@ -195,6 +196,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     log("onReceive : Updating mAllowEmergencyVideoCalls = " +
                             mAllowEmergencyVideoCalls);
                 }
+                mCarrierConfigLoaded  = true;
             }
         }
     };
@@ -396,6 +398,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         mPhone.getContext().unregisterReceiver(mReceiver);
         mPhone.getDefaultPhone().unregisterForDataEnabledChanged(this);
         removeMessages(EVENT_GET_IMS_SERVICE);
+        try {
+            if (mImsManager != null) {
+                mImsManager.close(mServiceId);
+            }
+        } catch (ImsException e) {
+            log("dispose " + e.getMessage());
+        }
     }
 
     @Override
@@ -2889,7 +2898,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         // This will call into updateVideoCallFeatureValue and eventually all clients will be
         // asynchronously notified that the availability of VT over LTE has changed.
-        ImsManager.updateImsServiceConfig(mPhone.getContext(), mPhone.getPhoneId(), true);
+        if (mCarrierConfigLoaded) {
+            ImsManager.updateImsServiceConfig(mPhone.getContext(), mPhone.getPhoneId(), true);
+        }
     }
 
     /**
