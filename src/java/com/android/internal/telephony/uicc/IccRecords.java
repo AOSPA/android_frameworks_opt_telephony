@@ -22,6 +22,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.Registrant;
 import android.os.RegistrantList;
+
 import android.telephony.Rlog;
 import android.telephony.SubscriptionInfo;
 import android.telephony.TelephonyManager;
@@ -90,6 +91,13 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected String mGid2;
     protected String mPrefLang;
 
+    protected PlmnActRecord[] mHplmnActRecords;
+    protected PlmnActRecord[] mOplmnActRecords;
+    protected PlmnActRecord[] mPlmnActRecords;
+
+    protected String[] mEhplmns;
+    protected String[] mFplmns;
+
     private final Object mLock = new Object();
 
     // ***** Constants
@@ -103,13 +111,14 @@ public abstract class IccRecords extends Handler implements IccConstants {
     public static final int SPN_RULE_SHOW_PLMN = 0x02;
 
     // ***** Event Constants
-    protected static final int EVENT_SET_MSISDN_DONE = 30;
     public static final int EVENT_MWI = 0; // Message Waiting indication
     public static final int EVENT_CFI = 1; // Call Forwarding indication
     public static final int EVENT_SPN = 2; // Service Provider Name
 
+    private static final int SYSTEM_EVENT_BASE = 0x100;
+    public static final int EVENT_REFRESH = 3 + SYSTEM_EVENT_BASE; // ICC refresh occurred
+
     public static final int EVENT_GET_ICC_RECORD_DONE = 100;
-    public static final int EVENT_REFRESH = 31; // ICC refresh occurred
     protected static final int EVENT_APP_READY = 1;
     private static final int EVENT_AKA_AUTHENTICATE_DONE          = 90;
     protected static final int EVENT_GET_SMS_RECORD_SIZE_DONE = 28;
@@ -332,34 +341,13 @@ public abstract class IccRecords extends Handler implements IccConstants {
         return null;
     }
 
-    /**
-     * Set subscriber number to SIM record
-     *
-     * The subscriber number is stored in EF_MSISDN (TS 51.011)
-     *
-     * When the operation is complete, onComplete will be sent to its handler
-     *
-     * @param alphaTag alpha-tagging of the dailing nubmer (up to 10 characters)
-     * @param number dailing nubmer (up to 20 digits)
-     *        if the number starts with '+', then set to international TOA
-     * @param onComplete
-     *        onComplete.obj will be an AsyncResult
-     *        ((AsyncResult)onComplete.obj).exception == null on success
-     *        ((AsyncResult)onComplete.obj).exception != null on fail
-     */
     public void setMsisdnNumber(String alphaTag, String number,
             Message onComplete) {
-
-        mMsisdn = number;
-        mMsisdnTag = alphaTag;
-
-        if (DBG) log("Set MSISDN: " + mMsisdnTag +" " + mMsisdn);
-
-
-        AdnRecord adn = new AdnRecord(mMsisdnTag, mMsisdn);
-
-        new AdnRecordLoader(mFh).updateEF(adn, EF_MSISDN, EF_EXT1, 1, null,
-                obtainMessage(EVENT_SET_MSISDN_DONE, onComplete));
+        loge("setMsisdn() should not be invoked on base IccRecords");
+        // synthesize a "File Not Found" exception and return it
+        AsyncResult.forMessage(onComplete).exception =
+            (new IccIoResult(0x6A, 0x82, (byte[]) null)).getException();
+        onComplete.sendToTarget();
     }
 
     public String getMsisdnAlphaTag() {
