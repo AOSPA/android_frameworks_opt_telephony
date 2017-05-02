@@ -1774,7 +1774,7 @@ public class ImsPhone extends ImsPhoneBase {
             return;
         }
 
-        if (!isInFullRttMode() || !isRttVtCallAllowed(imsCall)) {
+        if (!isRttVtCallAllowed(imsCall)) {
             Rlog.d(LOG_TAG, "RTT: InCorrect mode");
             return;
         }
