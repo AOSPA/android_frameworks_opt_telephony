@@ -137,7 +137,7 @@ public class ServiceStateTracker extends Handler {
      * and ignore stale responses.  The value is a count-down of
      * expected responses in this pollingContext.
      */
-    private int[] mPollingContext;
+    protected int[] mPollingContext;
     private boolean mDesiredPowerState;
 
     /**
@@ -2652,7 +2652,8 @@ public class ServiceStateTracker extends Handler {
                 mSS.getRilVoiceRadioTechnology() != mNewSS.getRilVoiceRadioTechnology();
 
         boolean hasRilDataRadioTechnologyChanged =
-                mSS.getRilDataRadioTechnology() != mNewSS.getRilDataRadioTechnology();
+                mSS.getRilDataRadioTechnology() != mNewSS.getRilDataRadioTechnology()
+                        || mSS.isUsingCarrierAggregation() != mNewSS.isUsingCarrierAggregation();
 
         boolean hasChanged = !mNewSS.equals(mSS);
 

@@ -533,12 +533,15 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             mContext.registerReceiver(mImsIntentReceiver, filter);
 
             // Monitor IMS service - but first poll to see if already up (could miss
-            // intent)
-            ImsManager imsManager = ImsManager.getInstance(mContext, getPhoneId());
-            if (imsManager != null && imsManager.isServiceAvailable()) {
-                mImsServiceReady = true;
-                updateImsPhone();
-                ImsManager.updateImsServiceConfig(mContext, mPhoneId, false);
+            // intent). Also, when using new ImsResolver APIs, the service will be available soon,
+            // so start trying to bind.
+            if (mImsMgr != null) {
+                // If it is dynamic binding, kick off ImsPhone creation now instead of waiting for
+                // the service to be available.
+                if (mImsMgr.isDynamicBinding() || mImsMgr.isServiceAvailable()) {
+                    mImsServiceReady = true;
+                    updateImsPhone();
+                }
             }
         }
     }
@@ -3371,10 +3374,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     public static void checkWfcWifiOnlyModeBeforeDial(Phone imsPhone, Context context)
             throws CallStateException {
-        if (imsPhone == null || !imsPhone.isWifiCallingEnabled()) {
-            boolean wfcWiFiOnly = (ImsManager.isWfcEnabledByPlatform(context) &&
-                    ImsManager.isWfcEnabledByUser(context) &&
-                    (ImsManager.getWfcMode(context) ==
+        if ((mImsPhone == null || !isWifiCallingEnabled()) && mImsMgr != null) {
+            boolean wfcWiFiOnly = (mImsMgr.isWfcEnabledByPlatformForSlot() &&
+                    mImsMgr.isWfcEnabledByUserForSlot() &&
+                    (mImsMgr.getWfcModeForSlot() ==
                             ImsConfig.WfcModeFeatureValueConstants.WIFI_ONLY));
             if (wfcWiFiOnly) {
                 throw new CallStateException(
@@ -3550,4 +3553,42 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             pw.println("++++++++++++++++++++++++++++++++");
         }
     }
+    /** @hide */
+    /** @hide */
+    public void setFactoryModeModemGPIO (int status, int num, Message response) {
+
+    }
+    /** @hide */
+    public boolean is_test_card()
+    {
+        if(mIccRecords != null)
+        {
+            IccRecords mRecords = mIccRecords.get();
+            if(mRecords != null)
+            {
+                return mRecords.is_test_card();
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return false;
+        }
+    }
+ //zhouhanxin@oneplus.cn 2016-10-18 for sim managerment begin.
+    private RegistrantList mPhoneObejectSwitchRegistrants = new RegistrantList();
+    private final Object mLock = new Object();
+    /*@hide*/
+    public void registerForPhoneObjectSwitch(Handler h, int what, Object obj) {
+        synchronized (mLock) {
+            Registrant r = new Registrant (h, what, obj);
+
+            mPhoneObejectSwitchRegistrants.add(r);
+        }
+    }
+
+ //zhouhanxin@oneplus.cn 2016-10-18 for sim managerment end
 }
