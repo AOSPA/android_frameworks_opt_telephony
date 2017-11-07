@@ -843,10 +843,7 @@ public class ImsPhoneConnection extends Connection implements
                     }
 
                     if (!mShouldIgnoreVideoStateChanges) {
-                        if (mImsVideoCallProviderWrapper != null) {
-                            mImsVideoCallProviderWrapper.onVideoStateChanged(newVideoState);
-                        }
-                        setVideoState(newVideoState);
+                        updateVideoState(newVideoState);
                         changed = true;
                     } else {
                         Rlog.d(LOG_TAG, "updateMediaCapabilities - ignoring video state change " +
@@ -907,6 +904,13 @@ public class ImsPhoneConnection extends Connection implements
         }
 
         return changed;
+    }
+
+    private void updateVideoState(int newVideoState) {
+        if (mImsVideoCallProviderWrapper != null) {
+            mImsVideoCallProviderWrapper.onVideoStateChanged(newVideoState);
+        }
+        setVideoState(newVideoState);
     }
 
     /**
@@ -1146,6 +1150,7 @@ public class ImsPhoneConnection extends Connection implements
         return mImsVideoCallProviderWrapper.wasVideoPausedFromSource(source);
     }
 
+
     private void updateCallStateToVideoCallProvider(ImsPhoneCall.State state) {
         if (mImsVideoCallProviderWrapper == null) {
             return;
@@ -1166,5 +1171,19 @@ public class ImsPhoneConnection extends Connection implements
             case DISCONNECTED:    return Call.STATE_DISCONNECTED;
             default:              return Call.STATE_NEW;
         }
+    }
+
+    public void changeToPausedState() {
+        int newVideoState = getVideoState() | VideoProfile.STATE_PAUSED;
+        Rlog.i(LOG_TAG, "ImsPhoneConnection: changeToPausedState - setting paused bit; "
+                + "newVideoState=" + VideoProfile.videoStateToString(newVideoState));
+        updateVideoState(newVideoState);
+    }
+
+    public void changeToUnPausedState() {
+        int newVideoState = getVideoState() & ~VideoProfile.STATE_PAUSED;
+        Rlog.i(LOG_TAG, "ImsPhoneConnection: changeToUnPausedState - unsetting paused bit; "
+                + "newVideoState=" + VideoProfile.videoStateToString(newVideoState));
+        updateVideoState(newVideoState);
     }
 }
