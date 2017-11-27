@@ -41,6 +41,7 @@ import android.os.UserHandle;
 
 import android.telecom.VideoProfile;
 import android.telephony.CarrierConfigManager;
+import android.telephony.ims.feature.ImsFeature;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
@@ -1778,7 +1779,13 @@ public class ImsPhone extends ImsPhoneBase {
 
     @Override
     public boolean isUtEnabled() {
-        return mCT.isUtEnabled();
+        int imsFeatureState = ImsFeature.STATE_NOT_AVAILABLE;
+        try {
+            imsFeatureState = ImsManager.getInstance(mContext, mPhoneId).getImsServiceStatus();
+        } catch (ImsException ex) {
+            Rlog.d(LOG_TAG,  "Exception when trying to get ImsServiceStatus: " + ex);
+        }
+        return mCT.isUtEnabled() && (imsFeatureState == ImsFeature.STATE_READY);
     }
 
     @Override
