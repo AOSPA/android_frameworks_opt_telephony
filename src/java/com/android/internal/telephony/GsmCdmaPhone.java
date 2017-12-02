@@ -2112,6 +2112,7 @@ public class GsmCdmaPhone extends Phone {
     private void syncClirSetting() {
         SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
         int clirSetting = sp.getInt(CLIR_KEY + getPhoneId(), -1);
+        Rlog.i(LOG_TAG, "syncClirSetting: " + CLIR_KEY + getPhoneId() + "=" + clirSetting);
         if (clirSetting >= 0) {
             mCi.setCLIR(clirSetting, null);
         }
@@ -2607,6 +2608,11 @@ public class GsmCdmaPhone extends Phone {
                 mIccPhoneBookIntManager.updateIccRecords(mIccRecords.get());
             }
         }
+    }
+
+    @Override
+    public SIMRecords getSIMRecords() {
+        return mSimRecords;
     }
 
     private void processIccRecordEvents(int eventCode) {
