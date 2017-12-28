@@ -3705,4 +3705,13 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             pw.println("++++++++++++++++++++++++++++++++");
         }
     }
+
+    private RegistrantList mPhoneObejectSwitchRegistrants = new RegistrantList();
+
+    public void registerForPhoneObjectSwitch(Handler h, int what, Object obj) {
+        synchronized (this) {
+            Registrant r = new Registrant (h, what, obj);
+            mPhoneObejectSwitchRegistrants.add(r);
+        }
+    }
 }
