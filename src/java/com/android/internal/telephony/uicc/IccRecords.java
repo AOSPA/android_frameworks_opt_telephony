@@ -1030,4 +1030,11 @@ public abstract class IccRecords extends Handler implements IccConstants {
         }
         pw.flush();
     }
+
+    public boolean is_test_card() {
+        return false;
+    }
+
+    public void registerForTestCard(Handler h, int what, Object obj) {
+    }
 }

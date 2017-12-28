@@ -3799,4 +3799,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public boolean isEmergencyNumber(String address) {
         return PhoneNumberUtils.isEmergencyNumber(getSubId(), address);
     }
+
+    public void registerForPhoneObjectSwitch(Handler h, int what, Object obj) {
+    }
 }
