@@ -550,4 +550,8 @@ public class PhoneFactory {
         pw.flush();
         pw.decreaseIndent();
     }
+
+    public static PhoneSwitcher oemGetPhoneSwitcher() {
+        return sPhoneSwitcher;
+    }
 }

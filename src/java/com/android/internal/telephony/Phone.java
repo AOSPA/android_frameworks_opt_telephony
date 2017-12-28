@@ -3790,4 +3790,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             pw.println("++++++++++++++++++++++++++++++++");
         }
     }
+
+    public void registerForPhoneObjectSwitch(Handler h, int what, Object obj) {
+    }
 }
