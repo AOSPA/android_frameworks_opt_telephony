@@ -843,4 +843,8 @@ public abstract class IccRecords extends Handler implements IccConstants {
         pw.println(" mSpn=" + mSpn);
         pw.flush();
     }
+
+    public boolean is_test_card() {
+        return false;
+    }
 }

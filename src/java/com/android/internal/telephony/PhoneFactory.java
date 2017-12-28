@@ -501,4 +501,8 @@ public class PhoneFactory {
         }
         pw.decreaseIndent();
     }
+
+    public static PhoneSwitcher oemGetPhoneSwitcher() {
+        return sPhoneSwitcher;
+    }
 }
