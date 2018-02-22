@@ -17,7 +17,10 @@
 package com.android.internal.telephony.dataconnection;
 
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.LinkProperties;
 import android.net.NetworkAgent;
@@ -33,6 +36,7 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Pair;
@@ -81,6 +85,9 @@ public class DataConnection extends StateMachine {
     private static final boolean VDBG = true;
 
     private static final String NETWORK_TYPE = "MOBILE";
+
+    private static final String ACTION_DDS_SWITCH_DONE
+            = "org.codeaurora.intent.action.ACTION_DDS_SWITCH_DONE";
 
     // The data connection controller
     private DcController mDcController;
@@ -174,6 +181,8 @@ public class DataConnection extends StateMachine {
     public HashMap<ApnContext, ConnectionParams> mApnContexts = null;
     PendingIntent mReconnectIntent = null;
 
+    private boolean mRegistered = false;
+
 
     // ***** Event codes for driving the state machine, package visible for Dcc
     static final int BASE = Protocol.BASE_DATA_CONNECTION;
@@ -193,9 +202,10 @@ public class DataConnection extends StateMachine {
     static final int EVENT_BW_REFRESH_RESPONSE = BASE + 14;
     static final int EVENT_DATA_CONNECTION_VOICE_CALL_STARTED = BASE + 15;
     static final int EVENT_DATA_CONNECTION_VOICE_CALL_ENDED = BASE + 16;
+    static final int EVENT_DATA_CONNECTION_DDS_SWITCHED = BASE + 17;
 
     private static final int CMD_TO_STRING_COUNT =
-            EVENT_DATA_CONNECTION_VOICE_CALL_ENDED - BASE + 1;
+            EVENT_DATA_CONNECTION_DDS_SWITCHED - BASE + 1;
 
     private static String[] sCmdToString = new String[CMD_TO_STRING_COUNT];
     static {
@@ -219,6 +229,8 @@ public class DataConnection extends StateMachine {
                 "EVENT_DATA_CONNECTION_VOICE_CALL_STARTED";
         sCmdToString[EVENT_DATA_CONNECTION_VOICE_CALL_ENDED - BASE] =
                 "EVENT_DATA_CONNECTION_VOICE_CALL_ENDED";
+        sCmdToString[EVENT_DATA_CONNECTION_DDS_SWITCHED - BASE] =
+                "EVENT_DATA_CONNECTION_DDS_SWITCHED";
     }
     // Convert cmd to string or null if unknown
     static String cmdToString(int cmd) {
@@ -387,6 +399,35 @@ public class DataConnection extends StateMachine {
             if (DBG) log("MTU set by config resource to: " + mtu);
         }
     }
+
+    private boolean isApnTypeDefault() {
+        for (String type : mApnSetting.types) {
+            if (type.equals(PhoneConstants.APN_TYPE_DEFAULT)) {
+                return true;
+            } else {
+                continue;
+            }
+        }
+        return false;
+    }
+
+    /* Receiver to handle DDS change event */
+    private BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            log("mBroadcastReceiver - " + action);
+            if (action.equals(ACTION_DDS_SWITCH_DONE)) {
+                int ddsSubId = intent.getIntExtra(PhoneConstants.SUBSCRIPTION_KEY,
+                        SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+                log("got ACTION_DDS_SWITCH_DONE, new DDS = "
+                        + ddsSubId + "update network score");
+                if (mNetworkAgent != null && mPhone.getSubId() != ddsSubId) {
+                    DataConnection.this.sendMessage(DataConnection.this.
+                            obtainMessage(EVENT_DATA_CONNECTION_DDS_SWITCHED));
+                }
+            }
+        }
+    };
 
     //***** Constructor (NOTE: uses dcc.getHandler() as its Handler)
     private DataConnection(Phone phone, String name, int id,
@@ -1229,6 +1270,12 @@ public class DataConnection extends StateMachine {
                     mNetworkInfo.setRoaming(false);
                     break;
 
+                case EVENT_DATA_CONNECTION_DDS_SWITCHED:
+                    if (mNetworkAgent != null) {
+                        mNetworkAgent.sendNetworkScore(50);
+                    }
+                    break;
+
                 default:
                     if (DBG) {
                         log("DcDefaultState: shouldn't happen but ignore msg.what="
@@ -1589,6 +1636,13 @@ public class DataConnection extends StateMachine {
             mNetworkAgent = new DcNetworkAgent(getHandler().getLooper(), mPhone.getContext(),
                     "DcNetworkAgent", mNetworkInfo, getNetworkCapabilities(), mLinkProperties,
                     50, misc);
+
+            if (isApnTypeDefault() && !mRegistered) {
+                /* Start listening to the DDS change event. */
+                mPhone.getContext().registerReceiver(mBroadcastReceiver,
+                        new IntentFilter(ACTION_DDS_SWITCH_DONE));
+                mRegistered = true;
+            }
         }
 
         @Override
@@ -1607,6 +1661,10 @@ public class DataConnection extends StateMachine {
 
             mNetworkInfo.setDetailedState(NetworkInfo.DetailedState.DISCONNECTED,
                     reason, mNetworkInfo.getExtraInfo());
+            if (mRegistered) {
+                mPhone.getContext().unregisterReceiver(mBroadcastReceiver);
+                mRegistered = false;
+            }
             if (mNetworkAgent != null) {
                 mNetworkAgent.sendNetworkInfo(mNetworkInfo);
                 mNetworkAgent = null;
