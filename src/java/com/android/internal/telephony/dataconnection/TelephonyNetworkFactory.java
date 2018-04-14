@@ -207,11 +207,12 @@ public class TelephonyNetworkFactory extends NetworkFactory {
             String logString = "onDefaultChange(" + mIsActive + "," + mIsDefault + ")";
             if (DBG) log(logString);
             if (mIsActive == false) return;
-            if (!mIsDefault && mSubscriptionController.getActiveSubInfoCount(
-                    mContext.getOpPackageName()) > 1) {
-                applyRequests(mDefaultRequests, RELEASE, logString);
-            } else {
+            if (mSubscriptionController.getActiveSubInfoCount(mContext.getOpPackageName()) == 1) {
                 applyRequests(mDefaultRequests, (mIsDefault ? REQUEST : RELEASE), logString);
+            } else {
+                if (!mIsDefault) {
+                    applyRequests(mDefaultRequests, RELEASE, logString);
+                }
             }
         }
     }
