@@ -754,7 +754,17 @@ public class GsmCdmaPhone extends Phone {
             // to get ICCID form SIMRecords because it is on MF.
             r = mUiccController.getIccRecords(mPhoneId, UiccController.APP_FAM_3GPP);
         }
-        return (r != null) ? r.getFullIccId() : null;
+        String iccId = (r != null) ? r.getFullIccId() : null;
+        int subId = getSubId();
+        if (TextUtils.isEmpty(iccId) && SubscriptionController.getInstance().isActiveSubId(subId)) {
+            SubscriptionInfo subInfo = SubscriptionManager.from(getContext())
+                    .getActiveSubscriptionInfo(subId);
+            if (subInfo != null) {
+                iccId = subInfo.getIccId();
+            }
+        }
+
+        return iccId;
     }
 
     @Override
