@@ -210,7 +210,9 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     private boolean isSubInfoReady() {
-        return sSlotIndexToSubId.size() > 0;
+        return sSlotIndexToSubId.size() > 0
+                && mCacheActiveSubInfoList.get() != null
+                && sSlotIndexToSubId.size() == mCacheActiveSubInfoList.get().size();
     }
 
     private SubscriptionController(Phone phone) {
@@ -624,14 +626,6 @@ public class SubscriptionController extends ISub.Stub {
         // Now that all security checks passes, perform the operation as ourselves.
         final long identity = Binder.clearCallingIdentity();
         try {
-            if (!isSubInfoReady()) {
-                if (DBG_CACHE) {
-                    logdl("[refreshCachedActiveSubscriptionInfoList] "
-                            + "Sub Controller not ready ");
-                }
-                return;
-            }
-
             List<SubscriptionInfo> subList = getSubInfo(
                     SubscriptionManager.SIM_SLOT_INDEX + ">=0", null);
 
