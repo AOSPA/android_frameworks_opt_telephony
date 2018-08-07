@@ -161,6 +161,8 @@ public class ServiceStateTracker extends Handler {
     private boolean mPendingRadioPowerOffAfterDataOff = false;
     private int mPendingRadioPowerOffAfterDataOffTag = 0;
 
+    private boolean mIsModemTriggeredPollingPending = false;
+
     /** Signal strength poll rate. */
     private static final int POLL_PERIOD_MILLIS = 20 * 1000;
 
@@ -2628,12 +2630,13 @@ public class ServiceStateTracker extends Handler {
                 // (they sent us new radio data) and current network is not IWLAN
                 if (mDeviceShuttingDown ||
                         (!modemTriggered && ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN
-                        != mSS.getRilDataRadioTechnology())) {
+                        != mSS.getRilDataRadioTechnology() && !mIsModemTriggeredPollingPending)) {
                     pollStateDone();
                     break;
                 }
 
             default:
+                if (modemTriggered) mIsModemTriggeredPollingPending = true;
                 // Issue all poll-related commands at once then count down the responses, which
                 // are allowed to arrive out-of-order
                 mPollingContext[0]++;
@@ -2656,6 +2659,7 @@ public class ServiceStateTracker extends Handler {
     }
 
     private void pollStateDone() {
+        mIsModemTriggeredPollingPending = false;
         if (!mPhone.isPhoneTypeGsm()) {
             updateRoamingState();
         }
