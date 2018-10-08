@@ -27,10 +27,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.telephony.Rlog;
-import android.telephony.TelephonyManager;
 import android.util.LocalLog;
 
-import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.PhoneSwitcher;
 import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.SubscriptionMonitor;
@@ -68,9 +66,6 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     private static final int EVENT_DEFAULT_SUBSCRIPTION_CHANGED = 3;
     private static final int EVENT_NETWORK_REQUEST              = 4;
     private static final int EVENT_NETWORK_RELEASE              = 5;
-
-    private static final int PRIMARY_SLOT = 0;
-    private static final int SECONDARY_SLOT = 1;
 
     public TelephonyNetworkFactory(PhoneSwitcher phoneSwitcher,
             SubscriptionController subscriptionController, SubscriptionMonitor subscriptionMonitor,
@@ -227,15 +222,6 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         msg.sendToTarget();
     }
 
-    private boolean isNetworkCapabilityEims(NetworkRequest networkRequest) {
-        return networkRequest.networkCapabilities.hasCapability(
-            android.net.NetworkCapabilities.NET_CAPABILITY_EIMS);
-    }
-
-    private boolean isSimPresentInSecondarySlot() {
-        return TelephonyManager.getDefault().hasIccCard(SECONDARY_SLOT);
-    }
-
     private void onNeedNetworkFor(Message msg) {
         NetworkRequest networkRequest = (NetworkRequest)msg.obj;
         boolean isApplicable = false;
@@ -257,11 +243,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 isApplicable = true;
             }
         }
-
-        //Allow EIMS networkrequest on default slot in SIM less case.
-        if ((mIsActive && isApplicable) || (isNetworkCapabilityEims(networkRequest) &&
-                PhoneFactory.getDefaultPhone().getPhoneId() == mPhoneId &&
-                !isSimPresentInSecondarySlot())) {
+        if (mIsActive && isApplicable) {
             String s = "onNeedNetworkFor";
             localLog.log(s);
             log(s + " " + networkRequest);
