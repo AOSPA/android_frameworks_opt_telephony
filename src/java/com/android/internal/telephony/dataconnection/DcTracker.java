@@ -364,12 +364,18 @@ public class DcTracker extends Handler {
             return "{txSum=" + txPkts + " rxSum=" + rxPkts + "}";
         }
 
-        public void updateDataStallTxRxSum() {
+        /**
+         * Get Tcp Tx/Rx packet count from TrafficStats
+         */
+        public void updateTcpTxRxSum() {
             this.txPkts = TrafficStats.getMobileTcpTxPackets();
             this.rxPkts = TrafficStats.getMobileTcpRxPackets();
         }
 
-        public void updateDataActivityTxRxSum() {
+        /**
+         * Get total Tx/Rx packet count from TrafficStats
+         */
+        public void updateTotalTxRxSum() {
             this.txPkts = TrafficStats.getMobileTxPackets();
             this.rxPkts = TrafficStats.getMobileRxPackets();
         }
@@ -3608,6 +3614,25 @@ public class DcTracker extends Handler {
         }
 
         apnList = sortApnListByPreferred(apnList);
+
+        if (requestedApnType.equals(PhoneConstants.APN_TYPE_DEFAULT) && mPreferredApn == null) {
+            ApnContext apnContext = mApnContextsById.get(DctConstants.APN_DEFAULT_ID);
+            // If restored to default APN, the APN ID might be changed.
+            // Here reset with the same APN added newly.
+            if (apnContext != null && apnContext.getApnSetting() != null) {
+                for (ApnSetting apnSetting : apnList) {
+                    if (apnSetting.equals(apnContext.getApnSetting(),
+                            mPhone.getServiceState().getDataRoamingFromRegistration())) {
+                        if (DBG) log("buildWaitingApns: reset preferred APN to "
+                                + apnSetting);
+                        mPreferredApn = apnSetting;
+                        setPreferredApn(mPreferredApn.id);
+                        break;
+                    }
+                }
+            }
+        }
+
         if (DBG) log("buildWaitingApns: " + apnList.size() + " APNs in the list: " + apnList);
         return apnList;
     }
@@ -4576,7 +4601,7 @@ public class DcTracker extends Handler {
 
         TxRxSum preTxRxSum = new TxRxSum(mTxPkts, mRxPkts);
         TxRxSum curTxRxSum = new TxRxSum();
-        curTxRxSum.updateDataActivityTxRxSum();
+        curTxRxSum.updateTotalTxRxSum();
         mTxPkts = curTxRxSum.txPkts;
         mRxPkts = curTxRxSum.rxPkts;
 
@@ -4749,7 +4774,7 @@ public class DcTracker extends Handler {
         long sent, received;
 
         TxRxSum preTxRxSum = new TxRxSum(mDataStallTxRxSum);
-        mDataStallTxRxSum.updateDataStallTxRxSum();
+        mDataStallTxRxSum.updateTcpTxRxSum();
 
         if (VDBG_STALL) {
             log("updateDataStallInfo: mDataStallTxRxSum=" + mDataStallTxRxSum +
