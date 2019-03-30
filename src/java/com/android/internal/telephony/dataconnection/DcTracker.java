@@ -3098,8 +3098,8 @@ public class DcTracker extends Handler {
             intent.putExtra(TelephonyIntents.EXTRA_APN_TYPE_KEY, apnContext.getApnType());
             mPhone.getCarrierSignalAgent().notifyCarrierSignalReceivers(intent);
 
-            if (cause.isRestartRadioFail(mPhone.getContext(), mPhone.getSubId()) ||
-                    apnContext.restartOnError(cause.getErrorCode())) {
+            if (cause.isRadioRestartFailure(mPhone.getContext(), mPhone.getSubId())
+                    || apnContext.restartOnError(cause.getErrorCode())) {
                 if (DBG) log("Modem restarted.");
                 sendRestartRadio();
             }
@@ -3619,7 +3619,8 @@ public class DcTracker extends Handler {
             ApnContext apnContext = mApnContextsById.get(DctConstants.APN_DEFAULT_ID);
             // If restored to default APN, the APN ID might be changed.
             // Here reset with the same APN added newly.
-            if (apnContext != null && apnContext.getApnSetting() != null) {
+            if (apnContext != null && apnContext.getApnSetting() != null
+                    && apnContext.getState() == DctConstants.State.CONNECTED) {
                 for (ApnSetting apnSetting : apnList) {
                     if (apnSetting.equals(apnContext.getApnSetting(),
                             mPhone.getServiceState().getDataRoamingFromRegistration())) {
