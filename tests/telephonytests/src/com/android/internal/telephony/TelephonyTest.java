@@ -44,7 +44,8 @@ import android.os.RegistrantList;
 import android.os.ServiceManager;
 import android.provider.BlockedNumberContract;
 import android.provider.Settings;
-import android.telephony.AccessNetworkConstants.TransportType;
+import android.telephony.AccessNetworkConstants;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
@@ -142,6 +143,12 @@ public abstract class TelephonyTest {
     protected SubscriptionController mSubscriptionController;
     @Mock
     protected ServiceState mServiceState;
+
+    protected NetworkRegistrationInfo mNetworkRegistrationInfo =
+            new NetworkRegistrationInfo.Builder()
+            .setAccessNetworkTechnology(TelephonyManager.NETWORK_TYPE_LTE)
+            .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME)
+            .build();
     @Mock
     protected SimulatedCommandsVerifier mSimulatedCommandsVerifier;
     @Mock
@@ -393,6 +400,8 @@ public abstract class TelephonyTest {
                         nullable(Looper.class));
         doReturn(mDataEnabledSettings).when(mTelephonyComponentFactory)
                 .makeDataEnabledSettings(nullable(Phone.class));
+        doReturn(mEriManager).when(mTelephonyComponentFactory)
+                .makeEriManager(nullable(Phone.class), anyInt());
 
         //mPhone
         doReturn(mContext).when(mPhone).getContext();
@@ -415,7 +424,6 @@ public abstract class TelephonyTest {
         doReturn(mDataEnabledSettings).when(mPhone).getDataEnabledSettings();
         doReturn(mDcTracker).when(mPhone).getDcTracker(anyInt());
         mIccSmsInterfaceManager.mDispatchersController = mSmsDispatchersController;
-        mPhone.mEriManager = mEriManager;
 
         //mUiccController
         doReturn(mUiccCardApplication3gpp).when(mUiccController).getUiccCardApplication(anyInt(),
@@ -486,11 +494,16 @@ public abstract class TelephonyTest {
         mSST.mSS = mServiceState;
         mSST.mRestrictedState = mRestrictedState;
         mServiceManagerMockedServices.put("connectivity_metrics_logger", mConnMetLoggerBinder);
-        doReturn(new int[]{TransportType.WWAN, TransportType.WLAN})
+        doReturn(new int[]{AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                AccessNetworkConstants.TRANSPORT_TYPE_WLAN})
                 .when(mTransportManager).getAvailableTransports();
-        doReturn(TransportType.WWAN).when(mTransportManager).getCurrentTransport(anyInt());
+        doReturn(AccessNetworkConstants.TRANSPORT_TYPE_WWAN).when(mTransportManager)
+                .getCurrentTransport(anyInt());
         doReturn(true).when(mDataEnabledSettings).isDataEnabled();
         doReturn(true).when(mDataEnabledSettings).isInternalDataEnabled();
+        doReturn(mNetworkRegistrationInfo).when(mServiceState).getNetworkRegistrationInfo(
+                anyInt(), anyInt());
+        doReturn(new HalVersion(1, 4)).when(mPhone).getHalVersion();
 
         //SIM
         doReturn(1).when(mTelephonyManager).getSimCount();
