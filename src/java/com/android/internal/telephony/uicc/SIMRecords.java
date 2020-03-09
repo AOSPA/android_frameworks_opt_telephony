@@ -838,6 +838,8 @@ public class SIMRecords extends IccRecords {
 
                 case EVENT_GET_AD_DONE:
                     isRecordLoadResponse = true;
+                    mEssentialRecordsToLoad -= 1;
+
                     mMncLength = UNKNOWN;
                     try {
                         if (!mCarrierTestOverride.isInTestMode()) {
@@ -1513,6 +1515,7 @@ public class SIMRecords extends IccRecords {
 
         mFh.loadEFTransparent(EF_ICCID, obtainMessage(EVENT_GET_ICCID_DONE));
         mRecordsToLoad++;
+        mEssentialRecordsToLoad++;
     }
 
     private void loadEfLiAndEfPl() {
@@ -1536,7 +1539,9 @@ public class SIMRecords extends IccRecords {
     }
 
     private void fetchEssentialSimRecords() {
-        if (DBG) log("fetchEssentialSimRecords " + mRecordsToLoad);
+        if (DBG) log("fetchEssentialSimRecords: mRecordsToLoad = " + mRecordsToLoad
+                + " mEssentialRecordsToLoad = " + mEssentialRecordsToLoad);
+        mEssentialRecordsListenerNotified = false;
 
         mCi.getIMSIForApp(mParentApp.getAid(), obtainMessage(EVENT_GET_IMSI_DONE));
         mRecordsToLoad++;
@@ -1561,6 +1566,10 @@ public class SIMRecords extends IccRecords {
         mRecordsToLoad++;
         mEssentialRecordsToLoad++;
 
+        mFh.loadEFTransparent(EF_AD, obtainMessage(EVENT_GET_AD_DONE));
+        mRecordsToLoad++;
+        mEssentialRecordsToLoad++;
+
         if (DBG) log("fetchEssentialSimRecords " + mRecordsToLoad +
                 " requested: " + mRecordsRequested);
     }
@@ -1575,9 +1584,6 @@ public class SIMRecords extends IccRecords {
 
         // Record number is subscriber profile
         mFh.loadEFLinearFixed(EF_MBI, 1, obtainMessage(EVENT_GET_MBI_DONE));
-        mRecordsToLoad++;
-
-        mFh.loadEFTransparent(EF_AD, obtainMessage(EVENT_GET_AD_DONE));
         mRecordsToLoad++;
 
         // Record number is subscriber profile
