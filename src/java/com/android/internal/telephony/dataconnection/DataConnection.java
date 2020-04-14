@@ -1086,6 +1086,9 @@ public class DataConnection extends StateMachine {
                 case ServiceState.RIL_RADIO_TECHNOLOGY_HSPAP:
                     sizes = TCP_BUFFER_SIZES_HSPAP;
                     break;
+                case ServiceState.RIL_RADIO_TECHNOLOGY_NR:
+                    sizes = TCP_BUFFER_SIZES_NR;
+                    break;
                 default:
                     // Leave empty - this will let ConnectivityService use the system default.
                     break;
@@ -1805,12 +1808,13 @@ public class DataConnection extends StateMachine {
                     return HANDLED;
                 case EVENT_CONNECT:
                     if (DBG) log("DcInactiveState: mag.what=EVENT_CONNECT");
-                    if (isPdpRejectConfigEnabled() && !isDataCallConnectAllowed()) {
-                        if (DBG) log("DcInactiveState: skip EVENT_CONNECT");
-                        return HANDLED;
-                    }
 
                     ConnectionParams cp = (ConnectionParams) msg.obj;
+                    if (isPdpRejectConfigEnabled() && !isDataCallConnectAllowed()) {
+                        if (DBG) log("DcInactiveState: skip EVENT_CONNECT");
+                        cp.mApnContext.decAndGetConnectionGeneration();
+                        return HANDLED;
+                    }
 
                     if (!initConnection(cp)) {
                         log("DcInactiveState: msg.what=EVENT_CONNECT initConnection failed");
