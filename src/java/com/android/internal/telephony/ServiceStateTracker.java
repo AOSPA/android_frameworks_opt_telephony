@@ -1993,18 +1993,15 @@ public class ServiceStateTracker extends Handler {
             }
         }
 
-        int newNrState = regInfo.getNrState();
+        int oldNrState = regInfo.getNrState();
+        int newNrState = oldNrState;
         if (hasNrSecondaryServingCell) {
-            if (regInfo.getNrState() == NetworkRegistrationInfo.NR_STATE_NOT_RESTRICTED) {
-                newNrState = NetworkRegistrationInfo.NR_STATE_CONNECTED;
-            }
+            newNrState = NetworkRegistrationInfo.NR_STATE_CONNECTED;
         } else {
-            if (regInfo.getNrState() == NetworkRegistrationInfo.NR_STATE_CONNECTED) {
-                newNrState = NetworkRegistrationInfo.NR_STATE_NOT_RESTRICTED;
-            }
+            newNrState = regInfo.getNrState();
         }
 
-        boolean hasChanged = newNrState != regInfo.getNrState();
+        boolean hasChanged = newNrState != oldNrState;
         regInfo.setNrState(newNrState);
         ss.addNetworkRegistrationInfo(regInfo);
         return hasChanged;
@@ -4937,16 +4934,19 @@ public class ServiceStateTracker extends Handler {
 
         List<SubscriptionInfo> subInfoList = SubscriptionController.getInstance()
                 .getActiveSubscriptionInfoList(mPhone.getContext().getOpPackageName());
-        for (SubscriptionInfo info : subInfoList) {
-            // If we have an active opportunistic subscription whose data is IN_SERVICE, we needs
-            // to get signal strength to decide data switching threshold. In this case, we poll
-            // latest signal strength from modem.
-            if (info.isOpportunistic()) {
-                TelephonyManager tm = TelephonyManager.from(mPhone.getContext())
-                        .createForSubscriptionId(info.getSubscriptionId());
-                ServiceState ss = tm.getServiceState();
-                if (ss != null && ss.getDataRegState() == ServiceState.STATE_IN_SERVICE) {
-                    return true;
+        if (!ArrayUtils.isEmpty(subInfoList)) {
+            for (SubscriptionInfo info : subInfoList) {
+                // If we have an active opportunistic subscription whose data is IN_SERVICE,
+                // we need to get signal strength to decide data switching threshold. In this case,
+                // we poll latest signal strength from modem.
+                if (info.isOpportunistic()) {
+                    TelephonyManager tm = TelephonyManager.from(mPhone.getContext())
+                            .createForSubscriptionId(info.getSubscriptionId());
+                    ServiceState ss = tm.getServiceState();
+                    if (ss != null
+                            && ss.getDataRegState() == ServiceState.STATE_IN_SERVICE) {
+                        return true;
+                    }
                 }
             }
         }
@@ -5636,10 +5636,12 @@ public class ServiceStateTracker extends Handler {
     public Set<Integer> getNrContextIds() {
         Set<Integer> idSet = new HashSet<>();
 
-        for (PhysicalChannelConfig config : mLastPhysicalChannelConfigList) {
-            if (isNrPhysicalChannelConfig(config)) {
-                for (int id : config.getContextIds()) {
-                    idSet.add(id);
+        if (!ArrayUtils.isEmpty(mLastPhysicalChannelConfigList)) {
+            for (PhysicalChannelConfig config : mLastPhysicalChannelConfigList) {
+                if (isNrPhysicalChannelConfig(config)) {
+                    for (int id : config.getContextIds()) {
+                        idSet.add(id);
+                    }
                 }
             }
         }
