@@ -352,6 +352,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * TODO: Replace this with a proper exception; {@link CallStateException} doesn't make sense.
      */
     public static final String CS_FALLBACK = "cs_fallback";
+
+    // Used for retry over cs for supplementary services
+    public static final String CS_FALLBACK_SS = "cs_fallback_ss";
+
     /**
      * @deprecated Use {@link android.telephony.ims.ImsManager#EXTRA_WFC_REGISTRATION_FAILURE_TITLE}
      * instead.
@@ -2018,7 +2022,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      *  Retrieves manually selected network info.
      */
     public String getManualNetworkSelectionPlmn() {
-        return "";
+        return null;
     }
 
 
@@ -3605,18 +3609,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     * Return if the current radio is LTE on CDMA. This
-     * is a tri-state return value as for a period of time
-     * the mode may be unknown.
-     *
-     * @return {@link PhoneConstants#LTE_ON_CDMA_UNKNOWN}, {@link PhoneConstants#LTE_ON_CDMA_FALSE}
-     * or {@link PhoneConstants#LTE_ON_CDMA_TRUE}
-     */
-    public int getLteOnCdmaMode() {
-        return mCi.getLteOnCdmaMode();
-    }
-
-    /**
      * Sets the SIM voice message waiting indicator records.
      * @param line GSM Subscriber Profile Number, one-based. Only '1' is supported
      * @param countWaiting The number of messages waiting, if known. Use
@@ -3765,6 +3757,15 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             throws CallStateException {
         // dialInternal shall be overriden by GsmCdmaPhone
         return null;
+    }
+
+    /*
+     * This function is for CSFB SS. GsmCdmaPhone overrides this function.
+     */
+    public void setCallWaiting(boolean enable, int serviceClass, Message onComplete) {
+    }
+
+    public void queryCLIP(Message onComplete) {
     }
 
     /*
@@ -4446,6 +4447,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     /** @hide */
     public CarrierPrivilegesTracker getCarrierPrivilegesTracker() {
         return mCarrierPrivilegesTracker;
+    }
+
+    public boolean useSsOverIms(Message onComplete) {
+        return false;
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {

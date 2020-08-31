@@ -463,8 +463,26 @@ public class DataConnection extends StateMachine {
         return mApnSetting;
     }
 
-    void setLinkPropertiesHttpProxy(ProxyInfo proxy) {
-        mLinkProperties.setHttpProxy(proxy);
+    /**
+     * Update http proxy of link properties based on current apn setting
+     */
+    private void updateLinkPropertiesHttpProxy() {
+        if (mApnSetting == null
+                || TextUtils.isEmpty(mApnSetting.getProxyAddressAsString())) {
+            return;
+        }
+        try {
+            int port = mApnSetting.getProxyPort();
+            if (port == -1) {
+                port = 8080;
+            }
+            ProxyInfo proxy = ProxyInfo.buildDirectProxy(
+                    mApnSetting.getProxyAddressAsString(), port);
+            mLinkProperties.setHttpProxy(proxy);
+        } catch (NumberFormatException e) {
+            loge("onDataSetupComplete: NumberFormatException making ProxyProperties ("
+                    + mApnSetting.getProxyPort() + "): " + e);
+        }
     }
 
     public static class UpdateLinkPropertyResult {
@@ -1067,7 +1085,8 @@ public class DataConnection extends StateMachine {
     private void updateTcpBufferSizes(int rilRat) {
         String sizes = null;
         ServiceState ss = mPhone.getServiceState();
-        if (rilRat == ServiceState.RIL_RADIO_TECHNOLOGY_LTE && ss.isUsingCarrierAggregation()) {
+        if (rilRat == ServiceState.RIL_RADIO_TECHNOLOGY_LTE &&
+                ss.isUsingCarrierAggregation()) {
             rilRat = ServiceState.RIL_RADIO_TECHNOLOGY_LTE_CA;
         }
         String ratName = ServiceState.rilRadioTechnologyToString(rilRat).toLowerCase(Locale.ROOT);
@@ -1082,8 +1101,8 @@ public class DataConnection extends StateMachine {
         // NR 5G Non-Standalone use LTE cell as the primary cell, the ril technology is LTE in this
         // case. We use NR 5G TCP buffer size when connected to NR 5G Non-Standalone network.
         if (mTransportType == AccessNetworkConstants.TRANSPORT_TYPE_WWAN
-                && ((rilRat == ServiceState.RIL_RADIO_TECHNOLOGY_LTE
-                || rilRat == ServiceState.RIL_RADIO_TECHNOLOGY_LTE_CA) && isNRConnected())
+                && ((rilRat == ServiceState.RIL_RADIO_TECHNOLOGY_LTE ||
+                rilRat == ServiceState.RIL_RADIO_TECHNOLOGY_LTE_CA) && isNRConnected())
                 && mPhone.getServiceStateTracker().getNrContextIds().contains(mCid)) {
             ratName = RAT_NAME_5G;
         }
@@ -2221,7 +2240,7 @@ public class DataConnection extends StateMachine {
                 final NetworkProvider provider = (null == factory) ? null : factory.getProvider();
 
                 mDisabledApnTypeBitMask |= getDisallowedApnTypes();
-
+                updateLinkPropertiesHttpProxy();
                 mNetworkAgent = new DcNetworkAgent(DataConnection.this,
                         mPhone, mNetworkInfo, mScore, configBuilder.build(), provider,
                         mTransportType);
