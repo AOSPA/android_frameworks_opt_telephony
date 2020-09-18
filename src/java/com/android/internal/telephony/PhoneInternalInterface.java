@@ -22,6 +22,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.os.ResultReceiver;
+import android.os.WorkSource;
 import android.telecom.VideoProfile;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.NetworkScanRequest;
@@ -158,6 +159,7 @@ public interface PhoneInternalInterface {
     static final String REASON_CSS_INDICATOR_CHANGED = "cssIndicatorChanged";
     static final String REASON_RELEASED_BY_CONNECTIVITY_SERVICE = "releasedByConnectivityService";
     static final String REASON_DATA_ENABLED_OVERRIDE = "dataEnabledOverride";
+    static final String REASON_IWLAN_DATA_SERVICE_DIED = "iwlanDataServiceDied";
 
     // Used for band mode selection methods
     static final int BM_UNSPECIFIED = RILConstants.BAND_MODE_UNSPECIFIED; // automatic
@@ -811,8 +813,15 @@ public interface PhoneInternalInterface {
 
     /**
      * Update the ServiceState CellLocation for current network registration.
+     *
+     * @param workSource the caller to be billed for work.
      */
-    void updateServiceLocation();
+    default void updateServiceLocation(WorkSource workSource) {}
+
+    /**
+     * To be deleted.
+     */
+    default void updateServiceLocation() {}
 
     /**
      * Enable location update notifications.

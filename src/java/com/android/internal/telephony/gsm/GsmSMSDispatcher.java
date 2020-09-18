@@ -21,9 +21,7 @@ import static com.android.internal.telephony.SmsResponse.NO_ERROR_CODE;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
 import android.os.Message;
-import android.provider.Telephony.Sms.Intents;
 import android.telephony.ServiceState;
-import android.util.Pair;
 
 import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
 import com.android.internal.telephony.InboundSmsHandler;
@@ -132,40 +130,16 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
     }
 
     /**
-     * Called when a status report is received.  This should correspond to
-     * a previously successful SEND.
+     * Called when a status report is received. This should correspond to a previously successful
+     * SEND.
      *
-     * @param ar AsyncResult passed into the message handler.  ar.result should
-     *           be a String representing the status report PDU, as ASCII hex.
+     * @param ar AsyncResult passed into the message handler. ar.result should be a byte array for
+     *           the status report PDU.
      */
     private void handleStatusReport(AsyncResult ar) {
         byte[] pdu = (byte[]) ar.result;
-        SmsMessage sms = SmsMessage.newFromCDS(pdu);
-        boolean handled = false;
-
-        if (sms != null) {
-            int messageRef = sms.mMessageRef;
-            for (int i = 0, count = deliveryPendingList.size(); i < count; i++) {
-                SmsTracker tracker = deliveryPendingList.get(i);
-                if (tracker.mMessageRef == messageRef) {
-                    Pair<Boolean, Boolean> result = mSmsDispatchersController.handleSmsStatusReport(
-                            tracker,
-                            getFormat(),
-                            pdu);
-                    if (result.second) {
-                        deliveryPendingList.remove(i);
-                    }
-                    handled = true;
-                    break; // Only expect to see one tracker matching this messageref
-                }
-            }
-            if (!handled) {
-                // Try to find the sent SMS from the map in ImsSmsDispatcher.
-                mSmsDispatchersController.handleSentOverImsStatusReport(
-                        messageRef, getFormat(), pdu);
-            }
-        }
-        mCi.acknowledgeLastIncomingGsmSms(true, Intents.RESULT_SMS_HANDLED, null);
+        mSmsDispatchersController.handleSmsStatusReport(SmsConstants.FORMAT_3GPP, pdu);
+        mCi.acknowledgeLastIncomingGsmSms(true, 0 /* cause */, null);
     }
 
     /** {@inheritDoc} */

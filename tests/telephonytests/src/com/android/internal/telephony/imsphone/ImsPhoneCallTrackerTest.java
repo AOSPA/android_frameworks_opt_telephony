@@ -25,7 +25,6 @@ import static android.net.NetworkStats.UID_ALL;
 import static com.android.testutils.NetworkStatsUtilsKt.assertNetworkStatsEquals;
 
 import static junit.framework.Assert.assertNotNull;
-import static junit.framework.TestCase.fail;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -1090,19 +1089,13 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     @SmallTest
     public void testNoHoldErrorMessageWhenCallDisconnected() {
         when(mImsPhoneConnection.getImsCall()).thenReturn(mImsCall);
-        doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocationOnMock) {
-                fail("Error message showed when the call has already been disconnected!");
-                return null;
-            }
-        }).when(mImsPhoneConnection)
-                .onConnectionEvent(eq(android.telecom.Connection.EVENT_CALL_HOLD_FAILED), any());
         mCTUT.getConnections().add(mImsPhoneConnection);
         when(mImsPhoneConnection.getState()).thenReturn(ImsPhoneCall.State.DISCONNECTED);
-        ImsReasonInfo info = new ImsReasonInfo(ImsReasonInfo.CODE_UNSPECIFIED,
+        final ImsReasonInfo info = new ImsReasonInfo(ImsReasonInfo.CODE_UNSPECIFIED,
                 ImsReasonInfo.CODE_UNSPECIFIED, null);
         mCTUT.getImsCallListener().onCallHoldFailed(mImsPhoneConnection.getImsCall(), info);
+        verify(mImsPhoneConnection, never()).onConnectionEvent(
+                eq(android.telecom.Connection.EVENT_CALL_HOLD_FAILED), any());
     }
 
     @Test
@@ -1136,6 +1129,55 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         mVtDataUsageProvider.onRequestStatsUpdate(13);
         // Rounding error occurs so (70-51)/2 + (91-70)/2 = 19 is expected for both direction.
         assertVtDataUsageUpdated(13, 19, 19);
+    }
+
+    @Test
+    @SmallTest
+    public void testEndRingbackOnSrvcc() throws RemoteException {
+        mSecondImsCall.getCallProfile().mMediaProfile = new ImsStreamMediaProfile();
+        mSecondImsCall.getCallProfile().mMediaProfile.mAudioDirection =
+                ImsStreamMediaProfile.DIRECTION_INACTIVE;
+
+        startOutgoingCall();
+        mImsCallListener.onCallProgressing(mSecondImsCall);
+
+        assertTrue(mCTUT.mForegroundCall.isRingbackTonePlaying());
+
+        // Move the connection to the handover state.
+        mCTUT.notifySrvccState(Call.SrvccState.COMPLETED);
+
+        assertFalse(mCTUT.mForegroundCall.isRingbackTonePlaying());
+    }
+
+    @Test
+    @SmallTest
+    public void testClearHoldSwapStateOnSrvcc() throws Exception {
+        // Answer an incoming call
+        testImsMTCall();
+        assertTrue(mCTUT.mRingingCall.isRinging());
+        try {
+            mCTUT.acceptCall(ImsCallProfile.CALL_TYPE_VOICE);
+            verify(mImsCall, times(1)).accept(eq(ImsCallProfile
+                    .getCallTypeFromVideoState(ImsCallProfile.CALL_TYPE_VOICE)));
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Assert.fail("set active, unexpected exception thrown" + ex.getMessage());
+        }
+        assertEquals(Call.State.ACTIVE, mCTUT.mForegroundCall.getState());
+        // Hold the call
+        doNothing().when(mImsCall).hold();
+        try {
+            mCTUT.holdActiveCall();
+            assertTrue(mCTUT.isHoldOrSwapInProgress());
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Assert.fail("hold, unexpected exception thrown" + ex.getMessage());
+        }
+
+        // Move the connection to the handover state.
+        mCTUT.notifySrvccState(Call.SrvccState.COMPLETED);
+        // Ensure we are no longer tracking hold.
+        assertFalse(mCTUT.isHoldOrSwapInProgress());
     }
 
     @Test

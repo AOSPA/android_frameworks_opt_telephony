@@ -1471,6 +1471,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
         } else {
             log("No carrier ImsReasonInfo mappings defined.");
+            if (!mImsReasonCodeMap.isEmpty()) {
+                mImsReasonCodeMap.clear();
+            }
         }
     }
 
@@ -1773,6 +1776,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             mCallExpectedToResume = mRingingCall.getImsCall();
             HoldSwapState oldHoldState = mHoldSwitchingState;
             mHoldSwitchingState = HoldSwapState.HOLDING_TO_ANSWER_INCOMING;
+            ImsCall callExpectedToResume = mCallExpectedToResume;
+            mCallExpectedToResume = mRingingCall.getImsCall();
             mForegroundCall.switchWith(mBackgroundCall);
             logHoldSwapState("holdActiveCallForWaitingCall");
             try {
@@ -1782,6 +1787,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             } catch (ImsException e) {
                 mForegroundCall.switchWith(mBackgroundCall);
                 mHoldSwitchingState = oldHoldState;
+                mCallExpectedToResume = callExpectedToResume;
                 logHoldSwapState("holdActiveCallForWaitingCall - fail");
                 throw new CallStateException(e.getMessage());
             }
@@ -1979,6 +1985,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             fgImsCall.merge(bgImsCall);
         } catch (ImsException e) {
             log("conference " + e.getMessage());
+            handleConferenceFailed(foregroundConnection, backgroundConnection);
         }
     }
 
@@ -2895,6 +2902,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     removeConnection(mPendingMO);
                     mPendingMO.finalize();
                     mPendingMO = null;
+                    updatePhoneState();
                     mPhone.initiateSilentRedial();
                     return;
                 } else {
@@ -2902,6 +2910,17 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 }
                 mMetrics.writeOnImsCallStartFailed(mPhone.getPhoneId(), imsCall.getCallSession(),
                         reasonInfo);
+            } else if (reasonInfo.getCode() == ImsReasonInfo.CODE_LOCAL_CALL_CS_RETRY_REQUIRED
+                    && mForegroundCall.getState() == ImsPhoneCall.State.ALERTING) {
+                if (DBG) log("onCallStartFailed: Initiated call by silent redial"
+                        + " under ALERTING state.");
+                ImsPhoneConnection conn = findConnection(imsCall);
+                if (conn != null) {
+                    mForegroundCall.detach(conn);
+                    removeConnection(conn);
+                }
+                updatePhoneState();
+                mPhone.initiateSilentRedial();
             }
         }
 
@@ -3545,12 +3564,6 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
             ImsPhoneConnection conn = findConnection(imsCall);
             if (conn != null) {
-                ImsPhoneCall imsPhoneCall = conn.getCall();
-                if (imsPhoneCall != null && !isHandoverToWifi && !isHandoverFromWifi) {
-                    // We might be playing ringback on the handover connection; we should stop
-                    // playing it at this point (otherwise it could play indefinitely).
-                    imsPhoneCall.maybeStopRingback();
-                }
                 if (conn.getDisconnectCause() == DisconnectCause.NOT_DISCONNECTED) {
                     if (isHandoverToWifi) {
                         removeMessages(EVENT_CHECK_FOR_WIFI_HANDOVER);
@@ -3968,6 +3981,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         mSrvccState = state;
 
         if (mSrvccState == Call.SrvccState.COMPLETED) {
+            // If the dialing call had ringback, ensure it stops now, otherwise it'll keep playing
+            // afer the SRVCC completes.
+            mForegroundCall.maybeStopRingback();
+
             resetState();
             transferHandoverConnections(mForegroundCall);
             transferHandoverConnections(mBackgroundCall);
@@ -3979,6 +3996,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     private void resetState() {
         mIsInEmergencyCall = false;
         mPhone.setEcmCanceledForEmergency(false);
+        mHoldSwitchingState = HoldSwapState.INACTIVE;
+    }
+
+    @VisibleForTesting
+    public boolean isHoldOrSwapInProgress() {
+        return mHoldSwitchingState != HoldSwapState.INACTIVE;
     }
 
     //****** Overridden from Handler
@@ -5131,5 +5154,16 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     @VisibleForTesting
     public ArrayList<ImsPhoneConnection> getConnections() {
         return mConnections;
+    }
+
+    private void handleConferenceFailed(ImsPhoneConnection fgConnection,
+            ImsPhoneConnection bgConnection) {
+        if (fgConnection != null) {
+            fgConnection.handleMergeComplete();
+        }
+        if (bgConnection != null) {
+            bgConnection.handleMergeComplete();
+        }
+        mPhone.notifySuppServiceFailed(Phone.SuppService.CONFERENCE);
     }
 }

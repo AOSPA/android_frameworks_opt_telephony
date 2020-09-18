@@ -261,15 +261,6 @@ public abstract class SMSDispatcher extends Handler {
         Rlog.d(TAG, "handleStatusReport() called with no subclass.");
     }
 
-    /* TODO: Need to figure out how to keep track of status report routing in a
-     *       persistent manner. If the phone process restarts (reboot or crash),
-     *       we will lose this list and any status reports that come in after
-     *       will be dropped.
-     */
-    /** Sent messages awaiting a delivery status report. */
-    @UnsupportedAppUsage
-    protected final ArrayList<SmsTracker> deliveryPendingList = new ArrayList<SmsTracker>();
-
     /**
      * Handles events coming from the phone stack. Overridden from handler.
      *
@@ -515,32 +506,33 @@ public abstract class SMSDispatcher extends Handler {
             return;
         }
 
-        SmsResponse smsResponse = new SmsResponse(messageRef, null /* ackPdu */, NO_ERROR_CODE);
+        SmsResponse smsResponse = new SmsResponse(messageRef, null /* ackPdu */, NO_ERROR_CODE,
+                tracker.mMessageId);
 
         switch (result) {
             case CarrierMessagingService.SEND_STATUS_OK:
-                Rlog.d(TAG, "Sending SMS by IP succeeded."
-                        + " id: " + tracker.mMessageId);
+                Rlog.d(TAG, "processSendSmsResponse: Sending SMS by CarrierMessagingService "
+                        + "succeeded. id: " + tracker.mMessageId);
                 sendMessage(obtainMessage(EVENT_SEND_SMS_COMPLETE,
                                           new AsyncResult(tracker,
                                                           smsResponse,
                                                           null /* exception*/)));
                 break;
             case CarrierMessagingService.SEND_STATUS_ERROR:
-                Rlog.d(TAG, "Sending SMS by IP failed."
+                Rlog.d(TAG, "processSendSmsResponse: Sending SMS by CarrierMessagingService failed."
                         + " id: " + tracker.mMessageId);
                 sendMessage(obtainMessage(EVENT_SEND_SMS_COMPLETE,
                         new AsyncResult(tracker, smsResponse,
                                 new CommandException(CommandException.Error.GENERIC_FAILURE))));
                 break;
             case CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK:
-                Rlog.d(TAG, "Sending SMS by IP failed. Retry on carrier network."
-                        + " id: " + tracker.mMessageId);
+                Rlog.d(TAG, "processSendSmsResponse: Sending SMS by CarrierMessagingService failed."
+                        + " Retry on carrier network. id: " + tracker.mMessageId);
                 sendSubmitPdu(tracker);
                 break;
             default:
-                Rlog.d(TAG, "Unknown result " + result + " Retry on carrier network."
-                        + " id: " + tracker.mMessageId);
+                Rlog.d(TAG, "processSendSmsResponse: Unknown result " + result + " Retry on carrier"
+                        + " network. id: " + tracker.mMessageId);
                 sendSubmitPdu(tracker);
         }
     }
@@ -567,7 +559,7 @@ public abstract class SMSDispatcher extends Handler {
                 Rlog.e(TAG, "bindService() for carrier messaging service failed");
                 mSenderCallback.onSendMultipartSmsComplete(
                         CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK,
-                        null /* smsResponse */);
+                        null /* messageRefs */);
             } else {
                 Rlog.d(TAG, "bindService() for carrier messaging service succeeded");
             }
@@ -596,7 +588,7 @@ public abstract class SMSDispatcher extends Handler {
                 Rlog.e(TAG, "Exception sending the SMS: " + e);
                 mSenderCallback.onSendMultipartSmsComplete(
                         CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK,
-                        null /* smsResponse */);
+                        null /* messageRefs */);
             }
         }
     }
@@ -632,13 +624,7 @@ public abstract class SMSDispatcher extends Handler {
             checkCallerIsPhoneOrCarrierApp();
             final long identity = Binder.clearCallingIdentity();
             try {
-                for (int i = 0; i < mSmsSender.mTrackers.length; i++) {
-                    int messageRef = 0;
-                    if (messageRefs != null && messageRefs.length > i) {
-                        messageRef = messageRefs[i];
-                    }
-                    processSendSmsResponse(mSmsSender.mTrackers[i], result, messageRef);
-                }
+                processSendMultipartSmsResponse(mSmsSender.mTrackers, result, messageRefs);
             } finally {
                 Binder.restoreCallingIdentity(identity);
             }
@@ -657,6 +643,70 @@ public abstract class SMSDispatcher extends Handler {
         @Override
         public void onDownloadMmsComplete(int result) {
             Rlog.e(TAG, "Unexpected onDownloadMmsComplete call with result: " + result);
+        }
+    }
+
+    private void processSendMultipartSmsResponse(
+            SmsTracker[] trackers, int result, int[] messageRefs) {
+        if (trackers == null) {
+            Rlog.e(TAG, "processSendMultipartSmsResponse: null trackers");
+            return;
+        }
+
+        switch (result) {
+            case CarrierMessagingService.SEND_STATUS_OK:
+                Rlog.d(TAG, "processSendMultipartSmsResponse: Sending SMS by "
+                        + "CarrierMessagingService succeeded. id: " + trackers[0].mMessageId);
+                // Sending a multi-part SMS by CarrierMessagingService successfully completed.
+                // Send EVENT_SEND_SMS_COMPLETE for all the parts one by one.
+                for (int i = 0; i < trackers.length; i++) {
+                    int messageRef = 0;
+                    if (messageRefs != null && messageRefs.length > i) {
+                        messageRef = messageRefs[i];
+                    }
+                    sendMessage(
+                            obtainMessage(
+                                    EVENT_SEND_SMS_COMPLETE,
+                                    new AsyncResult(
+                                            trackers[i],
+                                            new SmsResponse(
+                                                    messageRef, null /* ackPdu */, NO_ERROR_CODE),
+                                            null /* exception */)));
+                }
+                break;
+            case CarrierMessagingService.SEND_STATUS_ERROR:
+                Rlog.d(TAG, "processSendMultipartSmsResponse: Sending SMS by "
+                        + "CarrierMessagingService failed. id: " + trackers[0].mMessageId);
+                // Sending a multi-part SMS by CarrierMessagingService failed.
+                // Send EVENT_SEND_SMS_COMPLETE with GENERIC_FAILURE for all the parts one by one.
+                for (int i = 0; i < trackers.length; i++) {
+                    int messageRef = 0;
+                    if (messageRefs != null && messageRefs.length > i) {
+                        messageRef = messageRefs[i];
+                    }
+                    sendMessage(
+                            obtainMessage(
+                                    EVENT_SEND_SMS_COMPLETE,
+                                    new AsyncResult(
+                                            trackers[i],
+                                            new SmsResponse(
+                                                    messageRef, null /* ackPdu */, NO_ERROR_CODE),
+                                            new CommandException(
+                                                    CommandException.Error.GENERIC_FAILURE))));
+                }
+                break;
+            case CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK:
+                Rlog.d(TAG, "processSendMultipartSmsResponse: Sending SMS by "
+                        + "CarrierMessagingService failed. Retry on carrier network. id: "
+                        + trackers[0].mMessageId);
+                // All the parts for a multi-part SMS are handled together for retry. It helps to
+                // check user confirmation once also if needed.
+                sendSubmitPdu(trackers);
+                break;
+            default:
+                Rlog.d(TAG, "processSendMultipartSmsResponse: Unknown result " + result
+                        + ". Retry on carrier network. id: " + trackers[0].mMessageId);
+                sendSubmitPdu(trackers);
         }
     }
 
@@ -708,8 +758,8 @@ public abstract class SMSDispatcher extends Handler {
             }
 
             if (tracker.mDeliveryIntent != null) {
-                // Expecting a status report.  Add it to the list.
-                deliveryPendingList.add(tracker);
+                // Expecting a status report. Put this tracker to the map.
+                mSmsDispatchersController.putDeliveryPendingTracker(tracker);
             }
             tracker.onSent(mContext);
             mPhone.notifySmsSent(tracker.mDestAddress);
@@ -811,29 +861,6 @@ public abstract class SMSDispatcher extends Handler {
                 return SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE;
             default:
                 return RESULT_ERROR_GENERIC_FAILURE;
-        }
-    }
-
-    /**
-     * Handles outbound message when the phone is not in service.
-     *
-     * @param ss     Current service state.  Valid values are:
-     *                  OUT_OF_SERVICE
-     *                  EMERGENCY_ONLY
-     *                  POWER_OFF
-     * @param sentIntent the PendingIntent to send the error to
-     */
-    protected static void handleNotInService(int ss, PendingIntent sentIntent) {
-        if (sentIntent != null) {
-            try {
-                if (ss == ServiceState.STATE_POWER_OFF) {
-                    sentIntent.send(RESULT_ERROR_RADIO_OFF);
-                } else {
-                    sentIntent.send(RESULT_ERROR_NO_SERVICE);
-                }
-            } catch (CanceledException ex) {
-                Rlog.e(TAG, "Failed to send result");
-            }
         }
     }
 

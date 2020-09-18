@@ -282,6 +282,44 @@ public class ImsServiceControllerTest extends ImsTestBase {
     }
 
     /**
+     * Tests that when unbind is called while the ImsService is disconnected, we still handle
+     * unbinding to the service correctly.
+     */
+    @SmallTest
+    @Test
+    public void testBindServiceAndConnectedDisconnectedUnbind() throws RemoteException {
+        HashSet<ImsFeatureConfiguration.FeatureSlotPair> testFeatures = new HashSet<>();
+        testFeatures.add(new ImsFeatureConfiguration.FeatureSlotPair(SLOT_0,
+                ImsFeature.FEATURE_MMTEL));
+        testFeatures.add(new ImsFeatureConfiguration.FeatureSlotPair(SLOT_0,
+                ImsFeature.FEATURE_RCS));
+        ServiceConnection conn = bindAndConnectService(testFeatures);
+
+        conn.onServiceDisconnected(mTestComponentName);
+
+        verify(mMockCallbacks).imsServiceFeatureRemoved(eq(SLOT_0), eq(ImsFeature.FEATURE_MMTEL),
+                eq(mTestImsServiceController));
+        verify(mMockCallbacks).imsServiceFeatureRemoved(eq(SLOT_0), eq(ImsFeature.FEATURE_RCS),
+                eq(mTestImsServiceController));
+        verify(mMockProxyCallbacks).imsFeatureRemoved(eq(SLOT_0), eq(ImsFeature.FEATURE_MMTEL));
+        verify(mMockProxyCallbacks).imsFeatureRemoved(eq(SLOT_0), eq(ImsFeature.FEATURE_RCS));
+
+        mTestImsServiceController.unbind();
+        verify(mMockContext).unbindService(eq(conn));
+
+        // Even though we unbound, this was already sent after service disconnected, so we shouldn't
+        // see it again
+        verify(mMockCallbacks, times(1)).imsServiceFeatureRemoved(eq(SLOT_0),
+                eq(ImsFeature.FEATURE_MMTEL), eq(mTestImsServiceController));
+        verify(mMockCallbacks, times(1)).imsServiceFeatureRemoved(eq(SLOT_0),
+                eq(ImsFeature.FEATURE_RCS), eq(mTestImsServiceController));
+        verify(mMockProxyCallbacks, times(1)).imsFeatureRemoved(eq(SLOT_0),
+                eq(ImsFeature.FEATURE_MMTEL));
+        verify(mMockProxyCallbacks, times(1)).imsFeatureRemoved(eq(SLOT_0),
+                eq(ImsFeature.FEATURE_RCS));
+    }
+
+    /**
      * Tests ImsServiceController callbacks are properly called when an ImsService is bound and
      * subsequently unbound.
      */
@@ -325,6 +363,7 @@ public class ImsServiceControllerTest extends ImsTestBase {
 
         conn.onBindingDied(null /*null*/);
 
+        verify(mMockContext).unbindService(eq(conn));
         verify(mMockCallbacks).imsServiceFeatureRemoved(eq(SLOT_0), eq(ImsFeature.FEATURE_MMTEL),
                 eq(mTestImsServiceController));
         verify(mMockCallbacks).imsServiceFeatureRemoved(eq(SLOT_0), eq(ImsFeature.FEATURE_RCS),
@@ -554,6 +593,30 @@ public class ImsServiceControllerTest extends ImsTestBase {
         ServiceConnection conn = bindAndConnectService(testFeatures);
 
         conn.onBindingDied(null /*null*/);
+
+        long delay = mTestImsServiceController.getRebindDelay();
+        waitForHandlerActionDelayed(mHandler, delay, 2 * delay);
+        // The service should autobind after rebind event occurs
+        verify(mMockContext, times(2)).bindService(any(), any(), anyInt());
+    }
+
+    /**
+     * Due to a bug in ServiceConnection, we will sometimes receive a null binding after the binding
+     * dies. Ignore null binding in this case.
+     */
+    @SmallTest
+    @Test
+    public void testAutoBindAfterBinderDiedIgnoreNullBinding() throws RemoteException {
+        HashSet<ImsFeatureConfiguration.FeatureSlotPair> testFeatures = new HashSet<>();
+        testFeatures.add(new ImsFeatureConfiguration.FeatureSlotPair(SLOT_0,
+                ImsFeature.FEATURE_MMTEL));
+        testFeatures.add(new ImsFeatureConfiguration.FeatureSlotPair(SLOT_0,
+                ImsFeature.FEATURE_RCS));
+        ServiceConnection conn = bindAndConnectService(testFeatures);
+
+        conn.onBindingDied(null);
+        // null binding should be ignored in this case.
+        conn.onNullBinding(null);
 
         long delay = mTestImsServiceController.getRebindDelay();
         waitForHandlerActionDelayed(mHandler, delay, 2 * delay);

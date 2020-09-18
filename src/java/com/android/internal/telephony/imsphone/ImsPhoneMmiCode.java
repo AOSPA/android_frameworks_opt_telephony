@@ -924,24 +924,23 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                 if (isActivate()
                         && !mPhone.getDefaultPhone().isClirActivationAndDeactivationPrevented()) {
                     try {
-                        mPhone.mCT.getUtInterface().updateCLIR(CommandsInterface.CLIR_INVOCATION,
+                        mPhone.setOutgoingCallerIdDisplay(CommandsInterface.CLIR_INVOCATION,
                             obtainMessage(EVENT_SET_COMPLETE, this));
-                    } catch (ImsException e) {
+                    } catch (Exception e) {
                         Rlog.d(LOG_TAG, "processCode: Could not get UT handle for updateCLIR.");
                     }
                 } else if (isDeactivate()
                         && !mPhone.getDefaultPhone().isClirActivationAndDeactivationPrevented()) {
                     try {
-                        mPhone.mCT.getUtInterface().updateCLIR(CommandsInterface.CLIR_SUPPRESSION,
+                        mPhone.setOutgoingCallerIdDisplay(CommandsInterface.CLIR_SUPPRESSION,
                             obtainMessage(EVENT_SET_COMPLETE, this));
-                    } catch (ImsException e) {
+                    } catch (Exception e) {
                         Rlog.d(LOG_TAG, "processCode: Could not get UT handle for updateCLIR.");
                     }
                 } else if (isInterrogate()) {
                     try {
-                        mPhone.mCT.getUtInterface()
-                            .queryCLIR(obtainMessage(EVENT_GET_CLIR_COMPLETE, this));
-                    } catch (ImsException e) {
+                        mPhone.getOutgoingCallerIdDisplay(obtainMessage(EVENT_GET_CLIR_COMPLETE, this));
+                    } catch (Exception e) {
                         Rlog.d(LOG_TAG, "processCode: Could not get UT handle for queryCLIR.");
                     }
                 } else {
@@ -951,9 +950,8 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                 // NOTE: Refer to the note above.
                 if (isInterrogate()) {
                     try {
-                        mPhone.mCT.getUtInterface()
-                            .queryCLIP(obtainMessage(EVENT_SUPP_SVC_QUERY_COMPLETE, this));
-                    } catch (ImsException e) {
+                        mPhone.queryCLIP(obtainMessage(EVENT_SUPP_SVC_QUERY_COMPLETE, this));
+                    } catch (Exception e) {
                         Rlog.d(LOG_TAG, "processCode: Could not get UT handle for queryCLIP.");
                     }
                 } else if (isActivate() || isDeactivate()) {
@@ -1301,6 +1299,8 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                 return mContext.getText(com.android.internal.R.string.stk_cc_ss_to_ss);
             } else if (err.getCommandError() == CommandException.Error.SS_MODIFIED_TO_DIAL_VIDEO) {
                 return mContext.getText(com.android.internal.R.string.stk_cc_ss_to_dial_video);
+            } else if (err.getCommandError() == CommandException.Error.INTERNAL_ERR) {
+                return mContext.getText(com.android.internal.R.string.mmiError);
             }
         }
         return null;
@@ -1359,6 +1359,9 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             } else if (ar.exception instanceof ImsException) {
                 sb.append(getImsErrorMessage(ar));
             }
+        } else if (ar.result != null && (int) ar.result == CommandsInterface.SS_STATUS_UNKNOWN) {
+            mState = State.FAILED;
+            sb = null;
         } else if (isActivate()) {
             mState = State.COMPLETE;
             if (mIsCallFwdReg) {
@@ -1502,6 +1505,11 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             else {
                 sb.append(getErrorMessage(ar));
             }
+        } else if (ar.result instanceof CallForwardInfo[] &&
+                   ((CallForwardInfo[]) ar.result)[0].status
+                    == CommandsInterface.SS_STATUS_UNKNOWN) {
+            sb = null;
+            mState = State.FAILED;
         } else {
             CallForwardInfo infos[];
 
@@ -1584,15 +1592,20 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                 }
 
             } else {
-                Rlog.d(LOG_TAG, "onSuppSvcQueryComplete: Received Call Barring Response.");
-                // Response for Call Barring queries.
-                int[] cbInfos = (int[]) ar.result;
-                if (cbInfos[0] == 1) {
-                    sb.append(mContext.getText(com.android.internal.R.string.serviceEnabled));
-                    mState = State.COMPLETE;
+                Rlog.d(LOG_TAG,
+                        "onSuppSvcQueryComplete: Received Call Barring/CSFB CLIP Response.");
+                // Response for Call Barring and CSFB CLIP queries.
+                int[] infos = (int[]) ar.result;
+                if (infos == null || infos.length == 0) {
+                    sb.append(mContext.getText(com.android.internal.R.string.mmiError));
                 } else {
-                    sb.append(mContext.getText(com.android.internal.R.string.serviceDisabled));
-                    mState = State.COMPLETE;
+                    if (infos[0] == 1) {
+                        sb.append(mContext.getText(com.android.internal.R.string.serviceEnabled));
+                        mState = State.COMPLETE;
+                    } else {
+                        sb.append(mContext.getText(com.android.internal.R.string.serviceDisabled));
+                        mState = State.COMPLETE;
+                    }
                 }
             }
         }
@@ -1655,16 +1668,18 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
         if (ar.exception != null) {
             if (ar.exception instanceof ImsException) {
                 sb.append(getImsErrorMessage(ar));
+            } else {
+                sb.append(getErrorMessage(ar));
             }
         } else {
-            ImsSsInfo ssInfo = (ImsSsInfo) ar.result;
+            int[] clirInfo = (int[]) ar.result;
             // ssInfo.getClirOutgoingState() = The 'n' parameter from TS 27.007 7.7
             // ssInfo.getClirInterrogationStatus() = The 'm' parameter from TS 27.007 7.7
-            Rlog.d(LOG_TAG, "onQueryClirComplete: CLIR param n=" + ssInfo.getClirOutgoingState()
-                    + " m=" + ssInfo.getClirInterrogationStatus());
+            Rlog.d(LOG_TAG, "onQueryClirComplete: CLIR param n=" + clirInfo[0]
+                    + " m=" + clirInfo[1]);
 
             // 'm' parameter.
-            switch (ssInfo.getClirInterrogationStatus()) {
+            switch (clirInfo[1]) {
                 case ImsSsInfo.CLIR_STATUS_NOT_PROVISIONED:
                     sb.append(mContext.getText(
                             com.android.internal.R.string.serviceNotProvisioned));
@@ -1677,7 +1692,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                     break;
                 case ImsSsInfo.CLIR_STATUS_TEMPORARILY_RESTRICTED:
                     // 'n' parameter.
-                    switch (ssInfo.getClirOutgoingState()) {
+                    switch (clirInfo[0]) {
                         case ImsSsInfo.CLIR_OUTGOING_DEFAULT:
                             sb.append(mContext.getText(
                                     com.android.internal.R.string.CLIRDefaultOnNextCallOn));
@@ -1701,7 +1716,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                     break;
                 case ImsSsInfo.CLIR_STATUS_TEMPORARILY_ALLOWED:
                     // 'n' parameter.
-                    switch (ssInfo.getClirOutgoingState()) {
+                    switch (clirInfo[0]) {
                         case ImsSsInfo.CLIR_OUTGOING_DEFAULT:
                             sb.append(mContext.getText(
                                     com.android.internal.R.string.CLIRDefaultOffNextCallOff));
@@ -1747,11 +1762,13 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             } else {
                 sb.append(getErrorMessage(ar));
             }
-
+        } else if ((ar.result instanceof int[]) &&
+                   ((int[])ar.result)[0] == CommandsInterface.SS_STATUS_UNKNOWN) {
+            sb = null;
         } else {
             int[] ints = (int[])ar.result;
 
-            if (ints.length != 0) {
+            if (ints != null && ints.length != 0) {
                 if (ints[0] == 0) {
                     sb.append(mContext.getText(com.android.internal.R.string.serviceDisabled));
                     mState = State.COMPLETE;
@@ -1868,8 +1885,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             case ImsSsData.SS_INTERROGATION:
                 if (ssData.isTypeClir()) {
                     Rlog.d(LOG_TAG, "CLIR INTERROGATION");
-                    ImsSsInfo clirInfo = ssData.getSuppServiceInfo().get(0);
-                    onQueryClirComplete(new AsyncResult(null, clirInfo, ex));
+                    onQueryClirComplete(new AsyncResult(null, ssData.getSuppServiceInfoCompat(), ex));
                 } else if (ssData.isTypeCF()) {
                     Rlog.d(LOG_TAG, "CALL FORWARD INTERROGATION");
                     // Have to translate to an array, since the modem still returns it in the

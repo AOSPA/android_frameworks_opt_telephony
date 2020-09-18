@@ -577,10 +577,6 @@ public class SubscriptionInfoUpdater extends Handler {
             }
         }
 
-        // Update set of enabled carrier apps now that the privilege rules may have changed.
-        CarrierAppUtils.disableCarrierAppsUntilPrivileged(sContext.getOpPackageName(),
-                TelephonyManager.getDefault(), mCurrentlyActiveUserId, sContext);
-
         /**
          * The sim loading sequence will be
          *  1. ACTION_SUBINFO_CONTENT_CHANGE happens through updateSubscriptionInfoByIccId() above.
@@ -1151,12 +1147,10 @@ public class SubscriptionInfoUpdater extends Handler {
 
     @UnsupportedAppUsage
     protected void broadcastSimStateChanged(int phoneId, String state, String reason) {
+        // Note: This intent is way deprecated and is only being kept around because there's no
+        // graceful way to deprecate a sticky broadcast that has a lot of listeners.
+        // DO NOT add any new extras to this broadcast -- it is not protected by any permissions.
         Intent i = new Intent(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
-        // TODO - we'd like this intent to have a single snapshot of all sim state,
-        // but until then this should not use REPLACE_PENDING or we may lose
-        // information
-        // i.addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING
-        //         | Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
         i.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
         i.putExtra(PhoneConstants.PHONE_NAME_KEY, "Phone");
         i.putExtra(IccCardConstants.INTENT_KEY_ICC_STATE, state);

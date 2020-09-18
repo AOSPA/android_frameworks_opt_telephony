@@ -70,7 +70,8 @@ public class DataEnabledSettings {
                     REASON_PROVISIONED_CHANGED,
                     REASON_PROVISIONING_DATA_ENABLED_CHANGED,
                     REASON_OVERRIDE_RULE_CHANGED,
-                    REASON_OVERRIDE_CONDITION_CHANGED
+                    REASON_OVERRIDE_CONDITION_CHANGED,
+                    REASON_THERMAL_DATA_ENABLED
             })
     public @interface DataEnabledChangedReason {}
 
@@ -92,6 +93,8 @@ public class DataEnabledSettings {
 
     public static final int REASON_OVERRIDE_CONDITION_CHANGED = 8;
 
+    public static final int REASON_THERMAL_DATA_ENABLED = 9;
+
     /**
      * responds to the setInternalDataEnabled call - used internally to turn off data.
      * For example during emergency calls
@@ -109,6 +112,15 @@ public class DataEnabledSettings {
      */
     private boolean mCarrierDataEnabled = true;
 
+    /**
+     * Flag indicating data allowed by Thermal service or not.
+     */
+    private boolean mThermalDataEnabled = true;
+
+    /**
+     * Flag indicating whether data is allowed or not for the device. It can be disabled by
+     * user, carrier, policy or thermal
+     */
     private boolean mIsDataEnabled = false;
 
     private final Phone mPhone;
@@ -173,6 +185,7 @@ public class DataEnabledSettings {
                 + ", mPolicyDataEnabled=" + mPolicyDataEnabled
                 + ", mCarrierDataEnabled=" + mCarrierDataEnabled
                 + ", mIsDataEnabled=" + mIsDataEnabled
+                + ", mThermalDataEnabled=" + mThermalDataEnabled
                 + ", " + mDataEnabledOverride
                 + "]";
     }
@@ -205,7 +218,7 @@ public class DataEnabledSettings {
         return mInternalDataEnabled;
     }
 
-    public synchronized void setUserDataEnabled(boolean enabled) {
+    private synchronized void setUserDataEnabled(boolean enabled) {
         // By default the change should propagate to the group.
         setUserDataEnabled(enabled, true);
     }
@@ -231,6 +244,32 @@ public class DataEnabledSettings {
                 MultiSimSettingController.getInstance().notifyUserDataEnabled(
                         mPhone.getSubId(), enabled);
             }
+        }
+    }
+
+    /**
+     * Policy control of data connection with reason
+     * @param reason the reason the data enable change is taking place
+     * @param enabled True if enabling the data, otherwise disabling.
+     */
+    public synchronized void setDataEnabled(@TelephonyManager.DataEnabledReason int reason,
+            boolean enabled) {
+        switch (reason) {
+            case TelephonyManager.DATA_ENABLED_REASON_USER:
+                setUserDataEnabled(enabled);
+                break;
+            case TelephonyManager.DATA_ENABLED_REASON_CARRIER:
+                setCarrierDataEnabled(enabled);
+                break;
+            case TelephonyManager.DATA_ENABLED_REASON_POLICY:
+                setPolicyDataEnabled(enabled);
+                break;
+            case TelephonyManager.DATA_ENABLED_REASON_THERMAL:
+                setThermalDataEnabled(enabled);
+                break;
+            default:
+                log("Invalid data enable reason " + reason);
+                break;
         }
     }
 
@@ -337,7 +376,7 @@ public class DataEnabledSettings {
         return mDataEnabledOverride.isDataAllowedInVoiceCall();
     }
 
-    public synchronized void setPolicyDataEnabled(boolean enabled) {
+    private synchronized void setPolicyDataEnabled(boolean enabled) {
         if (mPolicyDataEnabled != enabled) {
             localLog("PolicyDataEnabled", enabled);
             mPolicyDataEnabled = enabled;
@@ -349,7 +388,7 @@ public class DataEnabledSettings {
         return mPolicyDataEnabled;
     }
 
-    public synchronized void setCarrierDataEnabled(boolean enabled) {
+    private synchronized void setCarrierDataEnabled(boolean enabled) {
         if (mCarrierDataEnabled != enabled) {
             localLog("CarrierDataEnabled", enabled);
             mCarrierDataEnabled = enabled;
@@ -359,6 +398,18 @@ public class DataEnabledSettings {
 
     public synchronized boolean isCarrierDataEnabled() {
         return mCarrierDataEnabled;
+    }
+
+    private synchronized void setThermalDataEnabled(boolean enabled) {
+        if (mThermalDataEnabled != enabled) {
+            localLog("ThermalDataEnabled", enabled);
+            mThermalDataEnabled = enabled;
+            updateDataEnabledAndNotify(REASON_THERMAL_DATA_ENABLED);
+        }
+    }
+
+    public synchronized boolean isThermalDataEnabled() {
+        return mThermalDataEnabled;
     }
 
     public synchronized void updateProvisionedChanged() {
@@ -371,6 +422,27 @@ public class DataEnabledSettings {
 
     public synchronized boolean isDataEnabled() {
         return mIsDataEnabled;
+    }
+
+    /**
+     * Check if data is enabled for a specific reason {@@TelephonyManager.DataEnabledReason}
+     *
+     * @return {@code true} if the overall data is enabled; {@code false} if not.
+     */
+    public synchronized boolean isDataEnabledWithReason(
+            @TelephonyManager.DataEnabledReason int reason) {
+        switch (reason) {
+            case TelephonyManager.DATA_ENABLED_REASON_USER:
+                return isUserDataEnabled();
+            case TelephonyManager.DATA_ENABLED_REASON_CARRIER:
+                return isCarrierDataEnabled();
+            case TelephonyManager.DATA_ENABLED_REASON_POLICY:
+                return isPolicyDataEnabled();
+            case TelephonyManager.DATA_ENABLED_REASON_THERMAL:
+                return isThermalDataEnabled();
+            default:
+                return false;
+        }
     }
 
     private synchronized void updateDataEnabledAndNotify(int reason) {
@@ -389,7 +461,7 @@ public class DataEnabledSettings {
         } else {
             mIsDataEnabled = mInternalDataEnabled && (isUserDataEnabled() || mDataEnabledOverride
                     .shouldOverrideDataEnabledSettings(mPhone, ApnSetting.TYPE_ALL))
-                    && mPolicyDataEnabled && mCarrierDataEnabled;
+                    && mPolicyDataEnabled && mCarrierDataEnabled && mThermalDataEnabled;
         }
     }
 
@@ -506,7 +578,7 @@ public class DataEnabledSettings {
                     .shouldOverrideDataEnabledSettings(mPhone, apnType);
 
             return (mInternalDataEnabled && mPolicyDataEnabled && mCarrierDataEnabled
-                    && (userDataEnabled || isDataEnabledOverridden));
+                    && mThermalDataEnabled && (userDataEnabled || isDataEnabledOverridden));
         }
     }
 
