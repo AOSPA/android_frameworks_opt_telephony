@@ -145,6 +145,7 @@ public class ImsPhone extends ImsPhoneBase {
     public static final int EVENT_SERVICE_STATE_CHANGED             = EVENT_LAST + 8;
     private static final int EVENT_VOICE_CALL_ENDED                  = EVENT_LAST + 9;
     private static final int EVENT_INITIATE_VOLTE_SILENT_REDIAL      = EVENT_LAST + 10;
+    private static final int EVENT_GET_CLIP_DONE                     = EVENT_LAST + 11;
 
     public static class ImsDialArgs extends DialArgs {
         public static class Builder extends DialArgs.Builder<ImsDialArgs.Builder> {
@@ -289,6 +290,85 @@ public class ImsPhone extends ImsPhoneBase {
             mIsCfu = isCfu;
             mOnComplete = onComplete;
             mServiceClass = serviceClass;
+        }
+    }
+
+    // Create SS (Supplementary Service) so that save SS params &
+    // mOnComplete (Message object passed by client) can be packed
+    // given as a single SS object as user data to UtInterface.
+    @VisibleForTesting
+    public static class SS {
+        int mCfAction;
+        int mCfReason;
+        String mDialingNumber;
+        int mTimerSeconds;
+        boolean mEnable;
+        int mClirMode;
+        String mFacility;
+        boolean mLockState;
+        String mPassword;
+        int mServiceClass;
+        @VisibleForTesting
+        public Message mOnComplete;
+
+        // Default // Query CW, CLIR, CLIP
+        SS(Message onComplete) {
+            mOnComplete = onComplete;
+        }
+
+        // Update CLIP
+        SS(boolean enable, Message onComplete) {
+            mEnable = enable;
+            mOnComplete = onComplete;
+        }
+
+        // Update CLIR
+        SS(int clirMode, Message onComplete) {
+            mClirMode = clirMode;
+            mOnComplete = onComplete;
+        }
+
+        // Update CW
+        SS(boolean enable, int serviceClass, Message onComplete) {
+            mEnable = enable;
+            mServiceClass = serviceClass;
+            mOnComplete = onComplete;
+        }
+
+        // Query CF
+        SS(int cfReason, int serviceClass, Message onComplete) {
+            mCfReason = cfReason;
+            mServiceClass = serviceClass;
+            mOnComplete = onComplete;
+        }
+
+        // Update CF
+        SS(int cfAction, int cfReason, String dialingNumber,
+           int serviceClass, int timerSeconds, Message onComplete) {
+            mCfAction = cfAction;
+            mCfReason = cfReason;
+            mDialingNumber = dialingNumber;
+            mServiceClass = serviceClass;
+            mTimerSeconds = timerSeconds;
+            mOnComplete = onComplete;
+        }
+
+        // Query CB
+        SS(String facility, String password, int serviceClass, Message onComplete) {
+            mFacility = facility;
+            mPassword = password;
+            mServiceClass = serviceClass;
+            mOnComplete = onComplete;
+        }
+
+        // Update CB
+        SS(String facility, boolean lockState, String password,
+                int serviceClass, Message onComplete) {
+            mFacility = facility;
+            mLockState = lockState;
+            mPassword = password;
+            mServiceClass = serviceClass;
+            mOnComplete = onComplete;
         }
     }
 
@@ -1006,7 +1086,8 @@ public class ImsPhone extends ImsPhoneBase {
     public void getOutgoingCallerIdDisplay(Message onComplete) {
         if (DBG) logd("getCLIR");
         Message resp;
-        resp = obtainMessage(EVENT_GET_CLIR_DONE, onComplete);
+        SS ss = new SS(onComplete);
+        resp = obtainMessage(EVENT_GET_CLIR_DONE, ss);
 
         try {
             ImsUtInterface ut = mCT.getUtInterface();
@@ -1023,10 +1104,26 @@ public class ImsPhone extends ImsPhoneBase {
         // Packing CLIR value in the message. This will be required for
         // SharedPreference caching, if the message comes back as part of
         // a success response.
-        resp = obtainMessage(EVENT_SET_CLIR_DONE, clirMode, 0, onComplete);
+        SS ss = new SS(clirMode, onComplete);
+        resp = obtainMessage(EVENT_SET_CLIR_DONE, ss);
         try {
             ImsUtInterface ut = mCT.getUtInterface();
             ut.updateCLIR(clirMode, resp);
+        } catch (ImsException e) {
+            sendErrorResponse(onComplete, e);
+        }
+    }
+
+    @Override
+    public void queryCLIP(Message onComplete) {
+        Message resp;
+        SS ss = new SS(onComplete);
+        resp = obtainMessage(EVENT_GET_CLIP_DONE, ss);
+
+        try {
+            Rlog.d(LOG_TAG, "ut.queryCLIP");
+            ImsUtInterface ut = mCT.getUtInterface();
+            ut.queryCLIP(resp);
         } catch (ImsException e) {
             sendErrorResponse(onComplete, e);
         }
@@ -1048,7 +1145,8 @@ public class ImsPhone extends ImsPhoneBase {
         if (isValidCommandInterfaceCFReason(commandInterfaceCFReason)) {
             if (DBG) Rlog.d(LOG_TAG, "requesting call forwarding query.");
             Message resp;
-            resp = obtainMessage(EVENT_GET_CALL_FORWARD_DONE, onComplete);
+            SS ss = new SS(commandInterfaceCFReason, serviceClass, onComplete);
+            resp = obtainMessage(EVENT_GET_CALL_FORWARD_DONE, ss);
 
             try {
                 ImsUtInterface ut = mCT.getUtInterface();
@@ -1087,10 +1185,9 @@ public class ImsPhone extends ImsPhoneBase {
         if ((isValidCommandInterfaceCFAction(commandInterfaceCFAction)) &&
                 (isValidCommandInterfaceCFReason(commandInterfaceCFReason))) {
             Message resp;
-            Cf cf = new Cf(dialingNumber, GsmMmiCode.isVoiceUnconditionalForwarding(
-                    commandInterfaceCFReason, serviceClass), onComplete, serviceClass);
-            resp = obtainMessage(EVENT_SET_CALL_FORWARD_DONE,
-                    isCfEnable(commandInterfaceCFAction) ? 1 : 0, 0, cf);
+            SS ss = new SS(commandInterfaceCFAction, commandInterfaceCFReason,
+                    dialingNumber, serviceClass, timerSeconds, onComplete);
+            resp = obtainMessage(EVENT_SET_CALL_FORWARD_DONE, ss);
 
             try {
                 ImsUtInterface ut = mCT.getUtInterface();
@@ -1113,7 +1210,8 @@ public class ImsPhone extends ImsPhoneBase {
     public void getCallWaiting(Message onComplete) {
         if (DBG) logd("getCallWaiting");
         Message resp;
-        resp = obtainMessage(EVENT_GET_CALL_WAITING_DONE, onComplete);
+        SS ss = new SS(onComplete);
+        resp = obtainMessage(EVENT_GET_CALL_WAITING_DONE, ss);
 
         try {
             ImsUtInterface ut = mCT.getUtInterface();
@@ -1140,7 +1238,8 @@ public class ImsPhone extends ImsPhoneBase {
     public void setCallWaiting(boolean enable, int serviceClass, Message onComplete) {
         if (DBG) logd("setCallWaiting enable=" + enable);
         Message resp;
-        resp = obtainMessage(EVENT_SET_CALL_WAITING_DONE, onComplete);
+        SS ss = new SS(enable, serviceClass, onComplete);
+        resp = obtainMessage(EVENT_SET_CALL_WAITING_DONE, ss);
 
         try {
             ImsUtInterface ut = mCT.getUtInterface();
@@ -1187,7 +1286,8 @@ public class ImsPhone extends ImsPhoneBase {
             int serviceClass) {
         if (DBG) logd("getCallBarring facility=" + facility + ", serviceClass = " + serviceClass);
         Message resp;
-        resp = obtainMessage(EVENT_GET_CALL_BARRING_DONE, onComplete);
+        SS ss = new SS(facility, password, serviceClass, onComplete);
+        resp = obtainMessage(EVENT_GET_CALL_BARRING_DONE, ss);
 
         try {
             ImsUtInterface ut = mCT.getUtInterface();
@@ -1212,7 +1312,8 @@ public class ImsPhone extends ImsPhoneBase {
                     + ", lockState=" + lockState + ", serviceClass = " + serviceClass);
         }
         Message resp;
-        resp = obtainMessage(EVENT_SET_CALL_BARRING_DONE, onComplete);
+        SS ss = new SS(facility, lockState, password, serviceClass, onComplete);
+        resp = obtainMessage(EVENT_SET_CALL_BARRING_DONE, ss);
 
         int action;
         if (lockState) {
@@ -1585,23 +1686,99 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    boolean isCsRetryException(Throwable e) {
+        if ((e != null) && (e instanceof ImsException)
+                && (((ImsException)e).getCode()
+                    == ImsReasonInfo.CODE_LOCAL_CALL_CS_RETRY_REQUIRED)) {
+            return true;
+        }
+        return false;
+    }
+
+    private Bundle setCsfbBundle(boolean isCsRetry) {
+        Bundle b = new Bundle();
+        b.putBoolean(CS_FALLBACK_SS, isCsRetry);
+        return b;
+    }
+
+    private void sendResponseOrRetryOnCsfbSs(SS ss, int what, Throwable e, Object obj) {
+        if (!isCsRetryException(e)) {
+            sendResponse(ss.mOnComplete, obj, e);
+            return;
+        }
+
+        Rlog.d(LOG_TAG, "Try CSFB: " + what);
+        ss.mOnComplete.setData(setCsfbBundle(true));
+
+        switch (what) {
+            case EVENT_GET_CALL_FORWARD_DONE:
+                mDefaultPhone.getCallForwardingOption(ss.mCfReason,
+                                                      ss.mServiceClass,
+                                                      ss.mOnComplete);
+                break;
+            case EVENT_SET_CALL_FORWARD_DONE:
+                mDefaultPhone.setCallForwardingOption(ss.mCfAction,
+                                                      ss.mCfReason,
+                                                      ss.mDialingNumber,
+                                                      ss.mServiceClass,
+                                                      ss.mTimerSeconds,
+                                                      ss.mOnComplete);
+                break;
+            case EVENT_GET_CALL_BARRING_DONE:
+                mDefaultPhone.getCallBarring(ss.mFacility,
+                                             ss.mPassword,
+                                             ss.mOnComplete,
+                                             ss.mServiceClass);
+                break;
+            case EVENT_SET_CALL_BARRING_DONE:
+                mDefaultPhone.setCallBarring(ss.mFacility,
+                                             ss.mLockState,
+                                             ss.mPassword,
+                                             ss.mOnComplete,
+                                             ss.mServiceClass);
+                break;
+            case EVENT_GET_CALL_WAITING_DONE:
+                mDefaultPhone.getCallWaiting(ss.mOnComplete);
+                break;
+            case EVENT_SET_CALL_WAITING_DONE:
+                mDefaultPhone.setCallWaiting(ss.mEnable,
+                                             ss.mServiceClass,
+                                             ss.mOnComplete);
+                break;
+            case EVENT_GET_CLIR_DONE:
+                mDefaultPhone.getOutgoingCallerIdDisplay(ss.mOnComplete);
+                break;
+            case EVENT_SET_CLIR_DONE:
+                mDefaultPhone.setOutgoingCallerIdDisplay(ss.mClirMode, ss.mOnComplete);
+                break;
+            case EVENT_GET_CLIP_DONE:
+                mDefaultPhone.queryCLIP(ss.mOnComplete);
+                break;
+            default:
+                break;
+        }
+    }
+
     @Override
     public void handleMessage(Message msg) {
         AsyncResult ar = (AsyncResult) msg.obj;
+        Message onComplete;
+        SS ss = null;
+        if (ar.userObj instanceof SS) {
+            ss = (SS) ar.userObj;
+        }
 
         if (DBG) logd("handleMessage what=" + msg.what);
         switch (msg.what) {
             case EVENT_SET_CALL_FORWARD_DONE:
-                Cf cf = (Cf) ar.userObj;
-                if (cf.mIsCfu && ar.exception == null) {
-                    if (cf.mServiceClass == (SERVICE_CLASS_DATA_SYNC + SERVICE_CLASS_PACKET)) {
-                        setVideoCallForwardingPreference(msg.arg1 == 1);
-                        notifyCallForwardingIndicator();
-                    } else if (cf.mServiceClass == SERVICE_CLASS_VOICE) {
-                        setVoiceCallForwardingFlag(getIccRecords(), 1, msg.arg1 == 1, cf.mSetCfNumber);
-                    }
+                if (ar.exception == null && ss != null &&
+                    (ss.mCfReason == CF_REASON_UNCONDITIONAL)) {
+                    setVoiceCallForwardingFlag(getIccRecords(), 1, isCfEnable(ss.mCfAction),
+                                               ss.mDialingNumber);
                 }
-                sendResponse(cf.mOnComplete, null, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, null);
+                }
                 break;
 
             case EVENT_GET_CALL_FORWARD_DONE:
@@ -1609,7 +1786,9 @@ public class ImsPhone extends ImsPhoneBase {
                 if (ar.exception == null) {
                     cfInfos = handleCfQueryResult((ImsCallForwardInfo[])ar.result);
                 }
-                sendResponse((Message) ar.userObj, cfInfos, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, cfInfos);
+                }
                 break;
 
             case EVENT_GET_CALL_BARRING_DONE:
@@ -1622,7 +1801,9 @@ public class ImsPhone extends ImsPhoneBase {
                         ssInfos = handleCwQueryResult((ImsSsInfo[])ar.result);
                     }
                 }
-                sendResponse((Message) ar.userObj, ssInfos, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, ssInfos);
+                }
                 break;
 
             case EVENT_GET_CLIR_DONE:
@@ -1633,17 +1814,33 @@ public class ImsPhone extends ImsPhoneBase {
                     // that for compatibility
                     clirInfo = ssInfo.getCompatArray(ImsSsData.SS_CLIR);
                 }
-                sendResponse((Message) ar.userObj, clirInfo, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, clirInfo);
+                }
+                break;
+
+            case EVENT_GET_CLIP_DONE:
+                Bundle ssInfoResp = null;
+                if (ar.exception == null) {
+                    ssInfoResp = (Bundle) ar.result;
+                }
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, ssInfoResp);
+                }
                 break;
 
             case EVENT_SET_CLIR_DONE:
                 if (ar.exception == null) {
-                    saveClirSetting(msg.arg1);
+                    if (ss != null) {
+                        saveClirSetting(ss.mClirMode);
+                    }
                 }
                  // (Intentional fallthrough)
             case EVENT_SET_CALL_BARRING_DONE:
             case EVENT_SET_CALL_WAITING_DONE:
-                sendResponse((Message) ar.userObj, null, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, null);
+                }
                 break;
 
             case EVENT_DEFAULT_PHONE_DATA_STATE_CHANGED:

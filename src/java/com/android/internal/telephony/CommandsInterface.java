@@ -52,6 +52,8 @@ public interface CommandsInterface {
     static final int CLIR_INVOCATION = 1;   // (restrict CLI presentation)
     static final int CLIR_SUPPRESSION = 2;  // (allow CLI presentation)
 
+    // Used as return value for CDMA SS query
+    static final int SS_STATUS_UNKNOWN          = 0xff;
 
     // Used as parameters for call forward methods below
     static final int CF_ACTION_DISABLE          = 0;
@@ -1556,9 +1558,15 @@ public interface CommandsInterface {
      * location information (lac and/or cid) has changed.
      *
      * @param enable true to enable, false to disable
+     * @param workSource calling WorkSource
      * @param response callback message
      */
-    void setLocationUpdates(boolean enable, Message response);
+    default void setLocationUpdates(boolean enable, WorkSource workSource, Message response) {}
+
+    /**
+     * To be deleted
+     */
+    default void setLocationUpdates(boolean enable, Message response) {}
 
     /**
      * Gets the default SMSC address.
@@ -1877,16 +1885,6 @@ public interface CommandsInterface {
      * @param result Callback message is empty on completion.
      */
     void setLogicalToPhysicalSlotMapping(int[] physicalSlots, Message result);
-
-    /**
-     * Return if the current radio is LTE on CDMA. This
-     * is a tri-state return value as for a period of time
-     * the mode may be unknown.
-     *
-     * @return {@link PhoneConstants#LTE_ON_CDMA_UNKNOWN}, {@link PhoneConstants#LTE_ON_CDMA_FALSE}
-     * or {@link PhoneConstants#LTE_ON_CDMA_TRUE}
-     */
-    public int getLteOnCdmaMode();
 
     /**
      * Request the SIM application on the UICC to perform authentication
