@@ -68,7 +68,6 @@ import android.telephony.CellIdentity;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.NetworkScanRequest;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
 import android.telephony.ServiceState.RilRadioTechnology;
 import android.telephony.SignalThresholdInfo;
@@ -627,38 +626,7 @@ public class GsmCdmaPhone extends Phone {
     }
 
     @Override
-    public PreciseDataConnectionState getPreciseDataConnectionState(String apnType) {
-        // If we are OOS, then all data connections are null.
-        // FIXME: we need to figure out how to report the EIMS PDN connectivity here, which
-        // should imply emergency attach - today emergency attach is unknown at the AP,
-        // so, we take a guess.
-        boolean isEmergencyData = isPhoneTypeGsm()
-                && apnType.equals(PhoneConstants.APN_TYPE_EMERGENCY);
-
-        if (mSST == null
-                || ((mSST.getCurrentDataConnectionState() != ServiceState.STATE_IN_SERVICE)
-                        && !isEmergencyData)) {
-            return new PreciseDataConnectionState.Builder()
-                    .setState(TelephonyManager.DATA_DISCONNECTED)
-                    .setApnTypes(ApnSetting.getApnTypesBitmaskFromString(apnType))
-                    .setApn(apnType)
-                    .build();
-        }
-
-        // must never be null
-        final DcTracker dctForApn = getActiveDcTrackerForApn(apnType);
-
-        int networkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
-        // Always non-null
-        ServiceState ss = getServiceState();
-        if (ss != null) {
-            networkType = ss.getDataNetworkType();
-        }
-
-        return dctForApn.getPreciseDataConnectionState(apnType, isDataSuspended(), networkType);
-    }
-
-    boolean isDataSuspended() {
+    public boolean isDataSuspended() {
         return mCT.mState != PhoneConstants.State.IDLE && !mSST.isConcurrentVoiceAndDataAllowed();
     }
 
@@ -824,6 +792,10 @@ public class GsmCdmaPhone extends Phone {
     @UnsupportedAppUsage
     public void notifyServiceStateChanged(ServiceState ss) {
         super.notifyServiceStateChangedP(ss);
+    }
+
+    void notifyServiceStateChangedForSubId(ServiceState ss, int subId) {
+        super.notifyServiceStateChangedPForSubId(ss, subId);
     }
 
     /**
@@ -2802,7 +2774,7 @@ public class GsmCdmaPhone extends Phone {
                 // updated when ImsPhoneCallTracker opens a connection.
                 ImsManager imsManager = ImsManager.getInstance(mContext, mPhoneId);
                 if (imsManager.isServiceAvailable() && getIccRecordsLoaded()) {
-                    imsManager.updateImsServiceConfig(true);
+                    imsManager.updateImsServiceConfig();
                 } else {
                     logd("ImsManager/IccRecords Loaded are not available to update CarrierConfig.");
                 }
@@ -3922,7 +3894,7 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public IccCard getIccCard() {
         // This function doesn't return null for backwards compatability purposes.
-        // To differentiate between cases where SIM is absent vs. unknown we return a dummy
+        // To differentiate between cases where SIM is absent vs. unknown we return a placeholder
         // IccCard with the sim state set.
         IccCard card = getUiccProfile();
         if (card != null) {

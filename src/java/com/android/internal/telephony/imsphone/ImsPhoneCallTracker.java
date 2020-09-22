@@ -846,7 +846,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     /**
      * TODO: Remove this code; it is a workaround.
-     * When {@code true}, forces {@link ImsManager#updateImsServiceConfig(boolean)} to
+     * When {@code true}, forces {@link ImsManager#updateImsServiceConfig} to
      * be called when an ongoing video call is disconnected.  In some cases, where video pause is
      * supported by the carrier, when {@link #onDataEnabledChanged(boolean, int)} reports that data
      * has been disabled we will pause the video rather than disconnecting the call.  When this
@@ -1022,7 +1022,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         }
 
         if (mCarrierConfigLoaded) {
-            mImsManager.updateImsServiceConfig(true);
+            mImsManager.updateImsServiceConfig();
         }
         // For compatibility with apps that still use deprecated intent
         sendImsServiceStateIntent(ImsManager.ACTION_IMS_SERVICE_UP);
@@ -1041,8 +1041,30 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
             mImsManager.close();
         }
+        hangupAllOrphanedConnections(DisconnectCause.LOST_SIGNAL);
         // For compatibility with apps that still use deprecated intent
         sendImsServiceStateIntent(ImsManager.ACTION_IMS_SERVICE_DOWN);
+    }
+
+    /**
+     * Hang up all ongoing connections in the case that the ImsService has been disconnected and the
+     * existing calls have been orphaned. This method assumes that there is no connection to the
+     * ImsService and DOES NOT try to terminate the connections on the service side before
+     * disconnecting here, as it assumes they have already been disconnected when we lost the
+     * connection to the ImsService.
+     */
+    @VisibleForTesting
+    public void hangupAllOrphanedConnections(int disconnectCause) {
+        Log.w(LOG_TAG, "hangupAllOngoingConnections called for cause " + disconnectCause);
+
+        // Move connections to disconnected and notify the reason why.
+        for (ImsPhoneConnection connection : mConnections) {
+            connection.update(connection.getImsCall(), ImsPhoneCall.State.DISCONNECTED);
+            connection.onDisconnect(disconnectCause);
+            connection.getCall().detach(connection);
+        }
+        mConnections.clear();
+        updatePhoneState();
     }
 
     private void sendImsServiceStateIntent(String intentAction) {
@@ -3137,7 +3159,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 // Ensure we update the IMS config when the call is disconnected; we delayed this
                 // because a video call was paused.
                 if (mImsManager != null) {
-                    mImsManager.updateImsServiceConfig(true);
+                    mImsManager.updateImsServiceConfig();
                 }
                 mShouldUpdateImsConfigOnDisconnect = false;
             }
@@ -3878,7 +3900,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     || item == ImsConfig.ConfigConstants.LVC_SETTING_ENABLED)) {
                 // Update Ims Service state to make sure updated provisioning values take effect
                 // immediately.
-                mImsManager.updateImsServiceConfig(true);
+                mImsManager.updateImsServiceConfig();
             }
         }
 
@@ -4771,7 +4793,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             // This will call into updateVideoCallFeatureValue and eventually all clients will be
             // asynchronously notified that the availability of VT over LTE has changed.
             if (mImsManager != null) {
-                mImsManager.updateImsServiceConfig(true);
+                mImsManager.updateImsServiceConfig();
             }
         }
     }

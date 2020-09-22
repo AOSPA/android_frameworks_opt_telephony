@@ -42,7 +42,6 @@ import android.sysprop.TelephonyProperties;
 import android.telecom.VideoProfile;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.Annotation.ApnType;
-import android.telephony.Annotation.DataFailureCause;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CarrierRestrictionRules;
 import android.telephony.CellIdentity;
@@ -1721,6 +1720,17 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
+     * Version of notifyServiceStateChangedP which allows us to specify the subId. This is used when
+     * we send out a final ServiceState update when a phone's subId becomes invalid.
+     */
+    protected void notifyServiceStateChangedPForSubId(ServiceState ss, int subId) {
+        AsyncResult ar = new AsyncResult(null, ss, null);
+        mServiceStateRegistrants.notifyRegistrants(ar);
+
+        mNotifier.notifyServiceStateForSubId(this, ss, subId);
+    }
+
+    /**
      * If this is a simulated phone interface, returns a SimulatedRadioControl.
      * @return SimulatedRadioControl if this is a simulated interface;
      * otherwise, null.
@@ -1979,9 +1989,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     * @return the current cell location if known
+     * Returns the current CellIdentity if known
      */
-    public CellIdentity getCellIdentity() {
+    public CellIdentity getCurrentCellIdentity() {
         return getServiceStateTracker().getCellIdentity();
     }
 
@@ -2585,16 +2595,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /** Send notification with an updated PreciseDataConnectionState to a single data connection */
-    public void notifyDataConnection(String apnType) {
-        mNotifier.notifyDataConnection(this, apnType, getPreciseDataConnectionState(apnType));
-    }
-
-    /** Send notification with an updated PreciseDataConnectionState to all data connections */
-    public void notifyAllActiveDataConnections() {
-        String types[] = getActiveApnTypes();
-        for (String apnType : types) {
-            mNotifier.notifyDataConnection(this, apnType, getPreciseDataConnectionState(apnType));
-        }
+    public void notifyDataConnection(PreciseDataConnectionState state) {
+        mNotifier.notifyDataConnection(this, state);
     }
 
     @UnsupportedAppUsage
@@ -2685,11 +2687,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     /** Notify the {@link EmergencyNumber} changes. */
     public void notifyEmergencyNumberList() {
         mNotifier.notifyEmergencyNumberList(this);
-    }
-
-    /** Notify the outgoing call {@link EmergencyNumber} changes. */
-    public void notifyOutgoingEmergencyCall(EmergencyNumber emergencyNumber) {
-        mNotifier.notifyOutgoingEmergencyCall(this, emergencyNumber);
     }
 
     /** Notify the outgoing Sms {@link EmergencyNumber} changes. */
@@ -2938,6 +2935,13 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public String getCdmaPrlVersion(){
         return null;
+    }
+
+    /**
+     * @return {@code true} if data is suspended.
+     */
+    public boolean isDataSuspended() {
+        return false;
     }
 
     /**
@@ -3602,12 +3606,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public void notifyCallForwardingIndicator() {
     }
 
-    /** Send a notification that a particular data connection has failed with specified cause. */
-    public void notifyDataConnectionFailed(
-            String apnType, String apn, @DataFailureCause int failCause) {
-        mNotifier.notifyDataConnectionFailed(this, apnType, apn, failCause);
-    }
-
     /**
      * Sets the SIM voice message waiting indicator records.
      * @param line GSM Subscriber Profile Number, one-based. Only '1' is supported
@@ -4224,7 +4222,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public boolean areAllDataDisconnected() {
         if (mTransportManager != null) {
             for (int transport : mTransportManager.getAvailableTransports()) {
-                if (getDcTracker(transport) != null && !getDcTracker(transport).isDisconnected()) {
+                if (getDcTracker(transport) != null
+                        && !getDcTracker(transport).areAllDataDisconnected()) {
                     return false;
                 }
             }
@@ -4236,7 +4235,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         mAllDataDisconnectedRegistrants.addUnique(h, what, null);
         if (mTransportManager != null) {
             for (int transport : mTransportManager.getAvailableTransports()) {
-                if (getDcTracker(transport) != null && !getDcTracker(transport).isDisconnected()) {
+                if (getDcTracker(transport) != null
+                        && !getDcTracker(transport).areAllDataDisconnected()) {
                     getDcTracker(transport).registerForAllDataDisconnected(
                             this, EVENT_ALL_DATA_DISCONNECTED);
                 }

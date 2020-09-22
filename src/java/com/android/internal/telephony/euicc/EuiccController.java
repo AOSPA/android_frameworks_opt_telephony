@@ -47,6 +47,7 @@ import android.telephony.euicc.EuiccInfo;
 import android.telephony.euicc.EuiccManager;
 import android.telephony.euicc.EuiccManager.OtaStatus;
 import android.text.TextUtils;
+import android.util.EventLog;
 import android.util.Log;
 import android.util.Pair;
 
@@ -191,6 +192,12 @@ public class EuiccController extends IEuiccController.Stub {
     @Override
     public String getEid(int cardId, String callingPackage) {
         boolean callerCanReadPhoneStatePrivileged = callerCanReadPhoneStatePrivileged();
+        try {
+            mAppOpsManager.checkPackage(Binder.getCallingUid(), callingPackage);
+        } catch (SecurityException e) {
+            EventLog.writeEvent(0x534e4554, "159062405", -1, "Missing UID checking");
+            throw e;
+        }
         long token = Binder.clearCallingIdentity();
         try {
             if (!callerCanReadPhoneStatePrivileged
@@ -336,10 +343,10 @@ public class EuiccController extends IEuiccController.Stub {
                     "Must have WRITE_EMBEDDED_SUBSCRIPTIONS to check if the country is supported");
         }
         if (mSupportedCountries == null || mSupportedCountries.isEmpty()) {
-            Log.i(TAG, "Using blacklist unsupportedCountries=" + mUnsupportedCountries);
+            Log.i(TAG, "Using deny list unsupportedCountries=" + mUnsupportedCountries);
             return !isEsimUnsupportedCountry(countryIso);
         } else {
-            Log.i(TAG, "Using whitelist supportedCountries=" + mSupportedCountries);
+            Log.i(TAG, "Using allow list supportedCountries=" + mSupportedCountries);
             return isEsimSupportedCountry(countryIso);
         }
     }
