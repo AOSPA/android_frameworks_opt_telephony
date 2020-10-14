@@ -682,6 +682,13 @@ public class UiccController extends Handler {
             Rlog.e(LOG_TAG,"onGetIccCardStatusDone: invalid index : " + index);
             return;
         }
+        if (isShuttingDown()) {
+            // Do not process the SIM/SLOT events during device shutdown,
+            // as it may unnecessarily modify the persistent information
+            // like, SubscriptionManager.UICC_APPLICATIONS_ENABLED.
+            log("onGetIccCardStatusDone: shudown in progress ignore event");
+            return;
+        }
 
         IccCardStatus status = (IccCardStatus)ar.result;
 
@@ -910,6 +917,13 @@ public class UiccController extends Handler {
             }
             return;
         }
+        if (isShuttingDown()) {
+            // Do not process the SIM/SLOT events during device shutdown,
+            // as it may unnecessarily modify the persistent information
+            // like, SubscriptionManager.UICC_APPLICATIONS_ENABLED.
+            log("onGetSlotStatusDone: shudown in progress ignore event");
+            return;
+        }
 
         ArrayList<IccSlotStatus> status = (ArrayList<IccSlotStatus>) ar.result;
 
@@ -939,7 +953,7 @@ public class UiccController extends Handler {
             if (isActive) {
                 numActiveSlots++;
 
-                // sanity check: logicalSlotIndex should be valid for an active slot
+                // Correctness check: logicalSlotIndex should be valid for an active slot
                 if (!isValidPhoneIndex(iss.logicalSlotIndex)) {
                     Rlog.e(LOG_TAG, "Skipping slot " + i + " as phone " + iss.logicalSlotIndex
                                + " is not available to communicate with this slot");
@@ -1048,13 +1062,13 @@ public class UiccController extends Handler {
 
         if (VDBG) logPhoneIdToSlotIdMapping();
 
-        // sanity check: number of active slots should be valid
+        // Correctness check: number of active slots should be valid
         if (numActiveSlots != mPhoneIdToSlotId.length) {
             Rlog.e(LOG_TAG, "Number of active slots " + numActiveSlots
                        + " does not match the number of Phones" + mPhoneIdToSlotId.length);
         }
 
-        // sanity check: slotIds should be unique in mPhoneIdToSlotId
+        // Correctness check: slotIds should be unique in mPhoneIdToSlotId
         Set<Integer> slotIds = new HashSet<>();
         for (int slotId : mPhoneIdToSlotId) {
             if (slotIds.contains(slotId)) {
@@ -1224,6 +1238,16 @@ public class UiccController extends Handler {
 
     private boolean isValidSlotIndex(int index) {
         return (index >= 0 && index < mUiccSlots.length);
+    }
+
+    private boolean isShuttingDown() {
+        for (int i = 0; i < TelephonyManager.getDefault().getActiveModemCount(); i++) {
+            if (PhoneFactory.getPhone(i) != null &&
+                    PhoneFactory.getPhone(i).isShuttingDown()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @UnsupportedAppUsage

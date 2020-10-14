@@ -812,7 +812,7 @@ public class GsmCdmaCallTracker extends CallTracker {
         if (ar.exception == null) {
             polledCalls = (List)ar.result;
         } else if (isCommandExceptionRadioNotAvailable(ar.exception)) {
-            // just a dummy empty ArrayList to cause the loop
+            // just a placeholder empty ArrayList to cause the loop
             // to hang up all the calls
             polledCalls = new ArrayList();
         } else {
@@ -1572,7 +1572,7 @@ public class GsmCdmaCallTracker extends CallTracker {
                     causeCode == CallFailCause.BEARER_NOT_AVAIL ||
                     causeCode == CallFailCause.ERROR_UNSPECIFIED) {
 
-                    CellLocation loc = mPhone.getCellIdentity().asCellLocation();
+                    CellLocation loc = mPhone.getCurrentCellIdentity().asCellLocation();
                     int cid = -1;
                     if (loc != null) {
                         if (loc instanceof GsmCellLocation) {

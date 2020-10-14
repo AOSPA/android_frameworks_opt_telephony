@@ -30,11 +30,11 @@ import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -473,6 +473,16 @@ public class DcTrackerTest extends TelephonyTest {
             mPreferredApnSet = values.getAsInteger(Telephony.Carriers.APN_SET_ID);
             return 1;
         }
+
+        @Override
+        public int delete(Uri uri, String selection, String[] selectionArgs) {
+            return 0;
+        }
+
+        @Override
+        public Uri insert(Uri uri, ContentValues values) {
+            return null;
+        }
     }
 
     @Before
@@ -604,16 +614,13 @@ public class DcTrackerTest extends TelephonyTest {
     }
 
     private void verifyDataConnected(final String apnSetting) {
-        verify(mPhone, atLeastOnce()).notifyDataConnection(
-                eq(PhoneConstants.APN_TYPE_DEFAULT));
-
         verify(mAlarmManager, times(1)).set(eq(AlarmManager.ELAPSED_REALTIME), anyLong(),
                 any(PendingIntent.class));
 
         assertEquals(apnSetting, mDct.getActiveApnString(PhoneConstants.APN_TYPE_DEFAULT));
         assertArrayEquals(new String[]{PhoneConstants.APN_TYPE_DEFAULT}, mDct.getActiveApnTypes());
 
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
         assertEquals(DctConstants.State.CONNECTED, mDct.getState(PhoneConstants.APN_TYPE_DEFAULT));
 
         LinkProperties linkProperties = mDct.getLinkProperties(PhoneConstants.APN_TYPE_DEFAULT);
@@ -768,8 +775,7 @@ public class DcTrackerTest extends TelephonyTest {
         //Send event for reconnecting data
         initApns(PhoneConstants.APN_TYPE_DEFAULT, new String[]{PhoneConstants.APN_TYPE_ALL});
         mDct.sendMessage(mDct.obtainMessage(DctConstants.EVENT_DATA_RECONNECT,
-                        mPhone.getPhoneId(), AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
-                        mApnContext));
+                        mPhone.getPhoneId(), DcTracker.REQUEST_TYPE_NORMAL, mApnContext));
         waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
 
         // Data connection is running on a different thread. Have to wait.
@@ -821,7 +827,7 @@ public class DcTrackerTest extends TelephonyTest {
         verify(mSimulatedCommandsVerifier, times(1)).deactivateDataCall(
                 eq(DataService.REQUEST_REASON_NORMAL), anyInt(),
                 any(Message.class));
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
         assertEquals(DctConstants.State.IDLE, mDct.getState(PhoneConstants.APN_TYPE_DEFAULT));
         assertEquals(DctConstants.State.CONNECTED, mDct.getState(PhoneConstants.APN_TYPE_IMS));
     }
@@ -932,7 +938,7 @@ public class DcTrackerTest extends TelephonyTest {
         verify(mSimulatedCommandsVerifier, times(1)).deactivateDataCall(
                 eq(DataService.REQUEST_REASON_NORMAL), anyInt(),
                 any(Message.class));
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
         assertEquals(DctConstants.State.IDLE, mDct.getState(PhoneConstants.APN_TYPE_DEFAULT));
         assertEquals(DctConstants.State.CONNECTED, mDct.getState(PhoneConstants.APN_TYPE_IMS));
 
@@ -970,7 +976,7 @@ public class DcTrackerTest extends TelephonyTest {
                 any(Message.class));
         verifyDataProfile(dpCaptor.getValue(), FAKE_APN3, 2, 64, 0, 0);
 
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
         assertEquals(DctConstants.State.IDLE, mDct.getState(PhoneConstants.APN_TYPE_DEFAULT));
         assertEquals(DctConstants.State.CONNECTED, mDct.getState(PhoneConstants.APN_TYPE_IMS));
 
@@ -1018,7 +1024,7 @@ public class DcTrackerTest extends TelephonyTest {
                 eq(false), eq(false), eq(DataService.REQUEST_REASON_NORMAL), any(),
                 any(Message.class));
         verifyDataProfile(dpCaptor.getValue(), FAKE_APN1, 0, 5, 1, NETWORK_TYPE_LTE_BITMASK);
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
 
         AsyncResult ar = new AsyncResult(null,
                 new Pair<>(false, DataEnabledSettings.REASON_DATA_ENABLED_BY_CARRIER), null);
@@ -1031,7 +1037,7 @@ public class DcTrackerTest extends TelephonyTest {
         verify(mSimulatedCommandsVerifier, times(1)).deactivateDataCall(
                 eq(DataService.REQUEST_REASON_NORMAL), anyInt(),
                 any(Message.class));
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
         assertEquals(DctConstants.State.IDLE, mDct.getState(PhoneConstants.APN_TYPE_DEFAULT));
     }
 
@@ -1301,7 +1307,7 @@ public class DcTrackerTest extends TelephonyTest {
                 eq(false), eq(false), eq(DataService.REQUEST_REASON_NORMAL), any(),
                 any(Message.class));
         verifyDataProfile(dpCaptor.getValue(), FAKE_APN4, 0, 21, 2, NETWORK_TYPE_EHRPD_BITMASK);
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
 
         //data rat change from ehrpd to lte
         logd("Sending EVENT_DATA_RAT_CHANGED");
@@ -1327,8 +1333,7 @@ public class DcTrackerTest extends TelephonyTest {
         //Send event for reconnecting data
         initApns(PhoneConstants.APN_TYPE_DEFAULT, new String[]{PhoneConstants.APN_TYPE_ALL});
         mDct.sendMessage(mDct.obtainMessage(DctConstants.EVENT_DATA_RECONNECT,
-                        mPhone.getPhoneId(), AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
-                        mApnContext));
+                        mPhone.getPhoneId(), DcTracker.RELEASE_TYPE_NORMAL, mApnContext));
         waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
 
         // Data connection is running on a different thread. Have to wait.
@@ -1339,7 +1344,7 @@ public class DcTrackerTest extends TelephonyTest {
                 eq(false), eq(false), eq(DataService.REQUEST_REASON_NORMAL), any(),
                 any(Message.class));
         verifyDataProfile(dpCaptor.getValue(), FAKE_APN1, 0, 21, 1, NETWORK_TYPE_LTE_BITMASK);
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
     }
 
     // Test for fetchDunApns()
@@ -1413,7 +1418,8 @@ public class DcTrackerTest extends TelephonyTest {
     @SmallTest
     public void testFetchDunApnWhileRoaming() {
         doReturn(true).when(mServiceState).getRoaming();
-        mBundle.putBoolean(CarrierConfigManager.KEY_DISABLE_DUN_APN_WHILE_ROAMING, true);
+        mBundle.putBoolean(CarrierConfigManager
+                .KEY_DISABLE_DUN_APN_WHILE_ROAMING_WITH_PRESET_APN_BOOL, true);
 
         sendInitializationEvents();
 
@@ -1422,8 +1428,15 @@ public class DcTrackerTest extends TelephonyTest {
 
         Settings.Global.putString(mContext.getContentResolver(),
                 Settings.Global.TETHER_DUN_APN, dunApnString);
+
+        DcTracker spyDct = spy(mDct);
+        doReturn(true).when(spyDct).isPreferredApnUserEdited();
+        // Expect non-empty DUN APN list
+        assertEquals(1, spyDct.fetchDunApns().size());
+
+        doReturn(false).when(spyDct).isPreferredApnUserEdited();
         // Expect empty DUN APN list
-        assertEquals(0, mDct.fetchDunApns().size());
+        assertEquals(0, spyDct.fetchDunApns().size());
 
         Settings.Global.putString(mContext.getContentResolver(),
                 Settings.Global.TETHER_DUN_APN, null);
@@ -1509,7 +1522,7 @@ public class DcTrackerTest extends TelephonyTest {
                 eq(false), eq(false), eq(DataService.REQUEST_REASON_NORMAL), any(),
                 any(Message.class));
         verifyDataProfile(dpCaptor.getValue(), FAKE_APN4, 0, 21, 2, NETWORK_TYPE_EHRPD_BITMASK);
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
 
         // Data rat change from ehrpd to unknown due to OOS
         logd("Sending EVENT_DATA_RAT_CHANGED");
@@ -1541,7 +1554,7 @@ public class DcTrackerTest extends TelephonyTest {
 
         // Verify the same data connection
         assertEquals(FAKE_APN4, mDct.getActiveApnString(PhoneConstants.APN_TYPE_DEFAULT));
-        assertEquals(DctConstants.State.CONNECTED, mDct.getOverallState());
+        assertTrue(mDct.isAnyDataConnected());
     }
 
     // Test provisioning
@@ -1899,7 +1912,55 @@ public class DcTrackerTest extends TelephonyTest {
     }
 
     @Test
-    public void testIsFrequencyRangeUnmetered() throws Exception {
+    public void testIsNrUnmeteredSubscriptionPlans() throws Exception {
+        initApns(PhoneConstants.APN_TYPE_DEFAULT, new String[]{PhoneConstants.APN_TYPE_ALL});
+        int id = setUpDataConnection();
+        setUpSubscriptionPlans(false);
+        setUpWatchdogTimer();
+        doReturn(new TelephonyDisplayInfo(TelephonyManager.NETWORK_TYPE_LTE,
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA))
+                .when(mDisplayInfoController).getTelephonyDisplayInfo();
+        doReturn(1).when(mPhone).getSubId();
+
+        // NetCapability should be metered when connected to 5G with no unmetered plan or frequency
+        mDct.sendMessage(mDct.obtainMessage(DctConstants.EVENT_TELEPHONY_DISPLAY_INFO_CHANGED));
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        verify(mDataConnection, times(1)).onMeterednessChanged(false);
+
+        // Set SubscriptionPlans unmetered
+        setUpSubscriptionPlans(true);
+
+        // NetCapability should switch to unmetered with an unmetered plan
+        mDct.sendMessage(mDct.obtainMessage(DctConstants.EVENT_TELEPHONY_DISPLAY_INFO_CHANGED));
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        verify(mDataConnection, times(1)).onMeterednessChanged(true);
+
+        // Set MMWAVE frequency to unmetered
+        mBundle.putBoolean(CarrierConfigManager.KEY_UNMETERED_NR_NSA_MMWAVE_BOOL, true);
+        Intent intent = new Intent(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+        intent.putExtra(CarrierConfigManager.EXTRA_SLOT_INDEX, mPhone.getPhoneId());
+        intent.putExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, mPhone.getSubId());
+        mContext.sendBroadcast(intent);
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+
+        // NetCapability should switch to metered without fr=MMWAVE
+        mDct.sendMessage(mDct.obtainMessage(DctConstants.EVENT_TELEPHONY_DISPLAY_INFO_CHANGED));
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        verify(mDataConnection, times(2)).onMeterednessChanged(false);
+
+        // NetCapability should switch to unmetered with fr=MMWAVE
+        doReturn(new TelephonyDisplayInfo(TelephonyManager.NETWORK_TYPE_LTE,
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE))
+                .when(mDisplayInfoController).getTelephonyDisplayInfo();
+        mDct.sendMessage(mDct.obtainMessage(DctConstants.EVENT_TELEPHONY_DISPLAY_INFO_CHANGED));
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        verify(mDataConnection, times(2)).onMeterednessChanged(true);
+
+        resetDataConnection(id);
+    }
+
+    @Test
+    public void testIsNrUnmeteredCarrierConfigs() throws Exception {
         initApns(PhoneConstants.APN_TYPE_DEFAULT, new String[]{PhoneConstants.APN_TYPE_ALL});
         int id = setUpDataConnection();
         setUpSubscriptionPlans(false);
@@ -1915,6 +1976,7 @@ public class DcTrackerTest extends TelephonyTest {
         verify(mDataConnection, times(1)).onMeterednessChanged(false);
 
         // Set MMWAVE frequency to unmetered
+        mBundle.putBoolean(CarrierConfigManager.KEY_UNMETERED_NR_NSA_BOOL, true);
         mBundle.putBoolean(CarrierConfigManager.KEY_UNMETERED_NR_NSA_MMWAVE_BOOL, true);
         Intent intent = new Intent(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         intent.putExtra(CarrierConfigManager.EXTRA_SLOT_INDEX, mPhone.getPhoneId());
@@ -1940,6 +2002,7 @@ public class DcTrackerTest extends TelephonyTest {
 
         // Set SUB6 frequency to unmetered
         doReturn(2).when(mPhone).getSubId();
+        mBundle.putBoolean(CarrierConfigManager.KEY_UNMETERED_NR_NSA_MMWAVE_BOOL, false);
         mBundle.putBoolean(CarrierConfigManager.KEY_UNMETERED_NR_NSA_SUB6_BOOL, true);
         intent = new Intent(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         intent.putExtra(CarrierConfigManager.EXTRA_SLOT_INDEX, mPhone.getPhoneId());
