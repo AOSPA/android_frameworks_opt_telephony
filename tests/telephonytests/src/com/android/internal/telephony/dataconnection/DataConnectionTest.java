@@ -47,7 +47,6 @@ import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.NattKeepalivePacketData;
 import android.net.NetworkCapabilities;
-import android.net.NetworkInfo;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -254,8 +253,7 @@ public class DataConnectionTest extends TelephonyTest {
 
             DataServiceManager manager = new DataServiceManager(mPhone,
                     AccessNetworkConstants.TRANSPORT_TYPE_WWAN, "");
-            mDcc = DcController.makeDcc(mPhone, mDcTracker, manager, h, "");
-            mDcc.start();
+            mDcc = DcController.makeDcc(mPhone, mDcTracker, manager, h.getLooper(), "");
             mDc = DataConnection.makeDataConnection(mPhone, 0, mDcTracker, manager,
                     mDcTesterFailBringUpAll, mDcc);
         }
@@ -552,12 +550,6 @@ public class DataConnectionTest extends TelephonyTest {
                 .setMtuV6(1440)
                 .build();
         assertEquals(RetryManager.NO_RETRY, getSuggestedRetryDelay(response));
-    }
-
-    private NetworkInfo getNetworkInfo() throws Exception {
-        Field f = DataConnection.class.getDeclaredField("mNetworkInfo");
-        f.setAccessible(true);
-        return (NetworkInfo) f.get(mDc);
     }
 
     private NetworkCapabilities getNetworkCapabilities() throws Exception {
