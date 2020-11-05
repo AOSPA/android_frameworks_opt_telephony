@@ -116,6 +116,7 @@ import com.android.internal.telephony.util.QtiImsUtils;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -1275,7 +1276,8 @@ public class GsmCdmaPhone extends Phone {
                     + possibleEmergencyNumber);
             dialString = possibleEmergencyNumber;
         }
-        boolean isEmergency = isEmergencyNumber(dialString);
+        TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
+        boolean isEmergency = tm.isEmergencyNumber(dialString);
         Phone imsPhone = mImsPhone;
         mDialArgs = dialArgs;
 
@@ -1421,7 +1423,8 @@ public class GsmCdmaPhone extends Phone {
         }
 
         Phone imsPhone = mImsPhone;
-        boolean isEmergency = isEmergencyNumber(dialString);
+        TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
+        boolean isEmergency = tm.isEmergencyNumber(dialString);
         boolean shouldConfirmCall =
                         // Using IMS
                         isImsUseEnabled()
@@ -4366,5 +4369,18 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public boolean canDisablePhysicalSubscription() {
         return mCi.canToggleUiccApplicationsEnablement();
+    }
+
+    @Override
+    public @NonNull List<String> getEquivalentHomePlmns() {
+        if (isPhoneTypeGsm()) {
+            IccRecords r = mIccRecords.get();
+            if (r != null && r.getEhplmns() != null) {
+                return Arrays.asList(r.getEhplmns());
+            }
+        } else if (isPhoneTypeCdma()) {
+            loge("EHPLMN is not available in CDMA");
+        }
+        return Collections.emptyList();
     }
 }
