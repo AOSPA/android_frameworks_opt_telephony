@@ -20,6 +20,8 @@ import android.annotation.Nullable;
 import android.content.Context;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.nano.PersistAtomsProto.IncomingSms;
+import com.android.internal.telephony.nano.PersistAtomsProto.OutgoingSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.PersistAtoms;
 import com.android.internal.telephony.nano.PersistAtomsProto.RawVoiceCallRatUsage;
 import com.android.internal.telephony.nano.PersistAtomsProto.VoiceCallSession;
@@ -46,6 +48,12 @@ public class PersistAtomsStorage {
     /** Maximum number of call sessions to store during pulls. */
     private static final int MAX_NUM_CALL_SESSIONS = 50;
 
+    /**
+     * Maximum number of SMS to store during pulls. Incoming messages and outgoing messages are
+     * counted separately.
+     */
+    private static final int MAX_NUM_SMS = 25;
+
     /** Stores persist atoms and persist states of the puller. */
     @VisibleForTesting protected final PersistAtoms mAtoms;
 
@@ -63,21 +71,8 @@ public class PersistAtomsStorage {
 
     /** Adds a call to the storage. */
     public synchronized void addVoiceCallSession(VoiceCallSession call) {
-        int newLength = mAtoms.voiceCallSession.length + 1;
-        if (newLength > MAX_NUM_CALL_SESSIONS) {
-            // will evict one previous call randomly instead of making the array larger
-            newLength = MAX_NUM_CALL_SESSIONS;
-        } else {
-            mAtoms.voiceCallSession = Arrays.copyOf(mAtoms.voiceCallSession, newLength);
-        }
-        int insertAt = 0;
-        if (newLength > 1) {
-            // shuffle when each call is added, or randomly replace a previous call instead if
-            // MAX_NUM_CALL_SESSIONS is reached (call at the last index is evicted).
-            insertAt = sRandom.nextInt(newLength);
-            mAtoms.voiceCallSession[newLength - 1] = mAtoms.voiceCallSession[insertAt];
-        }
-        mAtoms.voiceCallSession[insertAt] = call;
+        mAtoms.voiceCallSession =
+                insertAtRandomPlace(mAtoms.voiceCallSession, call, MAX_NUM_CALL_SESSIONS);
         saveAtomsToFile();
     }
 
@@ -86,6 +81,56 @@ public class PersistAtomsStorage {
         mVoiceCallRatTracker.mergeWith(ratUsages);
         mAtoms.rawVoiceCallRatUsage = mVoiceCallRatTracker.toProto();
         saveAtomsToFile();
+    }
+
+    /** Adds an incoming SMS to the storage. */
+    public synchronized void addIncomingSms(IncomingSms sms) {
+        mAtoms.incomingSms = insertAtRandomPlace(mAtoms.incomingSms, sms, MAX_NUM_SMS);
+        saveAtomsToFile();
+
+        // To be removed
+        Rlog.d(TAG, "Add new incoming SMS atom: " + sms.toString());
+    }
+
+    /** Adds an outgoing SMS to the storage. */
+    public synchronized void addOutgoingSms(OutgoingSms sms) {
+        // Update the retry id, if needed, so that it's unique and larger than all
+        // previous ones. (this algorithm ignores the fact that some SMS atoms might
+        // be dropped due to limit in size of the array).
+        for (OutgoingSms storedSms : mAtoms.outgoingSms) {
+            if (storedSms.messageId == sms.messageId
+                    && storedSms.retryId >= sms.retryId) {
+                sms.retryId = storedSms.retryId + 1;
+            }
+        }
+
+        mAtoms.outgoingSms = insertAtRandomPlace(mAtoms.outgoingSms, sms, MAX_NUM_SMS);
+        saveAtomsToFile();
+
+        // To be removed
+        Rlog.d(TAG, "Add new outgoing SMS atom: " + sms.toString());
+    }
+
+    /** Inserts a new element in a random position in an array with a maximum size. */
+    private static <T> T[] insertAtRandomPlace(T[] storage, T instance, int maxLength) {
+        T[] result;
+        int newLength = storage.length + 1;
+        if (newLength > maxLength) {
+            // will evict one previous call randomly instead of making the array larger
+            newLength = maxLength;
+            result = storage;
+        } else {
+            result = Arrays.copyOf(storage, newLength);
+        }
+        int insertAt = 0;
+        if (newLength > 1) {
+            // shuffle when each element is added, or randomly replace a previous element instead
+            // if maxLength is reached (entry at the last index is evicted).
+            insertAt = sRandom.nextInt(newLength);
+            result[newLength - 1] = result[insertAt];
+        }
+        result[insertAt] = instance;
+        return result;
     }
 
     /**
@@ -124,6 +169,40 @@ public class PersistAtomsStorage {
         }
     }
 
+    /**
+     * Returns and clears the incoming SMS if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized IncomingSms[] getIncomingSms(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.incomingSmsPullTimestampMillis > minIntervalMillis) {
+            mAtoms.incomingSmsPullTimestampMillis = getWallTimeMillis();
+            IncomingSms[] previousIncomingSms = mAtoms.incomingSms;
+            mAtoms.incomingSms = new IncomingSms[0];
+            saveAtomsToFile();
+            return previousIncomingSms;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the outgoing SMS if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized OutgoingSms[] getOutgoingSms(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.outgoingSmsPullTimestampMillis > minIntervalMillis) {
+            mAtoms.outgoingSmsPullTimestampMillis = getWallTimeMillis();
+            OutgoingSms[] previousOutgoingSms = mAtoms.outgoingSms;
+            mAtoms.outgoingSms = new OutgoingSms[0];
+            saveAtomsToFile();
+            return previousOutgoingSms;
+        } else {
+            return null;
+        }
+    }
+
     /** Loads {@link PersistAtoms} from a file in private storage. */
     private PersistAtoms loadAtomsFromFile() {
         try {
@@ -141,12 +220,32 @@ public class PersistAtomsStorage {
                 atomsFromFile.voiceCallSession =
                         Arrays.copyOf(atomsFromFile.voiceCallSession, MAX_NUM_CALL_SESSIONS);
             }
+            if (atomsFromFile.incomingSms == null) {
+                atomsFromFile.incomingSms = new IncomingSms[0];
+            }
+            if (atomsFromFile.incomingSms.length > MAX_NUM_SMS) {
+                atomsFromFile.incomingSms =
+                        Arrays.copyOf(atomsFromFile.incomingSms, MAX_NUM_SMS);
+            }
+            if (atomsFromFile.outgoingSms == null) {
+                atomsFromFile.outgoingSms = new OutgoingSms[0];
+            }
+            if (atomsFromFile.outgoingSms.length > MAX_NUM_SMS) {
+                atomsFromFile.outgoingSms =
+                        Arrays.copyOf(atomsFromFile.outgoingSms, MAX_NUM_SMS);
+            }
             // out of caution, set timestamps to now if they are missing
             if (atomsFromFile.rawVoiceCallRatUsagePullTimestampMillis == 0L) {
                 atomsFromFile.rawVoiceCallRatUsagePullTimestampMillis = getWallTimeMillis();
             }
             if (atomsFromFile.voiceCallSessionPullTimestampMillis == 0L) {
                 atomsFromFile.voiceCallSessionPullTimestampMillis = getWallTimeMillis();
+            }
+            if (atomsFromFile.incomingSmsPullTimestampMillis == 0L) {
+                atomsFromFile.incomingSmsPullTimestampMillis = getWallTimeMillis();
+            }
+            if (atomsFromFile.outgoingSmsPullTimestampMillis == 0L) {
+                atomsFromFile.outgoingSmsPullTimestampMillis = getWallTimeMillis();
             }
             return atomsFromFile;
         } catch (IOException | NullPointerException e) {
@@ -168,15 +267,18 @@ public class PersistAtomsStorage {
     private PersistAtoms makeNewPersistAtoms() {
         PersistAtoms atoms = new PersistAtoms();
         // allow pulling only after some time so data are sufficiently aggregated
-        atoms.rawVoiceCallRatUsagePullTimestampMillis = getWallTimeMillis();
-        atoms.voiceCallSessionPullTimestampMillis = getWallTimeMillis();
+        long currentTime = getWallTimeMillis();
+        atoms.rawVoiceCallRatUsagePullTimestampMillis = currentTime;
+        atoms.voiceCallSessionPullTimestampMillis = currentTime;
+        atoms.incomingSmsPullTimestampMillis = currentTime;
+        atoms.outgoingSmsPullTimestampMillis = currentTime;
         Rlog.d(TAG, "created new PersistAtoms");
         return atoms;
     }
 
     @VisibleForTesting
     protected long getWallTimeMillis() {
-        // epoch time in UTC, preserved across reboots, but can be adjusted e.g. by the user or NTP
+        // Epoch time in UTC, preserved across reboots, but can be adjusted e.g. by the user or NTP
         return System.currentTimeMillis();
     }
 }

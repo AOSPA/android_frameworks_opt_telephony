@@ -127,6 +127,8 @@ public class DataConnection extends StateMachine {
     private static final String RAT_NAME_5G = "nr";
     private static final String RAT_NAME_EVDO = "evdo";
 
+    private static final int MIN_V6_MTU = 1280;
+
     /**
      * The data connection is not being or been handovered. Note this is the state for the source
      * data connection, not destination data connection
@@ -341,9 +343,9 @@ public class DataConnection extends StateMachine {
     static final int EVENT_NR_FREQUENCY_CHANGED = BASE + 29;
     static final int EVENT_CARRIER_CONFIG_LINK_BANDWIDTHS_CHANGED = BASE + 30;
     static final int EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED = BASE + 31;
-
-    private static final int CMD_TO_STRING_COUNT =
-            EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED - BASE + 1;
+    static final int EVENT_CSS_INDICATOR_CHANGED = BASE + 32;
+    static final int EVENT_UPDATE_SUSPENDED_STATE = BASE + 33;
+    private static final int CMD_TO_STRING_COUNT = EVENT_UPDATE_SUSPENDED_STATE - BASE + 1;
 
     private static String[] sCmdToString = new String[CMD_TO_STRING_COUNT];
     static {
@@ -387,6 +389,8 @@ public class DataConnection extends StateMachine {
                 "EVENT_CARRIER_CONFIG_LINK_BANDWIDTHS_CHANGED";
         sCmdToString[EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED - BASE] =
                 "EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED";
+        sCmdToString[EVENT_CSS_INDICATOR_CHANGED - BASE] = "EVENT_CSS_INDICATOR_CHANGED";
+        sCmdToString[EVENT_UPDATE_SUSPENDED_STATE - BASE] = "EVENT_UPDATE_SUSPENDED_STATE";
     }
     // Convert cmd to string or null if unknown
     static String cmdToString(int cmd) {
@@ -1508,7 +1512,6 @@ public class DataConnection extends StateMachine {
             result.removeCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED);
         }
 
-        updateSuspendState();
         result.setCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED, !mIsSuspended);
 
         result.setAdministratorUids(mAdministratorUids);
@@ -1629,9 +1632,31 @@ public class DataConnection extends StateMachine {
                     }
                 }
 
+                boolean useLowerMtuValue = false;
+                CarrierConfigManager configManager = (CarrierConfigManager)
+                        mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+                if (configManager != null) {
+                    PersistableBundle bundle = configManager.getConfigForSubId(mSubId);
+                    if (bundle != null) {
+                        useLowerMtuValue = bundle.getBoolean(
+                                CarrierConfigManager.KEY_USE_LOWER_MTU_VALUE_IF_BOTH_RECEIVED)
+                                && response.getMtuV4() != PhoneConstants.UNSET_MTU
+                                && response.getMtuV6() != PhoneConstants.UNSET_MTU;
+                    }
+                }
+
+                int interfaceMtu = response.getMtu();
                 for (InetAddress gateway : response.getGatewayAddresses()) {
                     int mtu = gateway instanceof java.net.Inet6Address ? response.getMtuV6()
                             : response.getMtuV4();
+                    if (useLowerMtuValue) {
+                        mtu = Math.min(response.getMtuV4(), response.getMtuV6());
+                        // Never set an MTU below MIN_V6_MTU on a network that has IPv6.
+                        if (mtu < MIN_V6_MTU) {
+                            mtu = MIN_V6_MTU;
+                        }
+                        interfaceMtu = mtu;
+                    }
                     // Allow 0.0.0.0 or :: as a gateway;
                     // this indicates a point-to-point interface.
                     linkProperties.addRoute(new RouteInfo(null, gateway, null,
@@ -1641,7 +1666,7 @@ public class DataConnection extends StateMachine {
                 // set interface MTU
                 // this may clobber the setting read from the APN db, but that's ok
                 // TODO: remove once LinkProperties#setMtu is deprecated
-                linkProperties.setMtu(response.getMtu());
+                linkProperties.setMtu(interfaceMtu);
 
                 result = SetupResult.SUCCESS;
             } catch (UnknownHostException e) {
@@ -1723,6 +1748,8 @@ public class DataConnection extends StateMachine {
                     DataConnection.EVENT_NR_STATE_CHANGED, null);
             mPhone.getServiceStateTracker().registerForNrFrequencyChanged(getHandler(),
                     DataConnection.EVENT_NR_FREQUENCY_CHANGED, null);
+            mPhone.getServiceStateTracker().registerForCssIndicatorChanged(getHandler(),
+                    DataConnection.EVENT_CSS_INDICATOR_CHANGED, null);
 
             // Add ourselves to the list of data connections
             mDcController.addDc(DataConnection.this);
@@ -1739,6 +1766,7 @@ public class DataConnection extends StateMachine {
             mPhone.getServiceStateTracker().unregisterForDataRoamingOff(getHandler());
             mPhone.getServiceStateTracker().unregisterForNrStateChanged(getHandler());
             mPhone.getServiceStateTracker().unregisterForNrFrequencyChanged(getHandler());
+            mPhone.getServiceStateTracker().unregisterForCssIndicatorChanged(getHandler());
 
             // Remove ourselves from the DC lists
             mDcController.removeDc(DataConnection.this);
@@ -2126,9 +2154,7 @@ public class DataConnection extends StateMachine {
                             // failure cause and determine if we need to retry this APN later
                             // or not.
                             mInactiveState.setEnterNotificationParams(cp, result.mFailCause,
-                                    // TODO: The actual failure mode should come from the underlying
-                                    //  data service
-                                    DataCallResponse.HANDOVER_FAILURE_MODE_LEGACY);
+                                    dataCallResponse.getHandoverFailureMode());
                             transitionTo(mInactiveState);
                             break;
                         case ERROR_STALE:
@@ -2265,6 +2291,13 @@ public class DataConnection extends StateMachine {
                 // created when the network is already connected. Hence, send the connected
                 // notification immediately.
                 mNetworkAgent.markConnected();
+
+                // The network agent is always created with NOT_SUSPENDED capability, but the
+                // network might be already out of service (or voice call is ongoing) just right
+                // before data connection is created. Connectivity service would not allow a network
+                // created with suspended state, so we create a non-suspended network first, and
+                // then immediately evaluate the suspended state.
+                sendMessage(obtainMessage(EVENT_UPDATE_SUSPENDED_STATE));
             }
 
             if (mTransportType == AccessNetworkConstants.TRANSPORT_TYPE_WWAN) {
@@ -2404,6 +2437,7 @@ public class DataConnection extends StateMachine {
                                 + " drs=" + mDataRegState
                                 + " mRilRat=" + mRilRat);
                     }
+                    updateSuspendState();
                     if (mNetworkAgent != null) {
                         mNetworkAgent.updateLegacySubtype(DataConnection.this);
                         // The new suspended state will be passed through connectivity service
@@ -2437,11 +2471,21 @@ public class DataConnection extends StateMachine {
                     // fallthrough
                 case EVENT_DATA_CONNECTION_ROAM_ON:
                 case EVENT_DATA_CONNECTION_ROAM_OFF:
-                case EVENT_DATA_CONNECTION_OVERRIDE_CHANGED:
-                case EVENT_DATA_CONNECTION_VOICE_CALL_STARTED:
-                case EVENT_DATA_CONNECTION_VOICE_CALL_ENDED: {
+                case EVENT_DATA_CONNECTION_OVERRIDE_CHANGED: {
                     if (mNetworkAgent != null) {
                         mNetworkAgent.updateLegacySubtype(DataConnection.this);
+                        mNetworkAgent.sendNetworkCapabilities(getNetworkCapabilities(),
+                                DataConnection.this);
+                    }
+                    retVal = HANDLED;
+                    break;
+                }
+                case EVENT_DATA_CONNECTION_VOICE_CALL_STARTED:
+                case EVENT_DATA_CONNECTION_VOICE_CALL_ENDED:
+                case EVENT_CSS_INDICATOR_CHANGED:
+                case EVENT_UPDATE_SUSPENDED_STATE: {
+                    updateSuspendState();
+                    if (mNetworkAgent != null) {
                         mNetworkAgent.sendNetworkCapabilities(getNetworkCapabilities(),
                                 DataConnection.this);
                     }

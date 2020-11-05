@@ -80,6 +80,7 @@ import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.EcbmHandler;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
+import com.android.internal.telephony.metrics.SmsStats;
 import com.android.internal.telephony.metrics.VoiceCallSessionStats;
 import com.android.internal.telephony.test.SimulatedRadioControl;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
@@ -98,6 +99,7 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -437,6 +439,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     private final CarrierPrivilegesTracker mCarrierPrivilegesTracker;
 
     protected VoiceCallSessionStats mVoiceCallSessionStats;
+    protected SmsStats mSmsStats;
 
     public IccRecords getIccRecords() {
         return mIccRecords.get();
@@ -577,6 +580,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
         mCallRingDelay = TelephonyProperties.call_ring_delay().orElse(3000);
         Rlog.d(LOG_TAG, "mCallRingDelay=" + mCallRingDelay);
+
+        // Initialize SMS stats
+        mSmsStats = new SmsStats(this);
 
         if (getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
             return;
@@ -3906,7 +3912,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         if (imsPhone != null) {
             isAvailable = imsPhone.isImsCapabilityAvailable(capability, regTech);
         }
-        Rlog.d(LOG_TAG, "isImsRegistered =" + isAvailable);
+        Rlog.d(LOG_TAG, "isImsCapabilityAvailable, capability=" + capability + ", regTech="
+                + regTech + ", isAvailable=" + isAvailable);
         return isAvailable;
     }
 
@@ -3920,7 +3927,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         if (imsPhone != null) {
             isVolteEnabled = imsPhone.isVolteEnabled();
         }
-        Rlog.d(LOG_TAG, "isImsRegistered =" + isVolteEnabled);
+        Rlog.d(LOG_TAG, "isVolteEnabled=" + isVolteEnabled);
         return isVolteEnabled;
     }
 
@@ -4444,6 +4451,17 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         mVoiceCallSessionStats = voiceCallSessionStats;
     }
 
+    /** Returns the {@link SmsStats} for this phone ID. */
+    public SmsStats getSmsStats() {
+        return mSmsStats;
+    }
+
+    /** Sets the {@link SmsStats} mock for this phone ID during unit testing. */
+    @VisibleForTesting
+    public void setSmsStats(SmsStats smsStats) {
+        mSmsStats = smsStats;
+    }
+
     /** @hide */
     public CarrierPrivilegesTracker getCarrierPrivilegesTracker() {
         return mCarrierPrivilegesTracker;
@@ -4451,6 +4469,16 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     public boolean useSsOverIms(Message onComplete) {
         return false;
+    }
+
+    /**
+     * Returns a list of the equivalent home PLMNs (EF_EHPLMN) from the USIM app.
+     *
+     * @return A list of equivalent home PLMNs. Returns an empty list if EF_EHPLMN is empty or
+     * does not exist on the SIM card.
+     */
+    public @NonNull List<String> getEquivalentHomePlmns() {
+        return Collections.emptyList();
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
