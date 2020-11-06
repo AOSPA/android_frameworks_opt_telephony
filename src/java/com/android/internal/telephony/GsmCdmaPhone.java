@@ -42,6 +42,7 @@ import android.content.SharedPreferences;
 import android.database.SQLException;
 import android.net.Uri;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -188,14 +189,14 @@ public class GsmCdmaPhone extends Phone {
 
     //Common
     // Instance Variables
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private IsimUiccRecords mIsimUiccRecords;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public GsmCdmaCallTracker mCT;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ServiceStateTracker mSST;
     public EmergencyNumberTracker mEmergencyNumberTracker;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ArrayList <MmiCode> mPendingMMIs = new ArrayList<MmiCode>();
     private IccPhoneBookInterfaceManager mIccPhoneBookIntManager;
 
@@ -215,14 +216,14 @@ public class GsmCdmaPhone extends Phone {
         final String mSetCfNumber;
         final Message mOnComplete;
 
-        @UnsupportedAppUsage
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         Cfu(String cfNumber, Message onComplete) {
             mSetCfNumber = cfNumber;
             mOnComplete = onComplete;
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private IccSmsInterfaceManager mIccSmsInterfaceManager;
 
     private boolean mResetModemOnRadioTechnologyChange = false;
@@ -464,7 +465,7 @@ public class GsmCdmaPhone extends Phone {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isPhoneTypeGsm() {
         return mPrecisePhoneType == PhoneConstants.PHONE_TYPE_GSM;
     }
@@ -516,7 +517,7 @@ public class GsmCdmaPhone extends Phone {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     @NonNull
     public ServiceState getServiceState() {
@@ -540,7 +541,7 @@ public class GsmCdmaPhone extends Phone {
         mSST.requestCellIdentity(workSource, rspMsg);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public PhoneConstants.State getState() {
         if (mImsPhone != null) {
@@ -553,7 +554,7 @@ public class GsmCdmaPhone extends Phone {
         return mCT.mState;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public int getPhoneType() {
         if (mPrecisePhoneType == PhoneConstants.PHONE_TYPE_GSM) {
@@ -573,7 +574,7 @@ public class GsmCdmaPhone extends Phone {
         return mEmergencyNumberTracker;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public CallTracker getCallTracker() {
         return mCT;
@@ -721,7 +722,7 @@ public class GsmCdmaPhone extends Phone {
      * {@link com.android.internal.telephony.Call.State}. Use this when changes
      * in the precise call state are needed, else use notifyPhoneStateChanged.
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void notifyPreciseCallStateChanged() {
         /* we'd love it if this was package-scoped*/
         super.notifyPreciseCallStateChangedP();
@@ -790,7 +791,7 @@ public class GsmCdmaPhone extends Phone {
         mSuppServiceFailedRegistrants.notifyResult(code);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void notifyServiceStateChanged(ServiceState ss) {
         super.notifyServiceStateChangedP(ss);
     }
@@ -1163,7 +1164,7 @@ public class GsmCdmaPhone extends Phone {
         return true;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public boolean handleInCallMmiCommands(String dialString) throws CallStateException {
         if (!isPhoneTypeGsm()) {
@@ -1213,7 +1214,7 @@ public class GsmCdmaPhone extends Phone {
         return result;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isInCall() {
         GsmCdmaCall.State foregroundCallState = getForegroundCall().getState();
         GsmCdmaCall.State backgroundCallState = getBackgroundCall().getState();
@@ -1230,6 +1231,17 @@ public class GsmCdmaPhone extends Phone {
                 && (mImsPhone.isVolteEnabled() || mImsPhone.isWifiCallingEnabled() ||
                 (mImsPhone.isVideoEnabled() && VideoProfile.isVideo(dialArgs.videoState)))
                 && (mImsPhone.getServiceState().getState() == ServiceState.STATE_IN_SERVICE);
+    }
+
+    public boolean useImsForEmergency() {
+        CarrierConfigManager configManager =
+                (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        boolean alwaysTryImsForEmergencyCarrierConfig = configManager.getConfigForSubId(getSubId())
+                .getBoolean(CarrierConfigManager.KEY_CARRIER_USE_IMS_FIRST_FOR_EMERGENCY_BOOL);
+        return mImsPhone != null
+                && alwaysTryImsForEmergencyCarrierConfig
+                && ImsManager.getInstance(mContext, mPhoneId).isNonTtyOrTtyOnVolteEnabled()
+                && mImsPhone.isImsAvailable();
     }
 
     @Override
@@ -1283,8 +1295,6 @@ public class GsmCdmaPhone extends Phone {
 
         CarrierConfigManager configManager =
                 (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        boolean alwaysTryImsForEmergencyCarrierConfig = configManager.getConfigForSubId(getSubId())
-                .getBoolean(CarrierConfigManager.KEY_CARRIER_USE_IMS_FIRST_FOR_EMERGENCY_BOOL);
 
         /** Check if the call is Wireless Priority Service call */
         boolean isWpsCall = dialString != null ? (dialString.startsWith(PREFIX_WPS) ||
@@ -1293,11 +1303,7 @@ public class GsmCdmaPhone extends Phone {
         boolean allowWpsOverIms = configManager.getConfigForSubId(getSubId())
                 .getBoolean(CarrierConfigManager.KEY_SUPPORT_WPS_OVER_IMS_BOOL);
 
-        boolean useImsForEmergency = imsPhone != null
-                && isEmergency
-                && alwaysTryImsForEmergencyCarrierConfig
-                && ImsManager.getInstance(mContext, mPhoneId).isNonTtyOrTtyOnVolteEnabled()
-                && imsPhone.isImsAvailable();
+        boolean useImsForEmergency = isEmergency && useImsForEmergency();
 
         String dialPart = PhoneNumberUtils.extractNetworkPortionAlt(PhoneNumberUtils.
                 stripSeparators(dialString));
@@ -1763,7 +1769,7 @@ public class GsmCdmaPhone extends Phone {
         return mImei;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public String getEsn() {
         if (isPhoneTypeGsm()) {
@@ -1820,37 +1826,45 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public int getCarrierId() {
-        return mCarrierResolver.getCarrierId();
+        return mCarrierResolver != null
+                ? mCarrierResolver.getCarrierId() : super.getCarrierId();
     }
 
     @Override
     public String getCarrierName() {
-        return mCarrierResolver.getCarrierName();
+        return mCarrierResolver != null
+                ? mCarrierResolver.getCarrierName() : super.getCarrierName();
     }
 
     @Override
     public int getMNOCarrierId() {
-        return mCarrierResolver.getMnoCarrierId();
+        return mCarrierResolver != null
+                ? mCarrierResolver.getMnoCarrierId() : super.getMNOCarrierId();
     }
 
     @Override
     public int getSpecificCarrierId() {
-        return mCarrierResolver.getSpecificCarrierId();
+        return mCarrierResolver != null
+                ? mCarrierResolver.getSpecificCarrierId() : super.getSpecificCarrierId();
     }
 
     @Override
     public String getSpecificCarrierName() {
-        return mCarrierResolver.getSpecificCarrierName();
+        return mCarrierResolver != null
+                ? mCarrierResolver.getSpecificCarrierName() : super.getSpecificCarrierName();
     }
 
     @Override
     public void resolveSubscriptionCarrierId(String simState) {
-        mCarrierResolver.resolveSubscriptionCarrierId(simState);
+        if (mCarrierResolver != null) {
+            mCarrierResolver.resolveSubscriptionCarrierId(simState);
+        }
     }
 
     @Override
     public int getCarrierIdListVersion() {
-        return mCarrierResolver.getCarrierListVersion();
+        return mCarrierResolver != null
+                ? mCarrierResolver.getCarrierListVersion() : super.getCarrierIdListVersion();
     }
 
     @Override
@@ -1923,7 +1937,7 @@ public class GsmCdmaPhone extends Phone {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public String getLine1Number() {
         if (isPhoneTypeGsm()) {
@@ -2049,7 +2063,7 @@ public class GsmCdmaPhone extends Phone {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isValidCommandInterfaceCFReason (int commandInterfaceCFReason) {
         switch (commandInterfaceCFReason) {
             case CF_REASON_UNCONDITIONAL:
@@ -2064,7 +2078,7 @@ public class GsmCdmaPhone extends Phone {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public String getSystemProperty(String property, String defValue) {
         if (getUnitTestMode()) {
@@ -2073,7 +2087,7 @@ public class GsmCdmaPhone extends Phone {
         return TelephonyManager.getTelephonyProperty(mPhoneId, property, defValue);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isValidCommandInterfaceCFAction (int commandInterfaceCFAction) {
         switch (commandInterfaceCFAction) {
             case CF_ACTION_DISABLE:
@@ -2086,7 +2100,7 @@ public class GsmCdmaPhone extends Phone {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isCfEnable(int action) {
         return (action == CF_ACTION_ENABLE) || (action == CF_ACTION_REGISTRATION);
     }
@@ -2474,7 +2488,7 @@ public class GsmCdmaPhone extends Phone {
         mSST.unregisterForSubscriptionInfoReady(h);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setOnEcbModeExitResponse(Handler h, int what, Object obj) {
     }
@@ -2615,7 +2629,7 @@ public class GsmCdmaPhone extends Phone {
     /**
      * Make sure the network knows our preferred setting.
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void syncClirSetting() {
         SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
         migrateClirSettingIfNeeded(sp);
@@ -2766,6 +2780,8 @@ public class GsmCdmaPhone extends Phone {
                 break;
 
             case EVENT_CARRIER_CONFIG_CHANGED:
+                // Obtain new radio capabilities from the modem, since some are SIM-dependent
+                mCi.getRadioCapability(obtainMessage(EVENT_GET_RADIO_CAPABILITY));
                 // Only check for the voice radio tech if it not going to be updated by the voice
                 // registration changes.
                 if (!mContext.getResources().getBoolean(
@@ -2889,11 +2905,13 @@ public class GsmCdmaPhone extends Phone {
                  keep the end of the version.
                 */
                 String version = (String)ar.result;
-                int length = version.length();
-                final int MAX_VERSION_LEN = SystemProperties.PROP_VALUE_MAX/2;
-                TelephonyManager.from(mContext).setBasebandVersionForPhone(getPhoneId(),
-                        length <= MAX_VERSION_LEN ? version
-                            : version.substring(length - MAX_VERSION_LEN, length));
+                if (version != null) {
+                    int length = version.length();
+                    final int MAX_VERSION_LEN = SystemProperties.PROP_VALUE_MAX/2;
+                    TelephonyManager.from(mContext).setBasebandVersionForPhone(getPhoneId(),
+                            length <= MAX_VERSION_LEN ? version
+                                : version.substring(length - MAX_VERSION_LEN, length));
+                }
             break;
 
             case EVENT_GET_IMEI_DONE:
@@ -3435,7 +3453,7 @@ public class GsmCdmaPhone extends Phone {
         return false;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isManualSelProhibitedInGlobalMode() {
         boolean isProhibited = false;
         final String configString = getContext().getResources().getString(com.android.internal
@@ -3485,7 +3503,7 @@ public class GsmCdmaPhone extends Phone {
         r.unregisterForRecordsLoaded(this);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void exitEmergencyCallbackMode() {
     }
@@ -3721,7 +3739,7 @@ public class GsmCdmaPhone extends Phone {
     /**
      * Returns the CDMA ERI text,
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public String getCdmaEriText() {
         if (isPhoneTypeGsm()) {
@@ -4216,7 +4234,7 @@ public class GsmCdmaPhone extends Phone {
         return null;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void logd(String s) {
         Rlog.d(LOG_TAG, "[" + mPhoneId + "] " + s);
     }
@@ -4225,7 +4243,7 @@ public class GsmCdmaPhone extends Phone {
         Rlog.i(LOG_TAG, "[" + mPhoneId + "] " + s);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void loge(String s) {
         Rlog.e(LOG_TAG, "[" + mPhoneId + "] " + s);
     }
@@ -4382,5 +4400,26 @@ public class GsmCdmaPhone extends Phone {
             loge("EHPLMN is not available in CDMA");
         }
         return Collections.emptyList();
+    }
+
+    /**
+     * @return Currently bound data service package names.
+     */
+    public @NonNull List<String> getDataServicePackages() {
+        List<String> packages = new ArrayList<>();
+        int[] transports = new int[]{AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                AccessNetworkConstants.TRANSPORT_TYPE_WLAN};
+
+        for (int transport : transports) {
+            DcTracker dct = getDcTracker(transport);
+            if (dct != null) {
+                String pkg = dct.getDataServiceManager().getDataServicePackageName();
+                if (!TextUtils.isEmpty(pkg)) {
+                    packages.add(pkg);
+                }
+            }
+        }
+
+        return packages;
     }
 }

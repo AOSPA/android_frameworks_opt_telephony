@@ -17,6 +17,7 @@
 package com.android.internal.telephony.uicc;
 
 import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.PhoneNumberUtils;
@@ -39,18 +40,18 @@ public class AdnRecord implements Parcelable {
 
     //***** Instance Variables
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String mAlphaTag = null;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String mNumber = null;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String[] mEmails;
     String[] mAdditionalNumbers = null;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     int mExtRecord = 0xff;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     int mEfid;                   // or 0 if none
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     int mRecordNumber;           // or 0 if none
 
 
@@ -78,7 +79,7 @@ public class AdnRecord implements Parcelable {
 
     //***** Static Methods
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final Parcelable.Creator<AdnRecord> CREATOR
             = new Parcelable.Creator<AdnRecord>() {
         @Override
@@ -107,24 +108,24 @@ public class AdnRecord implements Parcelable {
 
 
     //***** Constructor
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public AdnRecord (byte[] record) {
         this(0, 0, record);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public AdnRecord (int efid, int recordNumber, byte[] record) {
         this.mEfid = efid;
         this.mRecordNumber = recordNumber;
         parseRecord(record);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public AdnRecord (String alphaTag, String number) {
         this(0, 0, alphaTag, number);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public AdnRecord (String alphaTag, String number, String[] emails) {
         this(0, 0, alphaTag, number, emails);
     }
@@ -133,7 +134,7 @@ public class AdnRecord implements Parcelable {
         this(0, 0, alphaTag, number, emails, additionalNumbers);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public AdnRecord (int efid, int recordNumber, String alphaTag, String number, String[] emails) {
         this.mEfid = efid;
         this.mRecordNumber = recordNumber;
@@ -153,7 +154,7 @@ public class AdnRecord implements Parcelable {
         this.mAdditionalNumbers = additionalNumbers;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public AdnRecord(int efid, int recordNumber, String alphaTag, String number) {
         this.mEfid = efid;
         this.mRecordNumber = recordNumber;
@@ -177,7 +178,7 @@ public class AdnRecord implements Parcelable {
         return mRecordNumber;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String getNumber() {
         return mNumber;
     }
@@ -186,12 +187,12 @@ public class AdnRecord implements Parcelable {
         mNumber = number;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String[] getEmails() {
         return mEmails;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setEmails(String[] emails) {
         this.mEmails = emails;
     }
@@ -219,7 +220,7 @@ public class AdnRecord implements Parcelable {
                 + Rlog.pii(LOG_TAG, mAdditionalNumbers) + "'";
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isEmpty() {
         return TextUtils.isEmpty(mAlphaTag) && TextUtils.isEmpty(mNumber) && mEmails == null
                 && mAdditionalNumbers == null;
@@ -318,7 +319,7 @@ public class AdnRecord implements Parcelable {
      * @return hex byte[recordSize] to be written to EF record
      *          return null for wrong format of dialing number or tag
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public byte[] buildAdnString(int recordSize) {
         byte[] bcdNumber;
         byte[] byteTag;

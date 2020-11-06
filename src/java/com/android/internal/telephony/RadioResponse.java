@@ -31,6 +31,7 @@ import android.hardware.radio.V1_0.LceStatusInfo;
 import android.hardware.radio.V1_0.NeighboringCell;
 import android.hardware.radio.V1_0.RadioError;
 import android.hardware.radio.V1_0.RadioResponseInfo;
+import android.hardware.radio.V1_0.RadioTechnologyFamily;
 import android.hardware.radio.V1_0.SendSmsResult;
 import android.hardware.radio.V1_0.VoiceRegStateResult;
 import android.hardware.radio.V1_4.CarrierRestrictionsWithPriority;
@@ -479,6 +480,7 @@ public class RadioResponse extends IRadioResponse.Stub {
      */
     public void setRadioPowerResponse(RadioResponseInfo responseInfo) {
         responseVoid(responseInfo);
+        mRil.mLastRadioPowerResult = responseInfo.error;
     }
 
     /**
@@ -1290,7 +1292,12 @@ public class RadioResponse extends IRadioResponse.Stub {
      */
     public void getImsRegistrationStateResponse(RadioResponseInfo responseInfo,
                                                 boolean isRegistered, int ratFamily) {
-        responseInts(responseInfo, isRegistered ? 1 : 0, ratFamily);
+        responseInts(
+                responseInfo,
+                isRegistered ? 1 : 0,
+                ratFamily == RadioTechnologyFamily.THREE_GPP
+                        ? PhoneConstants.PHONE_TYPE_GSM
+                        : PhoneConstants.PHONE_TYPE_CDMA);
     }
 
     /**
@@ -1497,6 +1504,32 @@ public class RadioResponse extends IRadioResponse.Stub {
     public void getModemActivityInfoResponse(RadioResponseInfo responseInfo,
                                              ActivityStatsInfo activityInfo) {
         responseActivityData(responseInfo, activityInfo);
+    }
+
+    /**
+     *
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     * @param isEnabled Indicates whether NR dual connectivity is enabled or not, True if enabled
+     *               else false.
+     */
+    public void isNrDualConnectivityEnabledResponse(RadioResponseInfo responseInfo,
+            boolean isEnabled) {
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr != null) {
+            if (responseInfo.error == RadioError.NONE) {
+                sendMessageResponse(rr.mResult, isEnabled);
+            }
+            mRil.processResponseDone(rr, responseInfo, isEnabled);
+        }
+    }
+
+    /**
+     *
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void enableNrDualConnectivityResponse(RadioResponseInfo responseInfo) {
+        responseVoid(responseInfo);
     }
 
     /**
@@ -2058,6 +2091,18 @@ public class RadioResponse extends IRadioResponse.Stub {
                 sendMessageResponse(rr.mResult, ret);
             }
             mRil.processResponseDone(rr, responseInfo, ret);
+        }
+    }
+
+    private void responseVoid_1_6(android.hardware.radio.V1_6.RadioResponseInfo responseInfo) {
+        RILRequest rr = mRil.processResponse_1_6(responseInfo);
+
+        if (rr != null) {
+            Object ret = null;
+            if (responseInfo.error == RadioError.NONE) {
+                sendMessageResponse(rr.mResult, ret);
+            }
+            mRil.processResponseDone_1_6(rr, responseInfo, ret);
         }
     }
 
@@ -2640,6 +2685,15 @@ public class RadioResponse extends IRadioResponse.Stub {
      */
     public void setRadioPowerResponse_1_5(RadioResponseInfo info) {
         responseVoid(info);
+        mRil.mLastRadioPowerResult = info.error;
+    }
+
+    /**
+     * @param info Response info struct containing response type, serial no. and error.
+     */
+    public void setRadioPowerResponse_1_6(android.hardware.radio.V1_6.RadioResponseInfo info) {
+        responseVoid_1_6(info);
+        mRil.mLastRadioPowerResult = info.error;
     }
 
     /**

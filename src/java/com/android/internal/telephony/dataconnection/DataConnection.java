@@ -81,6 +81,7 @@ import com.android.internal.telephony.ServiceStateTracker;
 import com.android.internal.telephony.TelephonyStatsLog;
 import com.android.internal.telephony.dataconnection.DcTracker.ReleaseNetworkType;
 import com.android.internal.telephony.dataconnection.DcTracker.RequestNetworkType;
+import com.android.internal.telephony.metrics.DataCallSessionStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
 import com.android.internal.util.AsyncChannel;
@@ -189,6 +190,9 @@ public class DataConnection extends StateMachine {
     private final LocalLog mHandoverLocalLog = new LocalLog(100);
 
     private int[] mAdministratorUids = new int[0];
+
+    // stats per data call
+    private DataCallSessionStats mDataCallSessionStats;
 
     /**
      * Used internally for saving connecting parameters.
@@ -682,6 +686,7 @@ public class DataConnection extends StateMachine {
         mCid = -1;
         mDataRegState = mPhone.getServiceState().getDataRegistrationState();
         mIsSuspended = false;
+        mDataCallSessionStats = new DataCallSessionStats(mPhone);
 
         int networkType = getNetworkType();
         mRilRat = ServiceState.networkTypeToRilRadioTechnology(networkType);
@@ -739,7 +744,7 @@ public class DataConnection extends StateMachine {
         if (mDcTesterFailBringUpAll.getDcFailBringUp().mCounter  > 0) {
             DataCallResponse response = new DataCallResponse.Builder()
                     .setCause(mDcTesterFailBringUpAll.getDcFailBringUp().mFailCause)
-                    .setSuggestedRetryTime(
+                    .setRetryIntervalMillis(
                             mDcTesterFailBringUpAll.getDcFailBringUp().mSuggestedRetryTime)
                     .setMtuV4(PhoneConstants.UNSET_MTU)
                     .setMtuV6(PhoneConstants.UNSET_MTU)
@@ -885,6 +890,7 @@ public class DataConnection extends StateMachine {
         if (apnContext != null) apnContext.requestLog(str);
         mDataServiceManager.deactivateDataCall(mCid, discReason,
                 obtainMessage(EVENT_DEACTIVATE_DONE, mTag, 0, o));
+        mDataCallSessionStats.setDeactivateDataCallReason(discReason);
     }
 
     private void notifyAllWithEvent(ApnContext alreadySent, int event, String reason) {
@@ -1821,6 +1827,8 @@ public class DataConnection extends StateMachine {
                     if (DBG) log("DcDefaultState EVENT_TEAR_DOWN_NOW");
                     mDataServiceManager.deactivateDataCall(mCid, DataService.REQUEST_REASON_NORMAL,
                             null);
+                    mDataCallSessionStats.setDeactivateDataCallReason(
+                            DataService.REQUEST_REASON_NORMAL);
                     break;
                 case EVENT_LOST_CONNECTION:
                     if (DBG) {
@@ -1842,6 +1850,10 @@ public class DataConnection extends StateMachine {
                         log("DcDefaultState: EVENT_DATA_CONNECTION_DRS_OR_RAT_CHANGED"
                                 + " drs=" + mDataRegState
                                 + " mRilRat=" + mRilRat);
+                    }
+                    // this is for DRS or RAT changes, so only call onRatChanged if RAT is changed
+                    if (mRilRat != 0) {
+                        mDataCallSessionStats.onRatChanged(mRilRat);
                     }
                     break;
                 default:
@@ -2071,6 +2083,7 @@ public class DataConnection extends StateMachine {
                     .registerCarrierPrivilegesListener(
                             getHandler(), EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED, null);
             notifyDataConnectionState();
+            mDataCallSessionStats.onSetupDataCall();
         }
         @Override
         public boolean processMessage(Message msg) {
@@ -2137,7 +2150,14 @@ public class DataConnection extends StateMachine {
                             // NO_SUGGESTED_RETRY_DELAY here.
 
                             long delay = getSuggestedRetryDelay(dataCallResponse);
-                            cp.mApnContext.setModemSuggestedDelay(delay);
+                            long retryTime = RetryManager.NO_SUGGESTED_RETRY_DELAY;
+                            if (delay == RetryManager.NO_RETRY) {
+                                retryTime = RetryManager.NO_RETRY;
+                            } else if (delay >= 0) {
+                                retryTime = SystemClock.elapsedRealtime() + delay;
+                            }
+                            mDct.getDataThrottler().setRetryTime(mApnSetting.getApnTypeBitmask(),
+                                    retryTime);
 
                             String str = "DcActivatingState: ERROR_DATA_SERVICE_SPECIFIC_ERROR "
                                     + " delay=" + delay
@@ -2165,6 +2185,9 @@ public class DataConnection extends StateMachine {
                             throw new RuntimeException("Unknown SetupResult, should not happen");
                     }
                     retVal = HANDLED;
+                    mDataCallSessionStats
+                            .onSetupDataCallResponse(dataCallResponse, cp.mRilRat, cp.mProfileId,
+                                    mApnSetting.getApnTypeBitmask(), mApnSetting.getProtocol());
                     break;
                 case EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED:
                     AsyncResult asyncResult = (AsyncResult) msg.obj;
@@ -2307,8 +2330,9 @@ public class DataConnection extends StateMachine {
                         getHandler(), DataConnection.EVENT_LINK_CAPACITY_CHANGED, null);
             }
             notifyDataConnectionState();
+            int apnBitMask = mApnSetting.getApnTypeBitmask();
             TelephonyMetrics.getInstance().writeRilDataCallEvent(mPhone.getPhoneId(),
-                    mCid, mApnSetting.getApnTypeBitmask(), RilDataCall.State.CONNECTED);
+                    mCid, apnBitMask, RilDataCall.State.CONNECTED);
         }
 
         @Override
@@ -2336,6 +2360,7 @@ public class DataConnection extends StateMachine {
 
             TelephonyMetrics.getInstance().writeRilDataCallEvent(mPhone.getPhoneId(),
                     mCid, mApnSetting.getApnTypeBitmask(), RilDataCall.State.DISCONNECTED);
+            mDataCallSessionStats.onDataCallDisconnected(mCid);
 
             mPhone.getCarrierPrivilegesTracker().unregisterCarrierPrivilegesListener(getHandler());
         }
@@ -2447,6 +2472,10 @@ public class DataConnection extends StateMachine {
                         mNetworkAgent.sendLinkProperties(mLinkProperties, DataConnection.this);
                     }
                     retVal = HANDLED;
+                    // this is for DRS or RAT changes, so only call onRatChanged if RAT is changed
+                    if (mRilRat != 0) {
+                        mDataCallSessionStats.onRatChanged(mRilRat);
+                    }
                     break;
                 }
                 case EVENT_NR_FREQUENCY_CHANGED:
@@ -2919,30 +2948,34 @@ public class DataConnection extends StateMachine {
      * Using the result of the SETUP_DATA_CALL determine the retry delay.
      *
      * @param response The response from setup data call
-     * @return NO_SUGGESTED_RETRY_DELAY if no retry is needed otherwise the delay to the
-     *         next SETUP_DATA_CALL
+     * @return {@link RetryManager#NO_SUGGESTED_RETRY_DELAY} if not suggested.
+     * {@link RetryManager#NO_RETRY} if retry should not happen. Otherwise the delay in milliseconds
+     * to the next SETUP_DATA_CALL.
      */
     private long getSuggestedRetryDelay(DataCallResponse response) {
         /** According to ril.h
          * The value < 0 means no value is suggested
          * The value 0 means retry should be done ASAP.
-         * The value of Integer.MAX_VALUE(0x7fffffff) means no retry.
+         * The value of Long.MAX_VALUE(0x7fffffffffffffff) means no retry.
          */
 
+        long suggestedRetryTime = response.getRetryIntervalMillis();
+
         // The value < 0 means no value is suggested
-        if (response.getSuggestedRetryTime() < 0) {
+        if (suggestedRetryTime < 0) {
             if (DBG) log("No suggested retry delay.");
             return RetryManager.NO_SUGGESTED_RETRY_DELAY;
-        }
-        // The value of Integer.MAX_VALUE(0x7fffffff) means no retry.
-        else if (response.getSuggestedRetryTime() == Integer.MAX_VALUE) {
-            if (DBG) log("Modem suggested not retrying.");
+        } else if (mPhone.getHalVersion().greaterOrEqual(RIL.RADIO_HAL_VERSION_1_6)
+                && suggestedRetryTime == Long.MAX_VALUE) {
+            if (DBG) log("Network suggested not retrying.");
+            return RetryManager.NO_RETRY;
+        } else if (mPhone.getHalVersion().less(RIL.RADIO_HAL_VERSION_1_6)
+                && suggestedRetryTime == Integer.MAX_VALUE) {
+            if (DBG) log("Network suggested not retrying.");
             return RetryManager.NO_RETRY;
         }
 
-        // We need to cast it to long because the value returned from RIL is a 32-bit integer,
-        // but the time values used in AlarmManager are all 64-bit long.
-        return (long) response.getSuggestedRetryTime();
+        return suggestedRetryTime;
     }
 
     public List<ApnContext> getApnContexts() {
@@ -2961,6 +2994,12 @@ public class DataConnection extends StateMachine {
                     + " to " + handoverStateToString(state));
             mHandoverState = state;
         }
+    }
+
+    /** Sets the {@link DataCallSessionStats} mock for this phone ID during unit testing. */
+    @VisibleForTesting
+    public void setDataCallSessionStats(DataCallSessionStats dataCallSessionStats) {
+        mDataCallSessionStats = dataCallSessionStats;
     }
 
     /**

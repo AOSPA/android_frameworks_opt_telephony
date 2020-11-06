@@ -20,6 +20,7 @@ import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.net.Uri;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -64,16 +65,16 @@ public class ImsPhoneConnection extends Connection implements
 
     //***** Instance Variables
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ImsPhoneCallTracker mOwner;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ImsPhoneCall mParent;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ImsCall mImsCall;
     private Bundle mExtras = new Bundle();
     private TelephonyMetrics mMetrics = TelephonyMetrics.getInstance();
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean mDisconnected;
 
     /*
@@ -359,7 +360,7 @@ public class ImsPhoneConnection extends Connection implements
         return mDialString;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ImsPhoneCall getCall() {
         return mParent;
@@ -405,7 +406,7 @@ public class ImsPhoneConnection extends Connection implements
       return null;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ImsPhoneCallTracker getOwner () {
         return mOwner;
     }
@@ -537,7 +538,7 @@ public class ImsPhoneConnection extends Connection implements
         return onDisconnect();
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean onDisconnect() {
         boolean changed = false;
 
@@ -715,14 +716,14 @@ public class ImsPhoneConnection extends Connection implements
         notifyPostDialListeners();
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void
     createWakeLock(Context context) {
         PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         mPartialWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, LOG_TAG);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void
     acquireWakeLock() {
         Rlog.d(LOG_TAG, "acquireWakeLock");
@@ -765,7 +766,7 @@ public class ImsPhoneConnection extends Connection implements
         return null;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public synchronized boolean isMultiparty() {
         return mImsCall != null && mImsCall.isMultiparty();
@@ -805,7 +806,7 @@ public class ImsPhoneConnection extends Connection implements
      * @return {@code true} if the {@link ImsPhoneConnection} or its media capabilities have been
      *     changed, and {@code false} otherwise.
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean update(ImsCall imsCall, ImsPhoneCall.State state) {
         if (state == ImsPhoneCall.State.ACTIVE) {
             // If the state of the call is active, but there is a pending request to the RIL to hold
