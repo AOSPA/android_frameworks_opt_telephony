@@ -20,6 +20,7 @@ import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentValues;
 import android.content.pm.PackageManager;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.HandlerThread;
 import android.os.Handler;
 import android.os.Looper;
@@ -43,12 +44,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class IccPhoneBookInterfaceManager {
     static final String LOG_TAG = "IccPhoneBookIM";
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected static final boolean DBG = true;
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected Phone mPhone;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected AdnRecordCache mAdnCache;
 
     protected static final int EVENT_GET_SIZE_DONE = 1;

@@ -93,6 +93,7 @@ import android.telephony.gsm.GsmCellLocation;
 import android.text.TextUtils;
 import android.util.EventLog;
 import android.util.LocalLog;
+import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
 import android.view.WindowManager;
@@ -107,11 +108,13 @@ import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.PhoneSwitcher;
 import com.android.internal.telephony.RILConstants;
+import com.android.internal.telephony.RetryManager;
 import com.android.internal.telephony.SettingsObserver;
 import com.android.internal.telephony.SubscriptionInfoUpdater;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons.DataAllowedReasonType;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons.DataDisallowedReasonType;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings.DataEnabledChangedReason;
+import com.android.internal.telephony.metrics.DataStallRecoveryStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.util.ArrayUtils;
 import com.android.internal.telephony.util.TelephonyUtils;
@@ -332,6 +335,9 @@ public class DcTracker extends Handler {
     private boolean mNrSaMmwaveUnmetered = false;
     private boolean mNrSaSub6Unmetered = false;
     private boolean mRoamingUnmetered = false;
+
+    // stats per data call recovery event
+    private DataStallRecoveryStats mDataStallRecoveryStats;
 
     /* List of SubscriptionPlans, updated when initialized and when plans are changed. */
     private List<SubscriptionPlan> mSubscriptionPlans = null;
@@ -665,6 +671,8 @@ public class DcTracker extends Handler {
 
     private DataStallRecoveryHandler mDsRecoveryHandler;
     private HandlerThread mHandlerThread;
+
+    private final DataThrottler mDataThrottler = new DataThrottler();
 
     /**
      * Request network completion message map. Key is the APN type, value is the list of completion
@@ -1161,27 +1169,6 @@ public class DcTracker extends Handler {
             }
         }
         return state;
-    }
-
-    /** Convert the internal DctConstants enum state to the TelephonyManager DATA_*  state.
-     * @param state the DctConstants.State
-     * @return a corresponding TelephonyManager.DataState
-     */
-    @TelephonyManager.DataState
-    public static int convertDctStateToTelephonyDataState(DctConstants.State state) {
-        switch(state) {
-            case CONNECTING: // fall through
-            case RETRYING:
-                return TelephonyManager.DATA_CONNECTING;
-            case CONNECTED:
-                return TelephonyManager.DATA_CONNECTED;
-            case DISCONNECTING:
-                return TelephonyManager.DATA_DISCONNECTING;
-            case IDLE: // fall through
-            case FAILED: // fall through
-            default:
-                return TelephonyManager.DATA_DISCONNECTED;
-        }
     }
 
     /**
@@ -2903,16 +2890,24 @@ public class DcTracker extends Handler {
      * A SETUP (aka bringUp) has completed, possibly with an error. If
      * there is an error this method will call {@link #onDataSetupCompleteError}.
      */
-    protected void onDataSetupComplete(ApnContext apnContext, boolean success, int cause,
-            @RequestNetworkType int requestType, @HandoverFailureMode int handoverFailureMode) {
-        int apnType = ApnSetting.getApnTypesBitmaskFromString(apnContext.getApnType());
-        List<Message> messageList = mRequestNetworkCompletionMsgs.get(apnType);
-        if (messageList != null) {
-            for (Message msg : messageList) {
-                sendRequestNetworkCompleteMsg(msg, success, mTransportType, requestType,
-                        handoverFailureMode, cause);
+    protected void onDataSetupComplete(ApnContext apnContext, boolean success,
+            @DataFailureCause int cause, @RequestNetworkType int requestType,
+            @HandoverFailureMode int handoverFailureMode) {
+        if (success && (handoverFailureMode != DataCallResponse.HANDOVER_FAILURE_MODE_UNKNOWN
+                && handoverFailureMode != DataCallResponse.HANDOVER_FAILURE_MODE_LEGACY)) {
+            Log.wtf(mLogTag, "bad failure mode: "
+                    + DataCallResponse.failureModeToString(handoverFailureMode));
+        } else if (handoverFailureMode
+                != DataCallResponse.HANDOVER_FAILURE_MODE_NO_FALLBACK_RETRY_HANDOVER) {
+            int apnType = ApnSetting.getApnTypesBitmaskFromString(apnContext.getApnType());
+            List<Message> messageList = mRequestNetworkCompletionMsgs.get(apnType);
+            if (messageList != null) {
+                for (Message msg : messageList) {
+                    sendRequestNetworkCompleteMsg(msg, success, mTransportType, requestType,
+                            handoverFailureMode, cause);
+                }
+                messageList.clear();
             }
-            messageList.clear();
         }
 
         if (success) {
@@ -2938,7 +2933,7 @@ public class DcTracker extends Handler {
             }
             if (dataConnection == null) {
                 log("onDataSetupComplete: no connection to DC, handle as error");
-                onDataSetupCompleteError(apnContext, requestType);
+                onDataSetupCompleteError(apnContext, requestType, false);
             } else {
                 ApnSetting apn = apnContext.getApnSetting();
                 if (DBG) {
@@ -3060,7 +3055,12 @@ public class DcTracker extends Handler {
                 log("cause = " + cause + ", mark apn as permanent failed. apn = " + apn);
                 apnContext.markApnPermanentFailed(apn);
             }
-            onDataSetupCompleteError(apnContext, requestType);
+
+            requestType = (handoverFailureMode
+                    == DataCallResponse.HANDOVER_FAILURE_MODE_NO_FALLBACK_RETRY_HANDOVER)
+                    ? REQUEST_TYPE_HANDOVER : REQUEST_TYPE_NORMAL;
+            onDataSetupCompleteError(apnContext, requestType,
+                    shouldFallbackOnFailedHandover(handoverFailureMode, requestType, cause));
         }
     }
 
@@ -3071,13 +3071,16 @@ public class DcTracker extends Handler {
      * be a delay defined by {@link ApnContext#getDelayForNextApn(boolean)}.
      */
     protected void onDataSetupCompleteError(ApnContext apnContext,
-                                          @RequestNetworkType int requestType) {
+            @RequestNetworkType int requestType, boolean fallback) {
         long delay = apnContext.getDelayForNextApn(mFailFast);
 
         // Check if we need to retry or not.
-        // TODO: We should support handover retry in the future.
-        if (delay >= 0) {
-            if (DBG) log("onDataSetupCompleteError: Try next APN. delay = " + delay);
+        if (delay >= 0 && delay != RetryManager.NO_RETRY && !fallback) {
+            if (DBG) {
+                log("onDataSetupCompleteError: APN type=" + apnContext.getApnType()
+                        + ". Request type=" + requestTypeToString(requestType) + ", Retry in "
+                        + delay + "ms.");
+            }
             apnContext.setState(DctConstants.State.RETRYING);
             // Wait a bit before trying the next APN, so that
             // we're not tying up the RIL command channel
@@ -3797,7 +3800,7 @@ public class DcTracker extends Handler {
                 generation = pair.second;
                 handoverFailureMode = msg.arg2;
                 if (apnContext.getConnectionGeneration() == generation) {
-                    onDataSetupCompleteError(apnContext, handoverFailureMode);
+                    onDataSetupCompleteError(apnContext, handoverFailureMode, false);
                 } else {
                     loge("EVENT_DATA_SETUP_COMPLETE_ERROR: Dropped the event because generation "
                             + "did not match.");
@@ -4734,7 +4737,7 @@ public class DcTracker extends Handler {
             RECOVERY_ACTION_RADIO_RESTART
         })
     @Retention(RetentionPolicy.SOURCE)
-    private @interface RecoveryAction {};
+    public @interface RecoveryAction {};
     private static final int RECOVERY_ACTION_GET_DATA_CALL_LIST      = 0;
     private static final int RECOVERY_ACTION_CLEANUP                 = 1;
     private static final int RECOVERY_ACTION_REREGISTER              = 2;
@@ -4836,6 +4839,7 @@ public class DcTracker extends Handler {
                         mPhone.getPhoneId(), signalStrength);
                 TelephonyMetrics.getInstance().writeDataStallEvent(
                         mPhone.getPhoneId(), recoveryAction);
+                DataStallRecoveryStats.onDataStallEvent(recoveryAction, mPhone);
                 broadcastDataStallDetected(recoveryAction);
 
                 switch (recoveryAction) {
@@ -5294,5 +5298,19 @@ public class DcTracker extends Handler {
         }
         // Return static default defined in CarrierConfigManager.
         return CarrierConfigManager.getDefaultConfig();
+    }
+
+    /**
+     * @return The data service manager.
+     */
+    public @NonNull DataServiceManager getDataServiceManager() {
+        return mDataServiceManager;
+    }
+
+    /**
+     * @return The data throttler
+     */
+    public @NonNull DataThrottler getDataThrottler() {
+        return mDataThrottler;
     }
 }
