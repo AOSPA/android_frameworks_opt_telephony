@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.NonNull;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.net.Uri;
 import android.os.Build;
@@ -25,6 +26,7 @@ import android.telephony.DisconnectCause;
 import android.telephony.ServiceState;
 import android.telephony.ServiceState.RilRadioTechnology;
 import android.telephony.emergency.EmergencyNumber;
+import android.telephony.ims.RtpHeaderExtension;
 import android.util.Log;
 
 import com.android.ims.internal.ConferenceParticipant;
@@ -124,6 +126,18 @@ public abstract class Connection {
         public void onRttTerminated();
         public void onOriginalConnectionReplaced(Connection newConnection);
         public void onIsNetworkEmergencyCallChanged(boolean isEmergencyCall);
+
+        /**
+         * Indicates a DTMF digit has been received from the network.
+         * @param digit The DTMF digit.
+         */
+        public void onReceivedDtmfDigit(char digit);
+
+        /**
+         * Indicates data from an RTP header extension has been received from the network.
+         * @param extensionData The extension data.
+         */
+        public void onReceivedRtpHeaderExtensions(@NonNull Set<RtpHeaderExtension> extensionData);
     }
 
     /**
@@ -173,10 +187,16 @@ public abstract class Connection {
         public void onOriginalConnectionReplaced(Connection newConnection) {}
         @Override
         public void onIsNetworkEmergencyCallChanged(boolean isEmergencyCall) {}
+        @Override
+        public void onReceivedDtmfDigit(char digit) {}
+        @Override
+        public void onReceivedRtpHeaderExtensions(@NonNull Set<RtpHeaderExtension> extensionData) {}
     }
 
     public static final int AUDIO_QUALITY_STANDARD = 1;
     public static final int AUDIO_QUALITY_HIGH_DEFINITION = 2;
+    // the threshold used to compare mAudioCodecBitrateKbps and mAudioCodecBandwidth.
+    public static final float THRESHOLD = 0.01f;
 
     /**
      * The telecom internal call ID associated with this connection.  Only to be used for debugging
@@ -234,6 +254,10 @@ public abstract class Connection {
 
     // Store the current audio code
     protected int mAudioCodec;
+    // audio codec bitrate in kbps
+    protected float mAudioCodecBitrateKbps;
+    // audio codec bandwidth in kHz
+    protected float mAudioCodecBandwidthKhz;
 
     @UnsupportedAppUsage
     private static String LOG_TAG = "Connection";
@@ -1418,6 +1442,20 @@ public abstract class Connection {
     }
 
     /**
+     * @return the audio codec bitrate in kbps.
+     */
+    public float getAudioCodecBitrateKbps() {
+        return mAudioCodecBitrateKbps;
+    }
+
+    /**
+     * @return the audio codec bandwidth in kHz.
+     */
+    public float getAudioCodecBandwidthKhz() {
+        return mAudioCodecBandwidthKhz;
+    }
+
+    /**
      * @return The number verification status; only applicable for IMS calls.
      */
     public @android.telecom.Connection.VerificationStatus int getNumberVerificationStatus() {
@@ -1431,5 +1469,25 @@ public abstract class Connection {
     public void setNumberVerificationStatus(
             @android.telecom.Connection.VerificationStatus int verificationStatus) {
         mNumberVerificationStatus = verificationStatus;
+    }
+
+    /**
+     * Called to report a DTMF digit received from the network.
+     * @param digit the received digit.
+     */
+    public void receivedDtmfDigit(char digit) {
+        for (Listener l : mListeners) {
+            l.onReceivedDtmfDigit(digit);
+        }
+    }
+
+    /**
+     * Called to report RTP header extensions received from the network.
+     * @param extensionData the received extension data.
+     */
+    public void receivedRtpHeaderExtensions(@NonNull Set<RtpHeaderExtension> extensionData) {
+        for (Listener l : mListeners) {
+            l.onReceivedRtpHeaderExtensions(extensionData);
+        }
     }
 }
