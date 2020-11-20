@@ -43,6 +43,7 @@ import android.sysprop.TelephonyProperties;
 import android.telecom.VideoProfile;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.Annotation.ApnType;
+import android.telephony.CarrierBandwidth;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CarrierRestrictionRules;
 import android.telephony.CellIdentity;
@@ -221,8 +222,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected static final int EVENT_REAPPLY_UICC_APPS_ENABLEMENT_DONE    = 56;
     protected static final int EVENT_REGISTRATION_FAILED = 57;
     protected static final int EVENT_BARRING_INFO_CHANGED = 58;
+    protected static final int EVENT_LINK_CAPACITY_CHANGED = 59;
 
-    protected static final int EVENT_LAST = EVENT_BARRING_INFO_CHANGED;
+    protected static final int EVENT_LAST = EVENT_LINK_CAPACITY_CHANGED;
 
     // For shared prefs.
     private static final String GSM_ROAMING_LIST_OVERRIDE_PREFIX = "gsm_roaming_list_";
@@ -2189,12 +2191,21 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     *  Query the CDMA roaming preference setting
+     * Query the CDMA roaming preference setting.
      *
-     * @param response is callback message to report one of  CDMA_RM_*
+     * @param response is callback message to report one of TelephonyManager#CDMA_ROAMING_MODE_*
      */
     public void queryCdmaRoamingPreference(Message response) {
         mCi.queryCdmaRoamingPreference(response);
+    }
+
+    /**
+     * Get the CDMA subscription mode setting.
+     *
+     * @param response is callback message to report one of TelephonyManager#CDMA_SUBSCRIPTION_*
+     */
+    public void queryCdmaSubscriptionMode(Message response) {
+        mCi.getCdmaSubscriptionSource(response);
     }
 
     /**
@@ -2226,8 +2237,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     *  Requests to set the CDMA roaming preference
-     * @param cdmaRoamingType one of  CDMA_RM_*
+     * Requests to set the CDMA roaming preference
+     * @param cdmaRoamingType one of TelephonyManager#CDMA_ROAMING_MODE_*
      * @param response is callback message
      */
     public void setCdmaRoamingPreference(int cdmaRoamingType, Message response) {
@@ -2235,11 +2246,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     *  Requests to set the CDMA subscription mode
-     * @param cdmaSubscriptionType one of  CDMA_SUBSCRIPTION_*
+     * Requests to set the CDMA subscription mode
+     * @param cdmaSubscriptionType one of TelephonyManager#CDMA_SUBSCRIPTION_*
      * @param response is callback message
      */
-    public void setCdmaSubscription(int cdmaSubscriptionType, Message response) {
+    public void setCdmaSubscriptionMode(int cdmaSubscriptionType, Message response) {
         mCi.setCdmaSubscriptionSource(cdmaSubscriptionType, response);
     }
 
@@ -2257,6 +2268,14 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public void isNrDualConnectivityEnabled(Message message, WorkSource workSource) {
         mCi.isNrDualConnectivityEnabled(message, workSource);
+    }
+
+    /**
+     * get carrier bandwidth per primary and secondary carrier
+     * @return CarrierBandwidth with bandwidth of both primary and secondary carrier.
+     */
+    public CarrierBandwidth getCarrierBandwidth() {
+        return new CarrierBandwidth();
     }
 
     /**
