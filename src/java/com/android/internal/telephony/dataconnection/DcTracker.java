@@ -667,12 +667,13 @@ public class DcTracker extends Handler {
 
     protected final DataServiceManager mDataServiceManager;
 
+    @AccessNetworkConstants.TransportType
     private final int mTransportType;
 
     private DataStallRecoveryHandler mDsRecoveryHandler;
     private HandlerThread mHandlerThread;
 
-    private final DataThrottler mDataThrottler = new DataThrottler();
+    private final DataThrottler mDataThrottler;
 
     /**
      * Request network completion message map. Key is the APN type, value is the list of completion
@@ -696,6 +697,7 @@ public class DcTracker extends Handler {
 
         mTransportType = transportType;
         mDataServiceManager = new DataServiceManager(phone, transportType, mLogTagSuffix);
+        mDataThrottler = new DataThrottler(mPhone.getPhoneId(), transportType);
 
         mResolver = mPhone.getContext().getContentResolver();
         mAlarmManager =
@@ -765,6 +767,7 @@ public class DcTracker extends Handler {
         mDataEnabledSettings = null;
         mTransportType = 0;
         mDataServiceManager = null;
+        mDataThrottler = null;
     }
 
     public void registerServiceStateTrackerEvents() {
@@ -2453,6 +2456,22 @@ public class DcTracker extends Handler {
         }
     }
 
+    private void onApnUnthrottled(Message msg) {
+        String apn = (String) msg.obj;
+        if (apn != null) {
+            ApnContext ac = mApnContexts.get(apn);
+            if (ac != null) {
+                @ApnType int apnTypes = ac.getApnTypeBitmask();
+                mDataThrottler.setRetryTime(apnTypes, RetryManager.NO_SUGGESTED_RETRY_DELAY,
+                        DataCallResponse.HANDOVER_FAILURE_MODE_NO_FALLBACK_RETRY_SETUP_NORMAL);
+            } else {
+                loge("EVENT_APN_UNTHROTTLED: Invalid APN passed: " + apn);
+            }
+        } else {
+            loge("EVENT_APN_UNTHROTTLED: apn is null");
+        }
+    }
+
     private DataConnection checkForCompatibleDataConnection(ApnContext apnContext,
             ApnSetting nextApn) {
         int apnType = apnContext.getApnTypeBitmask();
@@ -3019,10 +3038,8 @@ public class DcTracker extends Handler {
                         value[0] = (byte) pcoVal;
                         final Intent intent =
                                 new Intent(TelephonyManager.ACTION_CARRIER_SIGNAL_PCO_VALUE);
-                        intent.putExtra(TelephonyManager.EXTRA_APN_TYPE, "default");
-                        intent.putExtra(TelephonyManager.EXTRA_APN_TYPE_INT, TYPE_DEFAULT);
-                        intent.putExtra(TelephonyManager.EXTRA_APN_PROTOCOL, "IPV4V6");
-                        intent.putExtra(TelephonyManager.EXTRA_APN_PROTOCOL_INT, PROTOCOL_IPV4V6);
+                        intent.putExtra(TelephonyManager.EXTRA_APN_TYPE, TYPE_DEFAULT);
+                        intent.putExtra(TelephonyManager.EXTRA_APN_PROTOCOL, PROTOCOL_IPV4V6);
                         intent.putExtra(TelephonyManager.EXTRA_PCO_ID, 0xFF00);
                         intent.putExtra(TelephonyManager.EXTRA_PCO_VALUE, value);
                         mPhone.getCarrierSignalAgent().notifyCarrierSignalReceivers(intent);
@@ -3046,9 +3063,8 @@ public class DcTracker extends Handler {
             // Compose broadcast intent send to the specific carrier signaling receivers
             Intent intent = new Intent(TelephonyManager
                     .ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED);
-            intent.putExtra(TelephonyManager.EXTRA_ERROR_CODE, cause);
-            intent.putExtra(TelephonyManager.EXTRA_APN_TYPE, apnContext.getApnType());
-            intent.putExtra(TelephonyManager.EXTRA_APN_TYPE_INT,
+            intent.putExtra(TelephonyManager.EXTRA_DATA_FAIL_CAUSE, cause);
+            intent.putExtra(TelephonyManager.EXTRA_APN_TYPE,
                     ApnSetting.getApnTypesBitmaskFromString(apnContext.getApnType()));
             mPhone.getCarrierSignalAgent().notifyCarrierSignalReceivers(intent);
 
@@ -3065,12 +3081,21 @@ public class DcTracker extends Handler {
                 apnContext.markApnPermanentFailed(apn);
             }
 
-            requestType = (handoverFailureMode
-                    == DataCallResponse.HANDOVER_FAILURE_MODE_NO_FALLBACK_RETRY_HANDOVER)
-                    ? REQUEST_TYPE_HANDOVER : REQUEST_TYPE_NORMAL;
+            requestType = calcRequestType(handoverFailureMode);
             onDataSetupCompleteError(apnContext, requestType,
                     shouldFallbackOnFailedHandover(handoverFailureMode, requestType, cause));
         }
+    }
+
+    /**
+     * Converts the handover failure mode to the corresponding request network type.
+     */
+    @RequestNetworkType
+    public static int calcRequestType(
+            @HandoverFailureMode int handoverFailureMode) {
+        return (handoverFailureMode
+            == DataCallResponse.HANDOVER_FAILURE_MODE_NO_FALLBACK_RETRY_HANDOVER)
+            ? REQUEST_TYPE_HANDOVER : REQUEST_TYPE_NORMAL;
     }
 
     /**
@@ -3397,8 +3422,10 @@ public class DcTracker extends Handler {
         if (DBG) log("createDataConnection E");
 
         int id = mUniqueIdGenerator.getAndIncrement();
+        boolean doAllocatePduSessionId =
+                mTransportType == AccessNetworkConstants.TRANSPORT_TYPE_WLAN;
         DataConnection dataConnection = DataConnection.makeDataConnection(mPhone, id, this,
-                mDataServiceManager, mDcTesterFailBringUpAll, mDcc);
+                mDataServiceManager, mDcTesterFailBringUpAll, mDcc, doAllocatePduSessionId);
         mDataConnections.put(id, dataConnection);
         if (DBG) log("createDataConnection() X id=" + id + " dc=" + dataConnection);
         return dataConnection;
@@ -3992,6 +4019,9 @@ public class DcTracker extends Handler {
             case DctConstants.EVENT_SIM_STATE_UPDATED:
                 int simState = msg.arg1;
                 onSimStateUpdated(simState);
+                break;
+            case DctConstants.EVENT_APN_UNTHROTTLED:
+                onApnUnthrottled(msg);
                 break;
             default:
                 Rlog.e("DcTracker", "Unhandled event=" + msg);
@@ -4720,11 +4750,9 @@ public class DcTracker extends Handler {
                 String apnType = apnContext.getApnType();
 
                 final Intent intent = new Intent(TelephonyManager.ACTION_CARRIER_SIGNAL_PCO_VALUE);
-                intent.putExtra(TelephonyManager.EXTRA_APN_TYPE, apnType);
-                intent.putExtra(TelephonyManager.EXTRA_APN_TYPE_INT,
+                intent.putExtra(TelephonyManager.EXTRA_APN_TYPE,
                         ApnSetting.getApnTypesBitmaskFromString(apnType));
-                intent.putExtra(TelephonyManager.EXTRA_APN_PROTOCOL, pcoData.bearerProto);
-                intent.putExtra(TelephonyManager.EXTRA_APN_PROTOCOL_INT,
+                intent.putExtra(TelephonyManager.EXTRA_APN_PROTOCOL,
                         ApnSetting.getProtocolIntFromString(pcoData.bearerProto));
                 intent.putExtra(TelephonyManager.EXTRA_PCO_ID, pcoData.pcoId);
                 intent.putExtra(TelephonyManager.EXTRA_PCO_VALUE, pcoData.contents);

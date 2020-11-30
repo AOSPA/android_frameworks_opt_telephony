@@ -3784,6 +3784,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             ImsPhoneConnection conn = findConnection(imsCall);
             if (conn != null) {
                 conn.updateMultipartyState(isMultiParty);
+                mPhone.getVoiceCallSessionStats().onMultipartyChange(conn, isMultiParty);
             }
         }
 
