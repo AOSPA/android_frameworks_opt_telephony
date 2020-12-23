@@ -1286,6 +1286,16 @@ public class GsmCdmaPhone extends Phone {
                 && mImsPhone.isImsAvailable();
     }
 
+    private boolean useImsForPsOnlyCall() {
+        return isImsUseEnabled()
+                && mImsPhone != null
+                && isOutgoingImsVoiceAllowed()
+                && Settings.Global.getInt(mContext.getContentResolver(),
+                        "enable_allow_PS_only_dial", 0) == 1
+                && (mImsPhone.getServiceState().getState() == ServiceState.STATE_OUT_OF_SERVICE)
+                && (mSST.mSS.getState() == ServiceState.STATE_OUT_OF_SERVICE);
+    }
+
     @Override
     public Connection startConference(String[] participantsToDial, DialArgs dialArgs)
             throws CallStateException {
@@ -1361,9 +1371,11 @@ public class GsmCdmaPhone extends Phone {
         boolean useImsForCall = useImsForCall(dialArgs)
                 && !shallDialOnCircuitSwitch(dialArgs.intentExtras)
                 && (isWpsCall ? allowWpsOverIms : true);
+        boolean useImsForPsOnlyCall = useImsForPsOnlyCall();
 
         if (DBG) {
             logd("useImsForCall=" + useImsForCall
+                    + ", useImsForPsOnlyCall=" + useImsForPsOnlyCall
                     + ", isEmergency=" + isEmergency
                     + ", useImsForEmergency=" + useImsForEmergency
                     + ", useImsForUt=" + useImsForUt
@@ -1393,7 +1405,9 @@ public class GsmCdmaPhone extends Phone {
 
         if ((useImsForCall && (!isMmiCode || isPotentialUssdCode))
                 || (isMmiCode && useImsForUt)
-                || useImsForEmergency) {
+                || useImsForEmergency
+                || (useImsForPsOnlyCall && !isMmiCode && !isPotentialUssdCode
+                           && !VideoProfile.isVideo(dialArgs.videoState))) {
             try {
                 if (DBG) logd("Trying IMS PS call");
                 return imsPhone.dial(dialString, dialArgs);
