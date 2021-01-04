@@ -150,8 +150,15 @@ public class NetworkTypeControllerTest extends TelephonyTest {
         assertEquals(TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE,
                 mNetworkTypeController.getOverrideNetworkType());
 
-        // LTE CA
+        // LTE CA at bandwidth threshold
         doReturn(true).when(mServiceState).isUsingCarrierAggregation();
+        doReturn(new int[] {20000}).when(mServiceState).getCellBandwidths();
+        updateOverrideNetworkType();
+        assertEquals(TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE,
+                mNetworkTypeController.getOverrideNetworkType());
+
+        // LTE CA above bandwidth threshold
+        doReturn(new int[] {20000, 1400}).when(mServiceState).getCellBandwidths();
         updateOverrideNetworkType();
         assertEquals(TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_LTE_CA,
                 mNetworkTypeController.getOverrideNetworkType());
@@ -342,6 +349,11 @@ public class NetworkTypeControllerTest extends TelephonyTest {
                 .getCachedPreferredNetworkType();
 
         mNetworkTypeController.sendMessage(EVENT_PREFERRED_NETWORK_MODE_CHANGED);
+        processAllMessages();
+        assertEquals(TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA,
+                mNetworkTypeController.getOverrideNetworkType());
+
+        mNetworkTypeController.sendMessage(EVENT_DATA_RAT_CHANGED);
         processAllMessages();
         assertEquals(TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE,
                 mNetworkTypeController.getOverrideNetworkType());

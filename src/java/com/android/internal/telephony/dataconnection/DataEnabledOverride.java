@@ -131,7 +131,7 @@ public class DataEnabledOverride {
 
         @Override
         public String toString() {
-            return ApnSetting.getApnTypeString(mApnType) + "=" + mRequiredConditions;
+            return ApnSetting.getApnTypeStringInternal(mApnType) + "=" + mRequiredConditions;
         }
 
         @Override
@@ -363,6 +363,10 @@ public class DataEnabledOverride {
      */
     public boolean isDataAllowedInVoiceCall() {
         return mRules.contains(OVERRIDE_RULE_ALLOW_DATA_DURING_VOICE_CALL);
+    }
+
+    public boolean isMmsAlwaysAllowed() {
+        return mRules.contains(OVERRIDE_RULE_ALWAYS_ALLOW_MMS);
     }
 
     private boolean canSatisfyAnyRule(@ApnType int apnType,

@@ -16,10 +16,12 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.NonNull;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Message;
 import android.sysprop.TelephonyProperties;
 import android.telephony.SubscriptionInfo;
@@ -48,6 +50,7 @@ import java.util.Locale;
  */
 public class RuimRecords extends IccRecords {
     static final String LOG_TAG = "RuimRecords";
+    private final static int IMSI_MIN_LENGTH = 10;
 
     private boolean  mOtaCommited=false;
 
@@ -58,17 +61,17 @@ public class RuimRecords extends IccRecords {
 
     private String mPrlVersion;
     // From CSIM application
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private byte[] mEFpl = null;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private byte[] mEFli = null;
     boolean mCsimSpnDisplayCondition = false;
     private String mMdn;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private String mMin;
     private String mHomeSystemId;
     private String mHomeNetworkId;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private String mNai;
 
     @Override
@@ -88,7 +91,6 @@ public class RuimRecords extends IccRecords {
     }
 
     // ***** Event Constants
-    private static final int EVENT_GET_IMSI_DONE = 3;
     private static final int EVENT_GET_DEVICE_IDENTITY_DONE = 4;
     private static final int EVENT_GET_ICCID_DONE = 5;
     private static final int EVENT_GET_CDMA_SUBSCRIPTION_DONE = 10;
@@ -155,7 +157,7 @@ public class RuimRecords extends IccRecords {
         mLoaded.set(false);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String getMdnNumber() {
         return mMyMobileNumber;
     }
@@ -203,7 +205,7 @@ public class RuimRecords extends IccRecords {
      * Returns the 5 or 6 digit MCC/MNC of the operator that
      *  provided the RUIM card. Returns null of RUIM is not yet ready
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String getRUIMOperatorNumeric() {
         String imsi = getIMSI();
 
@@ -390,6 +392,9 @@ public class RuimRecords extends IccRecords {
         }
     }
 
+    /**
+     * Parses IMSI based on C.S0065 section 5.2.2 and C.S0005 section 2.3.1
+     */
     @VisibleForTesting
     public class EfCsimImsimLoaded implements IccRecordLoaded {
         @Override
@@ -405,11 +410,11 @@ public class RuimRecords extends IccRecords {
                 return;
             }
             byte[] data = (byte[]) ar.result;
-            if (data == null || data.length < 10) {
-                if (DBG) log("Invalid IMSI from EF_CSIM_IMSIM");
+            if (data == null || data.length < IMSI_MIN_LENGTH) {
+                loge("Invalid IMSI from EF_CSIM_IMSIM");
                 return;
             }
-            if (DBG) Rlog.pii(LOG_TAG, IccUtils.bytesToHexString(data));
+            if (DBG) log("data=" + Rlog.pii(LOG_TAG, IccUtils.bytesToHexString(data)));
             // C.S0065 section 5.2.2 for IMSI_M encoding
             // C.S0005 section 2.3.1 for MIN encoding in IMSI_M.
             boolean provisioned = ((data[7] & 0x80) == 0x80);
@@ -420,9 +425,7 @@ public class RuimRecords extends IccRecords {
                     mImsi = imsi;
                     if (DBG) log("IMSI=" + Rlog.pii(LOG_TAG, mImsi));
                 }
-                if (null != imsi) {
-                    mMin = imsi.substring(5, 15);
-                }
+                mMin = imsi.substring(5, 15);
                 if (DBG) log("min present=" + Rlog.pii(LOG_TAG, mMin));
             } else {
                 if (DBG) log("min not present");
@@ -447,7 +450,9 @@ public class RuimRecords extends IccRecords {
          * C.S0065 section 5.2.2 for IMSI_M encoding
          * C.S0005 section 2.3.1 for MIN encoding in IMSI_M.
          */
-        private String decodeImsi(byte[] data) {
+        @VisibleForTesting
+        @NonNull
+        public String decodeImsi(byte[] data) {
             // Retrieve the MCC and digits 11 and 12
             int mcc_data = ((0x03 & data[9]) << 8) | (0xFF & data[8]);
             int mcc = decodeImsiDigits(mcc_data, 3);
@@ -529,7 +534,7 @@ public class RuimRecords extends IccRecords {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void onGetCSimEprlDone(AsyncResult ar) {
         // C.S0065 section 5.2.57 for EFeprl encoding
         // C.S0016 section 3.5.5 for PRL format.
@@ -692,44 +697,6 @@ public class RuimRecords extends IccRecords {
                 log("Event EVENT_GET_DEVICE_IDENTITY_DONE Received");
             break;
 
-            /* IO events */
-            case EVENT_GET_IMSI_DONE:
-                isRecordLoadResponse = true;
-                mEssentialRecordsToLoad -= 1;
-
-                ar = (AsyncResult)msg.obj;
-                if (ar.exception != null) {
-                    loge("Exception querying IMSI, Exception:" + ar.exception);
-                    break;
-                }
-
-                mImsi = (String) ar.result;
-
-                // IMSI (MCC+MNC+MSIN) is at least 6 digits, but not more
-                // than 15 (and usually 15).
-                if (mImsi != null && (mImsi.length() < 6 || mImsi.length() > 15)) {
-                    loge("invalid IMSI " + mImsi);
-                    mImsi = null;
-                }
-
-                // FIXME: CSIM IMSI may not contain the MNC.
-                if (false) {
-                    log("IMSI: " + mImsi.substring(0, 6) + "xxxxxxxxx");
-
-                    String operatorNumeric = getRUIMOperatorNumeric();
-                    if (operatorNumeric != null) {
-                        if (operatorNumeric.length() <= 6) {
-                            log("update mccmnc=" + operatorNumeric);
-                            MccTable.updateMccMncConfiguration(mContext, operatorNumeric);
-                        }
-                    }
-                } else {
-                    String operatorNumeric = getRUIMOperatorNumeric();
-                    log("NO update mccmnc=" + operatorNumeric);
-                }
-
-            break;
-
             case EVENT_GET_CDMA_SUBSCRIPTION_DONE:
                 ar = (AsyncResult)msg.obj;
                 String localTemp[] = (String[])ar.result;
@@ -802,7 +769,7 @@ public class RuimRecords extends IccRecords {
      * NOTE: This array will have duplicates. If this method will be caused
      * frequently or in a tight loop, it can be rewritten for efficiency.
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static String[] getAssetLanguages(Context ctx) {
         final String[] locales = ctx.getAssets().getLocales();
         final String[] localeLangs = new String[locales.length];
@@ -934,13 +901,6 @@ public class RuimRecords extends IccRecords {
                 + " mEssentialRecordsToLoad = " + mEssentialRecordsToLoad);
         mEssentialRecordsListenerNotified = false;
 
-        if (!TextUtils.isEmpty(mParentApp.getAid())
-                || mParentApp.getUiccProfile().getNumApplications() <= 1) {
-            mCi.getIMSIForApp(mParentApp.getAid(), obtainMessage(EVENT_GET_IMSI_DONE));
-            mRecordsToLoad++;
-            mEssentialRecordsToLoad++;
-        }
-
         mFh.loadEFTransparent(EF_ICCID,
                 obtainMessage(EVENT_GET_ICCID_DONE));
         mRecordsToLoad++;
@@ -961,7 +921,7 @@ public class RuimRecords extends IccRecords {
                 " requested: " + mRecordsRequested);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void fetchRuimRecords() {
         mRecordsRequested = true;
 
@@ -1046,7 +1006,7 @@ public class RuimRecords extends IccRecords {
         fetchRuimRecords();
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String getMdn() {
         return mMdn;
     }
@@ -1063,11 +1023,11 @@ public class RuimRecords extends IccRecords {
         return mHomeNetworkId;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean getCsimSpnDisplayCondition() {
         return mCsimSpnDisplayCondition;
     }
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     protected void log(String s) {
         if (mParentApp != null) {
@@ -1077,7 +1037,7 @@ public class RuimRecords extends IccRecords {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     protected void loge(String s) {
         if (mParentApp != null) {

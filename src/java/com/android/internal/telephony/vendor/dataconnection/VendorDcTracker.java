@@ -17,32 +17,22 @@
 package com.android.internal.telephony.vendor.dataconnection;
 
 import android.app.AlertDialog;
-import android.view.WindowManager;
-
 import android.telephony.AccessNetworkConstants;
-import android.telephony.Annotation.DataFailureCause;
-import android.telephony.CarrierConfigManager;
 import android.telephony.DataFailCause;
 import android.telephony.data.ApnSetting;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
-import android.telephony.TelephonyManager;
+import android.telephony.data.DataCallResponse.HandoverFailureMode;
+import android.view.WindowManager;
+
+import com.android.internal.telephony.DctConstants;
+import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneConstants;
 
 import com.android.internal.telephony.dataconnection.ApnContext;
 import com.android.internal.telephony.dataconnection.DcTracker;
-import com.android.internal.telephony.DctConstants;
-import com.android.internal.telephony.GsmCdmaPhone;
-import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneConstants;
-import com.android.internal.telephony.uicc.IccRecords;
-import com.android.internal.util.ArrayUtils;
-import com.android.internal.util.AsyncChannel;
 
-import android.database.Cursor;
-import android.content.Context;
-import android.os.PersistableBundle;
-import android.provider.Telephony;
 import android.text.TextUtils;
 
 import java.util.HashSet;
@@ -116,11 +106,10 @@ public class VendorDcTracker extends DcTracker {
     protected void onVoiceCallEnded() {
         if (DBG) log("onVoiceCallEnded");
         mInVoiceCall = false;
-        if (isConnected()) {
+        if (isAnyDataConnected()) {
             if (!mPhone.getServiceStateTracker().isConcurrentVoiceAndDataAllowed()) {
                 startNetStatPoll();
                 startDataStallAlarm(DATA_STALL_NOT_SUSPECTED);
-                mPhone.notifyAllActiveDataConnections();
             } else {
                 // clean slate after call end.
                 resetPollStats();
@@ -180,7 +169,7 @@ public class VendorDcTracker extends DcTracker {
 
     @Override
     protected void onDataSetupComplete(ApnContext apnContext, boolean success, int cause,
-            @RequestNetworkType int requestType) {
+            @RequestNetworkType int requestType, @HandoverFailureMode int handoverFailureMode) {
         boolean isPdpRejectConfigEnabled = mPhone.getContext().getResources().getBoolean(
                 com.android.internal.R.bool.config_pdp_reject_enable_retry);
         if (success) {
@@ -192,12 +181,12 @@ public class VendorDcTracker extends DcTracker {
             mPdpRejectCauseCode = cause;
         }
 
-        super.onDataSetupComplete(apnContext, success, cause, requestType);
+        super.onDataSetupComplete(apnContext, success, cause, requestType, handoverFailureMode);
     }
 
     @Override
     protected void onDataSetupCompleteError(ApnContext apnContext,
-            @RequestNetworkType int requestType) {
+            @RequestNetworkType int requestType, boolean fallback) {
         long delay = apnContext.getDelayForNextApn(mFailFast);
         if (mPhone.getContext().getResources().getBoolean(
                 com.android.internal.R.bool.config_pdp_reject_enable_retry) &&
@@ -244,12 +233,11 @@ public class VendorDcTracker extends DcTracker {
             // Wait a bit before trying the next APN, so that
             // we're not tying up the RIL command channel
 
-            startReconnect(delay, apnContext);
+            startReconnect(delay, apnContext, requestType);
         } else {
             // If we are not going to retry any APN, set this APN context to failed state.
             // This would be the final state of a data connection.
             apnContext.setState(DctConstants.State.FAILED);
-            mPhone.notifyDataConnection(apnContext.getApnType());
             apnContext.setDataConnection(null);
             if (DBG) log("onDataSetupCompleteError: Stop retrying APNs. delay=" + delay
                     + ", requestType=" + requestTypeToString(requestType));

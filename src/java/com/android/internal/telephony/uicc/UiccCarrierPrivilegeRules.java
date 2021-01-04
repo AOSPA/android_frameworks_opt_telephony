@@ -25,6 +25,7 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.Signature;
 import android.os.AsyncResult;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.telephony.TelephonyManager;
@@ -112,9 +113,9 @@ public class UiccCarrierPrivilegeRules extends Handler {
     private static final int STATE_LOADED   = 1;
     private static final int STATE_ERROR    = 2;
 
-    // Max number of retries for open logical channel, interval is 10s.
-    private static final int MAX_RETRY = 1;
-    private static final int RETRY_INTERVAL_MS = 10000;
+    // Max number of retries for open logical channel, interval is 5s.
+    private static final int MAX_RETRY = 2;
+    private static final int RETRY_INTERVAL_MS = 5000;
     private static final int STATUS_CODE_CONDITION_NOT_SATISFIED = 0x6985;
     private static final int STATUS_CODE_APPLET_SELECT_FAILED = 0x6999;
 
@@ -128,9 +129,9 @@ public class UiccCarrierPrivilegeRules extends Handler {
         // Bytes for the length field, in ASCII HEX string form.
         private String lengthBytes;
         // Decoded length as integer.
-        @UnsupportedAppUsage
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         private Integer length;
-        @UnsupportedAppUsage
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         private String value;
 
         public TLV(String tag) {
@@ -188,11 +189,11 @@ public class UiccCarrierPrivilegeRules extends Handler {
 
     private UiccProfile mUiccProfile;  // Parent
     private UiccPkcs15 mUiccPkcs15; // ARF fallback
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private AtomicInteger mState;
     private List<UiccAccessRule> mAccessRules;
     private String mRules;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Message mLoadedCallback;
     // LocalLog buffer to hold important status messages for debugging.
     private LocalLog mStatusMessage = new LocalLog(100);

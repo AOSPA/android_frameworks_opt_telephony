@@ -39,6 +39,7 @@ import android.telephony.ServiceState;
 import android.telephony.SmsManager;
 import android.telephony.SmsMessage;
 
+import com.android.ims.ImsManager;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.cdma.CdmaInboundSmsHandler;
 import com.android.internal.telephony.cdma.CdmaSMSDispatcher;
@@ -138,7 +139,7 @@ public class SmsDispatchersController extends Handler {
 
         // Create dispatchers, inbound SMS handlers and
         // broadcast undelivered messages in raw table.
-        mImsSmsDispatcher = new ImsSmsDispatcher(phone, this);
+        mImsSmsDispatcher = new ImsSmsDispatcher(phone, this, ImsManager::getConnector);
         mCdmaDispatcher = new CdmaSMSDispatcher(phone, this);
         mGsmInboundSmsHandler = GsmInboundSmsHandler.makeInboundSmsHandler(phone.getContext(),
                 storageMonitor, phone);
@@ -385,12 +386,13 @@ public class SmsDispatchersController extends Handler {
      *                 the same time an SMS received from radio is responded back.
      */
     @VisibleForTesting
-    public void injectSmsPdu(byte[] pdu, String format, SmsInjectionCallback callback) {
+    public void injectSmsPdu(byte[] pdu, String format, boolean isOverIms,
+            SmsInjectionCallback callback) {
         // TODO We need to decide whether we should allow injecting GSM(3gpp)
         // SMS pdus when the phone is camping on CDMA(3gpp2) network and vice versa.
         android.telephony.SmsMessage msg =
                 android.telephony.SmsMessage.createFromPdu(pdu, format);
-        injectSmsPdu(msg, format, callback, false /* ignoreClass */);
+        injectSmsPdu(msg, format, callback, false /* ignoreClass */, isOverIms);
     }
 
     /**
@@ -405,7 +407,7 @@ public class SmsDispatchersController extends Handler {
      */
     @VisibleForTesting
     public void injectSmsPdu(SmsMessage msg, String format, SmsInjectionCallback callback,
-            boolean ignoreClass) {
+            boolean ignoreClass, boolean isOverIms) {
         Rlog.d(TAG, "SmsDispatchersController:injectSmsPdu");
         try {
             if (msg == null) {
@@ -426,11 +428,13 @@ public class SmsDispatchersController extends Handler {
             if (format.equals(SmsConstants.FORMAT_3GPP)) {
                 Rlog.i(TAG, "SmsDispatchersController:injectSmsText Sending msg=" + msg
                         + ", format=" + format + "to mGsmInboundSmsHandler");
-                mGsmInboundSmsHandler.sendMessage(InboundSmsHandler.EVENT_INJECT_SMS, ar);
+                mGsmInboundSmsHandler.sendMessage(
+                        InboundSmsHandler.EVENT_INJECT_SMS, isOverIms ? 1 : 0, 0, ar);
             } else if (format.equals(SmsConstants.FORMAT_3GPP2)) {
                 Rlog.i(TAG, "SmsDispatchersController:injectSmsText Sending msg=" + msg
                         + ", format=" + format + "to mCdmaInboundSmsHandler");
-                mCdmaInboundSmsHandler.sendMessage(InboundSmsHandler.EVENT_INJECT_SMS, ar);
+                mCdmaInboundSmsHandler.sendMessage(
+                        InboundSmsHandler.EVENT_INJECT_SMS, isOverIms ? 1 : 0, 0, ar);
             } else {
                 // Invalid pdu format.
                 Rlog.e(TAG, "Invalid pdu format: " + format);
@@ -484,12 +488,18 @@ public class SmsDispatchersController extends Handler {
             }
             String scAddr = (String) map.get("scAddr");
             String destAddr = (String) map.get("destAddr");
+            if (destAddr == null) {
+                Rlog.e(TAG, "sendRetrySms failed due to null destAddr");
+                tracker.onFailed(mContext, SmsManager.RESULT_SMS_SEND_RETRY_FAILED, NO_ERROR_CODE);
+                return;
+            }
 
             SmsMessageBase.SubmitPduBase pdu = null;
             // figure out from tracker if this was sendText/Data
             if (map.containsKey("text")) {
-                Rlog.d(TAG, "sms failed was text");
                 String text = (String) map.get("text");
+                Rlog.d(TAG, "sms failed was text with length: "
+                        + (text == null ? null : text.length()));
 
                 if (isCdmaFormat(newFormat)) {
                     pdu = com.android.internal.telephony.cdma.SmsMessage.getSubmitPdu(
@@ -499,9 +509,10 @@ public class SmsDispatchersController extends Handler {
                             scAddr, destAddr, text, (tracker.mDeliveryIntent != null), null);
                 }
             } else if (map.containsKey("data")) {
-                Rlog.d(TAG, "sms failed was data");
                 byte[] data = (byte[]) map.get("data");
                 Integer destPort = (Integer) map.get("destPort");
+                Rlog.d(TAG, "sms failed was data with length: "
+                        + (data == null ? null : data.length));
 
                 if (isCdmaFormat(newFormat)) {
                     pdu = com.android.internal.telephony.cdma.SmsMessage.getSubmitPdu(
@@ -514,6 +525,13 @@ public class SmsDispatchersController extends Handler {
                 }
             }
 
+            if (pdu == null) {
+                Rlog.e(TAG, String.format("sendRetrySms failed to encode message."
+                        + "scAddr: %s, "
+                        + "destPort: %s", scAddr, map.get("destPort")));
+                tracker.onFailed(mContext, SmsManager.RESULT_SMS_SEND_RETRY_FAILED, NO_ERROR_CODE);
+                return;
+            }
             // replace old smsc and pdu with newly encoded ones
             map.put("smsc", pdu.encodedScAddress);
             map.put("pdu", pdu.encodedMessage);

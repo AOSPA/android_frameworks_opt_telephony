@@ -376,6 +376,10 @@ public class DataEnabledSettings {
         return mDataEnabledOverride.isDataAllowedInVoiceCall();
     }
 
+    public synchronized boolean isMmsAlwaysAllowed() {
+        return mDataEnabledOverride.isMmsAlwaysAllowed();
+    }
+
     private synchronized void setPolicyDataEnabled(boolean enabled) {
         if (mPolicyDataEnabled != enabled) {
             localLog("PolicyDataEnabled", enabled);
@@ -429,7 +433,7 @@ public class DataEnabledSettings {
      *
      * @return {@code true} if the overall data is enabled; {@code false} if not.
      */
-    public synchronized boolean isDataEnabledWithReason(
+    public synchronized boolean isDataEnabledForReason(
             @TelephonyManager.DataEnabledReason int reason) {
         switch (reason) {
             case TelephonyManager.DATA_ENABLED_REASON_USER:

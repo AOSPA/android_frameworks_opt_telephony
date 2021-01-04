@@ -140,7 +140,9 @@ public class UiccProfile extends IccCard {
 
     private RegistrantList mNetworkLockedRegistrants = new RegistrantList();
 
-    private int mCurrentAppType = UiccController.APP_FAM_3GPP; //default to 3gpp?
+    @VisibleForTesting
+    public int mCurrentAppType = UiccController.APP_FAM_3GPP; //default to 3gpp?
+    private int mRadioTech = ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
     private UiccCardApplication mUiccApplication = null;
     private IccRecords mIccRecords = null;
     private IccCardConstants.State mExternalState = IccCardConstants.State.UNKNOWN;
@@ -341,6 +343,7 @@ public class UiccProfile extends IccCard {
             }
             mCatService = null;
             mUiccApplications = null;
+            mRadioTech = ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
             mCarrierPrivilegeRules = null;
             mContext.getContentResolver().unregisterContentObserver(
                     mProvisionCompleteContentObserver);
@@ -357,6 +360,7 @@ public class UiccProfile extends IccCard {
             if (DBG) {
                 log("Setting radio tech " + ServiceState.rilRadioTechnologyToString(radioTech));
             }
+            mRadioTech = radioTech;
             setCurrentAppType(ServiceState.isGsm(radioTech));
             updateIccAvailability(false);
         }
@@ -370,7 +374,7 @@ public class UiccProfile extends IccCard {
                 //if CSIM application is not present, set current app to default app i.e 3GPP
                 UiccCardApplication newApp = null;
                 newApp = getApplication(UiccController.APP_FAM_3GPP2);
-                if (newApp != null) {
+                if (newApp != null || getApplication(UiccController.APP_FAM_3GPP) == null) {
                     mCurrentAppType = UiccController.APP_FAM_3GPP2;
                 } else {
                     mCurrentAppType = UiccController.APP_FAM_3GPP;
@@ -1066,6 +1070,9 @@ public class UiccProfile extends IccCard {
             }
 
             sanitizeApplicationIndexesLocked();
+            if (mRadioTech != ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN) {
+                setCurrentAppType(ServiceState.isGsm(mRadioTech));
+            }
             updateIccAvailability(true);
         }
     }
@@ -1323,13 +1330,13 @@ public class UiccProfile extends IccCard {
     }
 
     private Set<String> getUninstalledCarrierPackages() {
-        String whitelistSetting = Settings.Global.getString(
+        String allowListSetting = Settings.Global.getString(
                 mContext.getContentResolver(),
                 Settings.Global.CARRIER_APP_WHITELIST);
-        if (TextUtils.isEmpty(whitelistSetting)) {
+        if (TextUtils.isEmpty(allowListSetting)) {
             return Collections.emptySet();
         }
-        Map<String, String> certPackageMap = parseToCertificateToPackageMap(whitelistSetting);
+        Map<String, String> certPackageMap = parseToCertificateToPackageMap(allowListSetting);
         if (certPackageMap.isEmpty()) {
             return Collections.emptySet();
         }
@@ -1355,11 +1362,11 @@ public class UiccProfile extends IccCard {
      * @hide
      */
     @VisibleForTesting
-    public static Map<String, String> parseToCertificateToPackageMap(String whitelistSetting) {
+    public static Map<String, String> parseToCertificateToPackageMap(String allowListSetting) {
         final String pairDelim = "\\s*;\\s*";
         final String keyValueDelim = "\\s*:\\s*";
 
-        List<String> keyValuePairList = Arrays.asList(whitelistSetting.split(pairDelim));
+        List<String> keyValuePairList = Arrays.asList(allowListSetting.split(pairDelim));
 
         if (keyValuePairList.isEmpty()) {
             return Collections.emptyMap();
@@ -1372,7 +1379,7 @@ public class UiccProfile extends IccCard {
             if (keyValue.length == 2) {
                 map.put(keyValue[0].toUpperCase(), keyValue[1]);
             } else {
-                loge("Incorrect length of key-value pair in carrier app whitelist map.  "
+                loge("Incorrect length of key-value pair in carrier app allow list map.  "
                         + "Length should be exactly 2");
             }
         }
@@ -1467,20 +1474,32 @@ public class UiccProfile extends IccCard {
     }
 
     /**
-     * Resets the application with the input AID. Returns true if any changes were made.
+     * Resets the application with the input AID.
      *
      * A null aid implies a card level reset - all applications must be reset.
      *
      * @param aid aid of the application which should be reset; null imples all applications
      * @param reset true if reset is required. false for initialization.
-     * @return boolean indicating if there was any change made as part of the reset
+     * @return boolean indicating if there was any change made as part of the reset which
+     * requires carrier config to be reset too (for e.g. if only ISIM app is refreshed carrier
+     * config should not be reset)
      */
+    @VisibleForTesting
     public boolean resetAppWithAid(String aid, boolean reset) {
         synchronized (mLock) {
             boolean changed = false;
+            boolean isIsimRefresh = false;
             for (int i = 0; i < mUiccApplications.length; i++) {
                 if (mUiccApplications[i] != null
                         && (TextUtils.isEmpty(aid) || aid.equals(mUiccApplications[i].getAid()))) {
+                    // Resetting only ISIM does not need to be treated as a change from caller
+                    // perspective, as it does not affect SIM state now or even later when ISIM
+                    // is re-loaded, hence return false.
+                    if (!TextUtils.isEmpty(aid)
+                            && mUiccApplications[i].getType() == AppType.APPTYPE_ISIM) {
+                        isIsimRefresh = true;
+                    }
+
                     // Delete removed applications
                     mUiccApplications[i].dispose();
                     mUiccApplications[i] = null;
@@ -1501,7 +1520,7 @@ public class UiccProfile extends IccCard {
                     changed = true;
                 }
             }
-            return changed;
+            return changed && !isIsimRefresh;
         }
     }
 
@@ -1562,9 +1581,7 @@ public class UiccProfile extends IccCard {
      * Returns number of applications on this card
      */
     public int getNumApplications() {
-        synchronized (mLock) {
-            return mApplicationCount;
-        }
+        return mLastReportedNumOfUiccApplications;
     }
 
     /**

@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.gsm;
 
+import static android.telephony.CarrierConfigManager.USSD_OVER_IMS_ONLY;
+
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA;
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_ASYNC;
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_SYNC;
@@ -31,12 +33,14 @@ import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.ResultReceiver;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
+import android.telephony.TelephonyManager;
 import android.text.BidiFormatter;
 import android.text.SpannableStringBuilder;
 import android.text.TextDirectionHeuristics;
@@ -137,25 +141,25 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
     //***** Instance Variables
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     GsmCdmaPhone mPhone;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     Context mContext;
     UiccCardApplication mUiccApplication;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     IccRecords mIccRecords;
 
     String mAction;              // One of ACTION_*
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String mSc;                  // Service Code
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String mSia;                 // Service Info a
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String mSib;                 // Service Info b
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String mSic;                 // Service Info c
     String mPoundString;         // Entire MMI string up to and including #
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String mDialingNumber;
     String mPwd;                 // For password registration
 
@@ -220,7 +224,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      *
      * Please see flow chart in TS 22.030 6.5.3.2
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static GsmMmiCode newFromDialString(String dialString, GsmCdmaPhone phone,
             UiccCardApplication app) {
         return newFromDialString(dialString, phone, app, null);
@@ -616,7 +620,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
     //***** Constructor
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public GsmMmiCode(GsmCdmaPhone phone, UiccCardApplication app) {
         // The telephony unit-test cases may create GsmMmiCode's
         // in secondary threads
@@ -775,7 +779,9 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             return false;
         }
 
-        if (PhoneNumberUtils.isLocalEmergencyNumber(phone.getContext(), dialString)) {
+        TelephonyManager tm =
+                (TelephonyManager) phone.getContext().getSystemService(Context.TELEPHONY_SERVICE);
+        if (tm.isEmergencyNumber(dialString)) {
             return false;
         } else {
             return isShortCodeUSSD(dialString, phone);
@@ -1116,7 +1122,18 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                     throw new RuntimeException ("Ivalid register/action=" + mAction);
                 }
             } else if (mPoundString != null) {
-                sendUssd(mPoundString);
+                if (mContext.getResources().getBoolean(
+                        com.android.internal.R.bool.config_allow_ussd_over_ims)) {
+                    int ussd_method = getIntCarrierConfig(
+                                    CarrierConfigManager.KEY_CARRIER_USSD_METHOD_INT);
+                    if (ussd_method != USSD_OVER_IMS_ONLY) {
+                        sendUssd(mPoundString);
+                    } else {
+                        throw new RuntimeException("The USSD request is not allowed over CS");
+                    }
+                } else {
+                    sendUssd(mPoundString);
+                }
             } else {
                 Rlog.d(LOG_TAG, "processCode: Invalid or Unsupported MMI Code");
                 throw new RuntimeException ("Invalid or Unsupported MMI Code");
@@ -1746,6 +1763,28 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             }
         }
         return sb;
+    }
+
+    /**
+     * Get the int config from carrier config manager.
+     *
+     * @param key config key defined in CarrierConfigManager
+     * @return integer value of corresponding key.
+     */
+    private int getIntCarrierConfig(String key) {
+        CarrierConfigManager ConfigManager =
+                (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        PersistableBundle b = null;
+        if (ConfigManager != null) {
+            // If an invalid subId is used, this bundle will contain default values.
+            b = ConfigManager.getConfigForSubId(mPhone.getSubId());
+        }
+        if (b != null) {
+            return b.getInt(key);
+        } else {
+            // Return static default defined in CarrierConfigManager.
+            return CarrierConfigManager.getDefaultConfig().getInt(key);
+        }
     }
 
     public ResultReceiver getUssdCallbackReceiver() {

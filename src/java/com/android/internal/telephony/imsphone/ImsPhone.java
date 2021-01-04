@@ -55,6 +55,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -147,6 +148,18 @@ public class ImsPhone extends ImsPhoneBase {
     private static final int EVENT_INITIATE_VOLTE_SILENT_REDIAL      = EVENT_LAST + 10;
     private static final int EVENT_GET_CLIP_DONE                     = EVENT_LAST + 11;
 
+
+    /**
+     * Used to create ImsManager instances, which may be injected during testing.
+     */
+    @VisibleForTesting
+    public interface ImsManagerFactory {
+        /**
+         * Create a new instance of ImsManager for the specified phoneId.
+         */
+        ImsManager create(Context context, int phoneId);
+    }
+
     public static class ImsDialArgs extends DialArgs {
         public static class Builder extends DialArgs.Builder<ImsDialArgs.Builder> {
             private android.telecom.Connection.RttTextStream mRttTextStream;
@@ -220,13 +233,15 @@ public class ImsPhone extends ImsPhoneBase {
 
     // Instance Variables
     Phone mDefaultPhone;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     ImsPhoneCallTracker mCT;
     ImsExternalCallTracker mExternalCallTracker;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ArrayList <ImsPhoneMmiCode> mPendingMMIs = new ArrayList<ImsPhoneMmiCode>();
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ServiceState mSS = new ServiceState();
+
+    private final ImsManagerFactory mImsManagerFactory;
 
     // To redial silently through GSM or CDMA when dialing through IMS fails
     private String mLastDialString;
@@ -241,6 +256,7 @@ public class ImsPhone extends ImsPhoneBase {
     // The helper class to receive and store the MmTel registration status updated.
     private ImsRegistrationCallbackHelper mImsMmTelRegistrationHelper;
 
+    // The roaming state if currently in service, or the last roaming state when was in service.
     private boolean mRoaming = false;
 
     private boolean mIsInImsEcm = false;
@@ -284,7 +300,7 @@ public class ImsPhone extends ImsPhoneBase {
         final boolean mIsCfu;
         final int mServiceClass;
 
-        @UnsupportedAppUsage
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         Cf(String cfNumber, boolean isCfu, Message onComplete, int serviceClass) {
             mSetCfNumber = cfNumber;
             mIsCfu = isCfu;
@@ -374,15 +390,16 @@ public class ImsPhone extends ImsPhoneBase {
 
     // Constructors
     public ImsPhone(Context context, PhoneNotifier notifier, Phone defaultPhone) {
-        this(context, notifier, defaultPhone, false);
+        this(context, notifier, defaultPhone, ImsManager::getInstance, false);
     }
 
     @VisibleForTesting
     public ImsPhone(Context context, PhoneNotifier notifier, Phone defaultPhone,
-                    boolean unitTestMode) {
+            ImsManagerFactory imsManagerFactory, boolean unitTestMode) {
         super("ImsPhone", context, notifier, unitTestMode);
 
         mDefaultPhone = defaultPhone;
+        mImsManagerFactory = imsManagerFactory;
         // The ImsExternalCallTracker needs to be defined before the ImsPhoneCallTracker, as the
         // ImsPhoneCallTracker uses a thread to spool up the ImsManager.  Part of this involves
         // setting the multiendpoint listener on the external call tracker.  So we need to ensure
@@ -464,13 +481,13 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ServiceState getServiceState() {
         return mSS;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @VisibleForTesting
     public void setServiceState(int state) {
         boolean isVoiceRegStateChanged = false;
@@ -562,21 +579,21 @@ public class ImsPhone extends ImsPhoneBase {
         mCT.explicitCallTransfer();
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ImsPhoneCall
     getForegroundCall() {
         return mCT.mForegroundCall;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ImsPhoneCall
     getBackgroundCall() {
         return mCT.mBackgroundCall;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ImsPhoneCall
     getRingingCall() {
@@ -782,7 +799,7 @@ public class ImsPhone extends ImsPhoneBase {
         mSsnRegistrants.notifyRegistrants(ar);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public boolean handleInCallMmiCommands(String dialString) {
         if (!isInCall()) {
@@ -842,7 +859,7 @@ public class ImsPhone extends ImsPhoneBase {
         mDefaultPhone.notifyNewRingingConnectionP(c);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     void notifyUnknownConnection(Connection c) {
         mDefaultPhone.notifyUnknownConnectionP(c);
     }
@@ -998,13 +1015,13 @@ public class ImsPhone extends ImsPhoneBase {
         return mCT.getMute();
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public PhoneConstants.State getState() {
         return mCT.getState();
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isValidCommandInterfaceCFReason (int commandInterfaceCFReason) {
         switch (commandInterfaceCFReason) {
         case CF_REASON_UNCONDITIONAL:
@@ -1019,7 +1036,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isValidCommandInterfaceCFAction (int commandInterfaceCFAction) {
         switch (commandInterfaceCFAction) {
         case CF_ACTION_DISABLE:
@@ -1032,12 +1049,12 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private  boolean isCfEnable(int action) {
         return (action == CF_ACTION_ENABLE) || (action == CF_ACTION_REGISTRATION);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int getConditionFromCFReason(int reason) {
         switch(reason) {
             case CF_REASON_UNCONDITIONAL: return ImsUtInterface.CDIV_CF_UNCONDITIONAL;
@@ -1068,7 +1085,7 @@ public class ImsPhone extends ImsPhoneBase {
         return CF_REASON_NOT_REACHABLE;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int getActionFromCFAction(int action) {
         switch(action) {
             case CF_ACTION_DISABLE: return ImsUtInterface.ACTION_DEACTIVATION;
@@ -1129,7 +1146,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void getCallForwardingOption(int commandInterfaceCFReason,
             Message onComplete) {
@@ -1170,7 +1187,7 @@ public class ImsPhone extends ImsPhoneBase {
                 CommandsInterface.SERVICE_CLASS_VOICE, timerSeconds, onComplete);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setCallForwardingOption(int commandInterfaceCFAction,
             int commandInterfaceCFReason,
@@ -1205,7 +1222,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void getCallWaiting(Message onComplete) {
         if (DBG) logd("getCallWaiting");
@@ -1221,7 +1238,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setCallWaiting(boolean enable, Message onComplete) {
         int serviceClass = CommandsInterface.SERVICE_CLASS_VOICE;
@@ -1352,7 +1369,7 @@ public class ImsPhone extends ImsPhoneBase {
         mCT.cancelUSSD(msg);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void sendErrorResponse(Message onComplete) {
         logd("sendErrorResponse");
         if (onComplete != null) {
@@ -1362,7 +1379,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @VisibleForTesting
     public void sendErrorResponse(Message onComplete, Throwable e) {
         logd("sendErrorResponse");
@@ -1492,7 +1509,7 @@ public class ImsPhone extends ImsPhoneBase {
      * registrants that it is complete.
      * @param mmi MMI that is done
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void onMMIDone(ImsPhoneMmiCode mmi) {
         /* Only notify complete if it's on the pending list.
          * Otherwise, it's already been handled (eg, previously canceled).
@@ -1906,16 +1923,17 @@ public class ImsPhone extends ImsPhoneBase {
         return mCT.isInEmergencyCall();
     }
 
-    @UnsupportedAppUsage
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void handleEnterEmergencyCallbackMode() {
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     protected void handleExitEmergencyCallbackMode() {
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setOnEcbModeExitResponse(Handler h, int what, Object obj) {
     }
@@ -1929,7 +1947,7 @@ public class ImsPhone extends ImsPhoneBase {
         return mCT.isImsCapabilityAvailable(capability, regTech);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public boolean isVolteEnabled() {
         return mCT.isVolteEnabled();
@@ -1971,7 +1989,7 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     // Not used, but not removed due to UnsupportedAppUsage tag.
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setImsRegistered(boolean isRegistered) {
         mImsMmTelRegistrationHelper.updateRegistrationState(
                 isRegistered ? RegistrationManager.REGISTRATION_STATE_REGISTERED :
@@ -2051,7 +2069,7 @@ public class ImsPhone extends ImsPhoneBase {
         if (imsReasonInfo.mCode == imsReasonInfo.CODE_REGISTRATION_ERROR
                 && imsReasonInfo.mExtraMessage != null) {
             // Suppress WFC Registration notifications if WFC is not enabled by the user.
-            if (ImsManager.getInstance(mContext, mPhoneId).isWfcEnabledByUser()) {
+            if (mImsManagerFactory.create(mContext, mPhoneId).isWfcEnabledByUser()) {
                 processWfcDisconnectForNotification(imsReasonInfo);
             }
         }
@@ -2152,7 +2170,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public boolean isUtEnabled() {
         return mCT.isUtEnabled();
@@ -2220,7 +2238,7 @@ public class ImsPhone extends ImsPhoneBase {
             // when receives ACTION_CARRIER_CONFIG_CHANGED broadcast.
             if (configManager != null && CarrierConfigManager.isConfigForIdentifiedCarrier(
                     configManager.getConfigForSubId(getSubId()))) {
-                ImsManager imsManager = ImsManager.getInstance(mContext, mPhoneId);
+                ImsManager imsManager = mImsManagerFactory.create(mContext, mPhoneId);
                 imsManager.setWfcMode(imsManager.getWfcMode(newRoamingState), newRoamingState);
             }
         } else {
@@ -2536,6 +2554,10 @@ public class ImsPhone extends ImsPhoneBase {
     public boolean hasAliveCall() {
         return (getForegroundCall().getState() != Call.State.IDLE ||
                 getBackgroundCall().getState() != Call.State.IDLE);
+    }
+
+    public boolean getRoamingState() {
+        return mRoaming;
     }
 
     @Override

@@ -18,7 +18,6 @@ package com.android.internal.telephony;
 
 import android.annotation.NonNull;
 import android.content.Context;
-import android.telephony.Annotation.DataFailureCause;
 import android.telephony.Annotation.RadioPowerState;
 import android.telephony.Annotation.SrvccState;
 import android.telephony.BarringInfo;
@@ -26,13 +25,13 @@ import android.telephony.CallQuality;
 import android.telephony.CellIdentity;
 import android.telephony.CellInfo;
 import android.telephony.PhoneCapability;
+import android.telephony.PhysicalChannelConfig;
 import android.telephony.PreciseCallState;
 import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
 import android.telephony.TelephonyRegistryManager;
-import android.telephony.data.ApnSetting;
 import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsReasonInfo;
 
@@ -72,11 +71,14 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
 
     @Override
     public void notifyServiceState(Phone sender) {
-        ServiceState ss = sender.getServiceState();
-        int phoneId = sender.getPhoneId();
-        int subId = sender.getSubId();
+        notifyServiceStateForSubId(sender, sender.getServiceState(), sender.getSubId());
+    }
 
-        Rlog.d(LOG_TAG, "notifyServiceState: mRegistryMgr=" + mTelephonyRegistryMgr + " ss="
+    @Override
+    public void notifyServiceStateForSubId(Phone sender, ServiceState ss, int subId) {
+        int phoneId = sender.getPhoneId();
+
+        Rlog.d(LOG_TAG, "notifyServiceStateForSubId: mRegistryMgr=" + mTelephonyRegistryMgr + " ss="
                 + ss + " sender=" + sender + " phondId=" + phoneId + " subId=" + subId);
         if (ss == null) {
             ss = new ServiceState();
@@ -124,15 +126,9 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     @Override
-    public void notifyDataConnection(
-            Phone sender, String apnType, PreciseDataConnectionState preciseState) {
-
-        int subId = sender.getSubId();
-        int phoneId = sender.getPhoneId();
-        int apnTypeBitmask = ApnSetting.getApnTypesBitmaskFromString(apnType);
-
-        mTelephonyRegistryMgr.notifyDataConnectionForSubscriber(
-                phoneId, subId, apnTypeBitmask, preciseState);
+    public void notifyDataConnection(Phone sender, PreciseDataConnectionState preciseState) {
+        mTelephonyRegistryMgr.notifyDataConnectionForSubscriber(sender.getPhoneId(),
+                sender.getSubId(), preciseState);
     }
 
     @Override
@@ -167,15 +163,6 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     @Override
     public void notifyImsDisconnectCause(@NonNull Phone sender, ImsReasonInfo imsReasonInfo) {
         mTelephonyRegistryMgr.notifyImsDisconnectCause(sender.getSubId(), imsReasonInfo);
-    }
-
-    @Override
-    /** Notify the TelephonyRegistry that a data connection has failed with a specified cause */
-    public void notifyDataConnectionFailed(Phone sender, String apnType,
-        String apn, @DataFailureCause int failCause) {
-        mTelephonyRegistryMgr.notifyPreciseDataConnectionFailed(
-                sender.getSubId(), sender.getPhoneId(),
-                ApnSetting.getApnTypesBitmaskFromString(apnType), apn, failCause);
     }
 
     @Override
@@ -224,12 +211,6 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     @Override
-    public void notifyOutgoingEmergencyCall(Phone sender, EmergencyNumber emergencyNumber) {
-        mTelephonyRegistryMgr.notifyOutgoingEmergencyCall(
-                sender.getPhoneId(), sender.getSubId(), emergencyNumber);
-    }
-
-    @Override
     public void notifyOutgoingEmergencySms(Phone sender, EmergencyNumber emergencyNumber) {
         mTelephonyRegistryMgr.notifyOutgoingEmergencySms(
                 sender.getPhoneId(), sender.getSubId(), emergencyNumber);
@@ -253,6 +234,13 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     public void notifyBarringInfoChanged(Phone sender, BarringInfo barringInfo) {
         mTelephonyRegistryMgr.notifyBarringInfoChanged(sender.getPhoneId(), sender.getSubId(),
                 barringInfo);
+    }
+
+    @Override
+    public void notifyPhysicalChannelConfiguration(Phone sender,
+                                                   List<PhysicalChannelConfig> configs) {
+        int subId = sender.getSubId();
+        mTelephonyRegistryMgr.notifyPhysicalChannelConfigurationForSubscriber(subId, configs);
     }
 
     /**

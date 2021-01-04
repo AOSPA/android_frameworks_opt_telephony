@@ -39,6 +39,7 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.Handler;
 import android.os.ParcelUuid;
+import android.os.PersistableBundle;
 import android.os.RegistrantList;
 import android.os.RemoteException;
 import android.os.TelephonyServiceManager.ServiceRegisterer;
@@ -69,6 +70,7 @@ import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.uicc.UiccProfile;
 import com.android.internal.telephony.uicc.UiccSlot;
 import com.android.internal.telephony.util.ArrayUtils;
 import com.android.internal.telephony.util.TelephonyUtils;
@@ -141,12 +143,12 @@ public class SubscriptionController extends ISub.Stub {
                 return flag;
             };
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected final Object mLock = new Object();
 
     /** The singleton instance. */
     protected static SubscriptionController sInstance = null;
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected Context mContext;
     protected TelephonyManager mTelephonyManager;
     protected UiccController mUiccController;
@@ -274,10 +276,10 @@ public class SubscriptionController extends ISub.Stub {
         }
     };
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected static int mDefaultPhoneId = SubscriptionManager.DEFAULT_PHONE_INDEX;
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int[] colorArr;
     private long mLastISubServiceRegTime;
     private RegistrantList mUiccAppsEnableChangeRegList = new RegistrantList();
@@ -307,7 +309,7 @@ public class SubscriptionController extends ISub.Stub {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static SubscriptionController getInstance() {
         if (sInstance == null) {
            Log.wtf(LOG_TAG, "getInstance null");
@@ -366,7 +368,7 @@ public class SubscriptionController extends ISub.Stub {
         sendDefaultChangedBroadcast(SubscriptionManager.getDefaultSubscriptionId());
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isSubInfoReady() {
         return SubscriptionInfoUpdater.isSubInfoInitialized();
     }
@@ -410,7 +412,7 @@ public class SubscriptionController extends ISub.Stub {
                         SubscriptionManager.INVALID_SUBSCRIPTION_ID);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected void enforceModifyPhoneState(String message) {
         mContext.enforceCallingOrSelfPermission(
                 android.Manifest.permission.MODIFY_PHONE_STATE, message);
@@ -467,7 +469,7 @@ public class SubscriptionController extends ISub.Stub {
     /**
      * Notify the changed of subscription info.
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void notifySubscriptionInfoChanged() {
         TelephonyRegistryManager trm =
                 (TelephonyRegistryManager)
@@ -489,9 +491,6 @@ public class SubscriptionController extends ISub.Stub {
             notifyOpportunisticSubscriptionInfoChanged();
         }
         metrics.updateActiveSubscriptionInfoList(subInfos);
-        for (Phone phone : PhoneFactory.getPhones()) {
-            phone.getVoiceCallSessionStats().onActiveSubscriptionInfoChanged(subInfos);
-        }
     }
 
     /**
@@ -499,7 +498,7 @@ public class SubscriptionController extends ISub.Stub {
      * @param cursor
      * @return the query result of desired SubInfoRecord
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private SubscriptionInfo getSubInfoRecord(Cursor cursor) {
         int id = cursor.getInt(cursor.getColumnIndexOrThrow(
                 SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID));
@@ -624,7 +623,7 @@ public class SubscriptionController extends ISub.Stub {
      * @param queryKey query key content
      * @return Array list of queried result from database
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public List<SubscriptionInfo> getSubInfo(String selection, Object queryKey) {
         if (VDBG) logd("selection:" + selection + ", querykey: " + queryKey);
         String[] selectionArgs = null;
@@ -687,7 +686,7 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     @Deprecated
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public SubscriptionInfo getActiveSubscriptionInfo(int subId, String callingPackage) {
         return getActiveSubscriptionInfo(subId, callingPackage, null);
     }
@@ -913,7 +912,7 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     @Deprecated
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public List<SubscriptionInfo> getActiveSubscriptionInfoList(String callingPackage) {
         return getSubscriptionInfoListFromCacheHelper(callingPackage, null,
                 makeCacheListCopyWithLock(mCacheActiveSubInfoList));
@@ -979,7 +978,7 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     @Deprecated
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getActiveSubInfoCount(String callingPackage) {
         return getActiveSubInfoCount(callingPackage, null);
     }
@@ -1697,7 +1696,7 @@ public class SubscriptionController extends ISub.Stub {
      * @param spn spn to be included in carrier text
      * @return true if carrier text is set, false otherwise
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean setPlmnSpn(int slotIndex, boolean showPlmn, String plmn, boolean showSpn,
                               String spn) {
         synchronized (mLock) {
@@ -1816,6 +1815,66 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     /**
+     * Validate whether the NAME_SOURCE_SIM_PNN, NAME_SOURCE_SIM_SPN and
+     * NAME_SOURCE_CARRIER exist or not.
+     */
+    @VisibleForTesting
+    public boolean isExistingNameSourceStillValid(SubscriptionInfo subInfo) {
+
+        int subId = subInfo.getSubscriptionId();
+        int phoneId = getPhoneId(subInfo.getSubscriptionId());
+
+        Phone phone = PhoneFactory.getPhone(phoneId);
+        if (phone == null) {
+            return true;
+        }
+
+        String spn;
+
+        switch (subInfo.getNameSource()) {
+            case SubscriptionManager.NAME_SOURCE_SIM_PNN:
+                String pnn = phone.getPlmn();
+                return !TextUtils.isEmpty(pnn);
+            case SubscriptionManager.NAME_SOURCE_SIM_SPN:
+                spn = getServiceProviderName(phoneId);
+                return !TextUtils.isEmpty(spn);
+            case SubscriptionManager.NAME_SOURCE_CARRIER:
+                // Can not validate eSIM since it should not override with a lower priority source
+                // if the name is actually coming from eSIM and not from carrier config.
+                if (subInfo.isEmbedded()) {
+                    return true;
+                }
+                CarrierConfigManager configLoader =
+                        mContext.getSystemService(CarrierConfigManager.class);
+                PersistableBundle config =
+                        configLoader.getConfigForSubId(subId);
+                if (config == null) {
+                    return true;
+                }
+                boolean isCarrierNameOverride = config.getBoolean(
+                        CarrierConfigManager.KEY_CARRIER_NAME_OVERRIDE_BOOL, false);
+                String carrierName = config.getString(
+                        CarrierConfigManager.KEY_CARRIER_NAME_STRING);
+                spn = getServiceProviderName(phoneId);
+                return isCarrierNameOverride
+                        || (TextUtils.isEmpty(spn) && !TextUtils.isEmpty(carrierName));
+            case SubscriptionManager.NAME_SOURCE_CARRIER_ID:
+            case SubscriptionManager.NAME_SOURCE_USER_INPUT:
+                return true;
+        }
+        return false;
+    }
+
+    @VisibleForTesting
+    public String getServiceProviderName(int phoneId) {
+        UiccProfile profile = mUiccController.getUiccProfileForPhone(phoneId);
+        if (profile == null) {
+            return null;
+        }
+        return profile.getServiceProviderName();
+    }
+
+    /**
      * Set display name by simInfo index with name source
      * @param displayName the display name of SIM card
      * @param subId the unique SubInfoRecord index in database
@@ -1840,12 +1899,17 @@ public class SubscriptionController extends ISub.Stub {
             // if there is no sub in the db, return 0 since subId does not exist in db
             if (allSubInfo == null || allSubInfo.isEmpty()) return 0;
             for (SubscriptionInfo subInfo : allSubInfo) {
+                int subInfoNameSource = subInfo.getNameSource();
+                boolean isHigherPriority = (getNameSourcePriority(subInfoNameSource)
+                        > getNameSourcePriority(nameSource));
+                boolean isEqualPriorityAndName = (getNameSourcePriority(subInfoNameSource)
+                        == getNameSourcePriority(nameSource))
+                        && (TextUtils.equals(displayName, subInfo.getDisplayName()));
                 if (subInfo.getSubscriptionId() == subId
-                        && (getNameSourcePriority(subInfo.getNameSource())
-                                > getNameSourcePriority(nameSource)
-                        || (displayName != null && displayName.equals(subInfo.getDisplayName())))) {
-                    logd("Name source " + subInfo.getNameSource() + "'s priority "
-                            + getNameSourcePriority(subInfo.getNameSource()) + " is greater than "
+                        && isExistingNameSourceStillValid(subInfo)
+                        && (isHigherPriority || isEqualPriorityAndName)) {
+                    logd("Name source " + subInfoNameSource + "'s priority "
+                            + getNameSourcePriority(subInfoNameSource) + " is greater than "
                             + "name source " + nameSource + "'s priority "
                             + getNameSourcePriority(nameSource) + ", return now.");
                     return 0;
@@ -2233,7 +2297,7 @@ public class SubscriptionController extends ISub.Stub {
         mUiccAppsEnableChangeRegList.remove(handler);
     }
 
-    private void notifyUiccAppsEnableChanged() {
+    protected void notifyUiccAppsEnableChanged() {
         mUiccAppsEnableChangeRegList.notifyRegistrants();
     }
 
@@ -2324,7 +2388,7 @@ public class SubscriptionController extends ISub.Stub {
      * Return the subId for specified slot Id.
      * @deprecated
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     @Deprecated
     public int[] getSubId(int slotIndex) {
@@ -2373,7 +2437,7 @@ public class SubscriptionController extends ISub.Stub {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public int getPhoneId(int subId) {
         if (VDBG) printStackTrace("[getPhoneId] subId=" + subId);
@@ -2452,13 +2516,13 @@ public class SubscriptionController extends ISub.Stub {
         Rlog.v(LOG_TAG, msg);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected void logdl(String msg) {
         logd(msg);
         mLocalLog.log(msg);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void logd(String msg) {
         Rlog.d(LOG_TAG, msg);
     }
@@ -2468,12 +2532,12 @@ public class SubscriptionController extends ISub.Stub {
         mLocalLog.log(msg);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void loge(String msg) {
         Rlog.e(LOG_TAG, msg);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public int getDefaultSubId() {
         int subId;
@@ -2493,7 +2557,7 @@ public class SubscriptionController extends ISub.Stub {
         return subId;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setDefaultSmsSubId(int subId) {
         enforceModifyPhoneState("setDefaultSmsSubId");
@@ -2515,7 +2579,7 @@ public class SubscriptionController extends ISub.Stub {
         mContext.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public int getDefaultSmsSubId() {
         int subId = Settings.Global.getInt(mContext.getContentResolver(),
@@ -2525,7 +2589,7 @@ public class SubscriptionController extends ISub.Stub {
         return subId;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setDefaultVoiceSubId(int subId) {
         enforceModifyPhoneState("setDefaultVoiceSubId");
@@ -2574,7 +2638,7 @@ public class SubscriptionController extends ISub.Stub {
         mContext.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public int getDefaultVoiceSubId() {
         int subId = Settings.Global.getInt(mContext.getContentResolver(),
@@ -2584,7 +2648,7 @@ public class SubscriptionController extends ISub.Stub {
         return subId;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public int getDefaultDataSubId() {
         int subId = Settings.Global.getInt(mContext.getContentResolver(),
@@ -2594,7 +2658,7 @@ public class SubscriptionController extends ISub.Stub {
         return subId;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setDefaultDataSubId(int subId) {
         enforceModifyPhoneState("setDefaultDataSubId");
@@ -2648,7 +2712,7 @@ public class SubscriptionController extends ISub.Stub {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected void broadcastDefaultDataSubIdChanged(int subId) {
         // Broadcast an Intent for default data sub change
         if (DBG) logdl("[broadcastDefaultDataSubIdChanged] subId=" + subId);
@@ -2662,7 +2726,7 @@ public class SubscriptionController extends ISub.Stub {
      * sub is set as default subId. If two or more  sub's are active
      * the first sub is set as default subscription
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected void setDefaultFallbackSubId(int subId, int subscriptionType) {
         if (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID) {
             throw new RuntimeException("setDefaultSubId called with DEFAULT_SUB_ID");
@@ -2744,7 +2808,7 @@ public class SubscriptionController extends ISub.Stub {
 
     // FIXME: We need we should not be assuming phoneId == slotIndex as it will not be true
     // when there are multiple subscriptions per sim and probably for other reasons.
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getSubIdUsingPhoneId(int phoneId) {
         int[] subIds = getSubId(phoneId);
         if (subIds == null || subIds.length == 0) {
@@ -2791,7 +2855,7 @@ public class SubscriptionController extends ISub.Stub {
         return subList;
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void validateSubId(int subId) {
         if (DBG) logd("validateSubId subId: " + subId);
         if (!SubscriptionManager.isValidSubscriptionId(subId)) {
@@ -2872,7 +2936,7 @@ public class SubscriptionController extends ISub.Stub {
         }
     }
 
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Deprecated // This should be moved into isActiveSubId(int, String)
     public boolean isActiveSubId(int subId) {
         boolean retVal = SubscriptionManager.isValidSubscriptionId(subId)
@@ -3975,8 +4039,14 @@ public class SubscriptionController extends ISub.Stub {
         }
     }
 
-    // Helper function of getOpportunisticSubscriptions and getActiveSubscriptionInfoList.
-    // They are doing similar things except operating on different cache.
+    /**
+     * Helper function of getOpportunisticSubscriptions and getActiveSubscriptionInfoList.
+     * They are doing similar things except operating on different cache.
+     *
+     * NOTE: the cacheSubList passed in is a *copy* of mCacheActiveSubInfoList or
+     * mCacheOpportunisticSubInfoList, so mSubInfoListLock is not required to access it. Also, this
+     * method may modify cacheSubList depending on the permissions the caller has.
+     */
     private List<SubscriptionInfo> getSubscriptionInfoListFromCacheHelper(
             String callingPackage, String callingFeatureId, List<SubscriptionInfo> cacheSubList) {
         boolean canReadPhoneState = false;
@@ -4009,30 +4079,26 @@ public class SubscriptionController extends ISub.Stub {
             return cacheSubList;
         }
         // Filter the list to only include subscriptions which the caller can manage.
-        List<SubscriptionInfo> subscriptions = new ArrayList<>(cacheSubList.size());
-        for (SubscriptionInfo subscriptionInfo : cacheSubList) {
+        for (int subIndex = cacheSubList.size() - 1; subIndex >= 0; subIndex--) {
+            SubscriptionInfo subscriptionInfo = cacheSubList.get(subIndex);
+
             int subId = subscriptionInfo.getSubscriptionId();
             boolean hasCarrierPrivileges = TelephonyPermissions.checkCarrierPrivilegeForSubId(
                     mContext, subId);
-            // If the caller does not have the READ_PHONE_STATE permission nor carrier
-            // privileges then they cannot access the current subscription.
-            if (!canReadPhoneState && !hasCarrierPrivileges) {
-                continue;
-            }
             // If the caller has carrier privileges then they are granted access to all
             // identifiers for their subscription.
-            if (hasCarrierPrivileges) {
-                subscriptions.add(subscriptionInfo);
-            } else {
+            if (hasCarrierPrivileges) continue;
+
+            cacheSubList.remove(subIndex);
+            if (canReadPhoneState) {
                 // The caller does not have carrier privileges for this subId, filter the
                 // identifiers in the subscription based on the results of the initial
                 // permission checks.
-                subscriptions.add(
-                        conditionallyRemoveIdentifiers(subscriptionInfo, canReadIdentifiers,
-                                canReadPhoneNumber));
+                cacheSubList.add(subIndex, conditionallyRemoveIdentifiers(
+                        subscriptionInfo, canReadIdentifiers, canReadPhoneNumber));
             }
         }
-        return subscriptions;
+        return cacheSubList;
     }
 
     /**

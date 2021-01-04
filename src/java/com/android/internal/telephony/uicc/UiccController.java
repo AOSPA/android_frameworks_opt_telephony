@@ -28,6 +28,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.Registrant;
@@ -131,7 +132,7 @@ public class UiccController extends Handler {
     // NOTE: any new EVENT_* values must be added to eventToString.
 
     // this needs to be here, because on bootup we dont know which index maps to which UiccSlot
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private CommandsInterface[] mCis;
     @VisibleForTesting
     public UiccSlot[] mUiccSlots;
@@ -421,7 +422,7 @@ public class UiccController extends Handler {
     }
 
     // Easy to use API
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public IccRecords getIccRecords(int phoneId, int family) {
         synchronized (mLock) {
             UiccCardApplication app = getUiccCardApplication(phoneId, family);
@@ -433,7 +434,7 @@ public class UiccController extends Handler {
     }
 
     // Easy to use API
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public IccFileHandler getIccFileHandler(int phoneId, int family) {
         synchronized (mLock) {
             UiccCardApplication app = getUiccCardApplication(phoneId, family);
@@ -612,7 +613,7 @@ public class UiccController extends Handler {
     }
 
     // Easy to use API
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public UiccCardApplication getUiccCardApplication(int phoneId, int family) {
         synchronized (mLock) {
             UiccCard uiccCard = getUiccCardForPhone(phoneId);
@@ -680,6 +681,13 @@ public class UiccController extends Handler {
         }
         if (!isValidPhoneIndex(index)) {
             Rlog.e(LOG_TAG,"onGetIccCardStatusDone: invalid index : " + index);
+            return;
+        }
+        if (isShuttingDown()) {
+            // Do not process the SIM/SLOT events during device shutdown,
+            // as it may unnecessarily modify the persistent information
+            // like, SubscriptionManager.UICC_APPLICATIONS_ENABLED.
+            log("onGetIccCardStatusDone: shudown in progress ignore event");
             return;
         }
 
@@ -910,6 +918,13 @@ public class UiccController extends Handler {
             }
             return;
         }
+        if (isShuttingDown()) {
+            // Do not process the SIM/SLOT events during device shutdown,
+            // as it may unnecessarily modify the persistent information
+            // like, SubscriptionManager.UICC_APPLICATIONS_ENABLED.
+            log("onGetSlotStatusDone: shudown in progress ignore event");
+            return;
+        }
 
         ArrayList<IccSlotStatus> status = (ArrayList<IccSlotStatus>) ar.result;
 
@@ -939,7 +954,7 @@ public class UiccController extends Handler {
             if (isActive) {
                 numActiveSlots++;
 
-                // sanity check: logicalSlotIndex should be valid for an active slot
+                // Correctness check: logicalSlotIndex should be valid for an active slot
                 if (!isValidPhoneIndex(iss.logicalSlotIndex)) {
                     Rlog.e(LOG_TAG, "Skipping slot " + i + " as phone " + iss.logicalSlotIndex
                                + " is not available to communicate with this slot");
@@ -1048,13 +1063,13 @@ public class UiccController extends Handler {
 
         if (VDBG) logPhoneIdToSlotIdMapping();
 
-        // sanity check: number of active slots should be valid
+        // Correctness check: number of active slots should be valid
         if (numActiveSlots != mPhoneIdToSlotId.length) {
             Rlog.e(LOG_TAG, "Number of active slots " + numActiveSlots
                        + " does not match the number of Phones" + mPhoneIdToSlotId.length);
         }
 
-        // sanity check: slotIds should be unique in mPhoneIdToSlotId
+        // Correctness check: slotIds should be unique in mPhoneIdToSlotId
         Set<Integer> slotIds = new HashSet<>();
         for (int slotId : mPhoneIdToSlotId) {
             if (slotIds.contains(slotId)) {
@@ -1226,7 +1241,17 @@ public class UiccController extends Handler {
         return (index >= 0 && index < mUiccSlots.length);
     }
 
-    @UnsupportedAppUsage
+    private boolean isShuttingDown() {
+        for (int i = 0; i < TelephonyManager.getDefault().getActiveModemCount(); i++) {
+            if (PhoneFactory.getPhone(i) != null &&
+                    PhoneFactory.getPhone(i).isShuttingDown()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void log(String string) {
         Rlog.d(LOG_TAG, string);
     }

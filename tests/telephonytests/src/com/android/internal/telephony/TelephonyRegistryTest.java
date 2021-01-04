@@ -36,6 +36,7 @@ import static org.mockito.Mockito.when;
 import android.content.Intent;
 import android.net.LinkProperties;
 import android.os.ServiceManager;
+import android.telephony.AccessNetworkConstants;
 import android.telephony.Annotation;
 import android.telephony.PhoneCapability;
 import android.telephony.PhoneStateListener;
@@ -310,12 +311,17 @@ public class TelephonyRegistryTest extends TelephonyTest {
         doReturn(0/*slotIndex*/).when(mMockSubInfo).getSimSlotIndex();
         // Initialize the PSL with a PreciseDataConnection
         mTelephonyRegistry.notifyDataConnectionForSubscriber(
-                /*phoneId*/ 0, subId, ApnSetting.TYPE_DEFAULT,
+                /*phoneId*/ 0, subId,
                 new PreciseDataConnectionState.Builder()
-                        .setState(0)
-                        .setNetworkType(0)
-                        .setApnTypes(0)
-                        .setApn("default")
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .setId(1)
+                        .setState(TelephonyManager.DATA_CONNECTED)
+                        .setNetworkType(TelephonyManager.NETWORK_TYPE_LTE)
+                        .setApnSetting(new ApnSetting.Builder()
+                                .setApnTypeBitmask(ApnSetting.TYPE_DEFAULT)
+                                .setApnName("default")
+                                .setEntryName("default")
+                                .build())
                         .setLinkProperties(new LinkProperties())
                         .setFailCause(0)
                         .build());
@@ -324,16 +330,21 @@ public class TelephonyRegistryTest extends TelephonyTest {
                 PhoneStateListener.LISTEN_PRECISE_DATA_CONNECTION_STATE, true);
         processAllMessages();
         // Verify that the PDCS is reported for the only APN
-        assertEquals(mPhoneStateListener.invocationCount.get(), 1);
+        assertEquals(1, mPhoneStateListener.invocationCount.get());
 
         // Add IMS APN and verify that the listener is invoked for the IMS APN
         mTelephonyRegistry.notifyDataConnectionForSubscriber(
-                /*phoneId*/ 0, subId, ApnSetting.TYPE_IMS,
+                /*phoneId*/ 0, subId,
                 new PreciseDataConnectionState.Builder()
-                        .setState(0)
-                        .setNetworkType(0)
-                        .setApnTypes(0)
-                        .setApn("ims")
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .setId(2)
+                        .setState(TelephonyManager.DATA_CONNECTED)
+                        .setNetworkType(TelephonyManager.NETWORK_TYPE_LTE)
+                        .setApnSetting(new ApnSetting.Builder()
+                                .setApnTypeBitmask(ApnSetting.TYPE_IMS)
+                                .setApnName("ims")
+                                .setEntryName("ims")
+                                .build())
                         .setLinkProperties(new LinkProperties())
                         .setFailCause(0)
                         .build());
@@ -352,22 +363,27 @@ public class TelephonyRegistryTest extends TelephonyTest {
                 mContext.getAttributionTag(), mPhoneStateListener.callback,
                 PhoneStateListener.LISTEN_PRECISE_DATA_CONNECTION_STATE, true);
         processAllMessages();
-        assertEquals(mPhoneStateListener.invocationCount.get(), 4);
+        assertEquals(4, mPhoneStateListener.invocationCount.get());
 
         // Send a duplicate event to the TelephonyRegistry and verify that the listener isn't
         // invoked.
         mTelephonyRegistry.notifyDataConnectionForSubscriber(
-                /*phoneId*/ 0, subId, ApnSetting.TYPE_IMS,
+                /*phoneId*/ 0, subId,
                 new PreciseDataConnectionState.Builder()
-                        .setState(0)
-                        .setNetworkType(0)
-                        .setApnTypes(0)
-                        .setApn("ims")
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .setId(2)
+                        .setState(TelephonyManager.DATA_CONNECTED)
+                        .setNetworkType(TelephonyManager.NETWORK_TYPE_LTE)
+                        .setApnSetting(new ApnSetting.Builder()
+                                .setApnTypeBitmask(ApnSetting.TYPE_IMS)
+                                .setApnName("ims")
+                                .setEntryName("ims")
+                                .build())
                         .setLinkProperties(new LinkProperties())
                         .setFailCause(0)
                         .build());
         processAllMessages();
-        assertEquals(mPhoneStateListener.invocationCount.get(), 4);
+        assertEquals(4, mPhoneStateListener.invocationCount.get());
     }
 
     /**
@@ -411,6 +427,29 @@ public class TelephonyRegistryTest extends TelephonyTest {
                 android.Manifest.permission.READ_PRECISE_PHONE_STATE);
         for (Map.Entry<Integer, String> entry : READ_PRECISE_PHONE_STATE_EVENTS.entrySet()) {
             assertSecurityExceptionNotThrown(entry.getKey(), entry.getValue());
+        }
+    }
+
+    /**
+     * Test a bit-fiddling method in TelephonyRegistry
+     */
+    @Test
+    public void testGetApnTypesStringFromBitmask() {
+        {
+            int mask = 0;
+            assertEquals("", TelephonyRegistry.getApnTypesStringFromBitmask(mask));
+        }
+
+        {
+            int mask = ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_MMS;
+            assertEquals(String.join(
+                    ",", ApnSetting.TYPE_DEFAULT_STRING, ApnSetting.TYPE_MMS_STRING),
+                    TelephonyRegistry.getApnTypesStringFromBitmask(mask));
+        }
+
+        {
+            int mask = 1 << 31;
+            assertEquals("", TelephonyRegistry.getApnTypesStringFromBitmask(mask));
         }
     }
 

@@ -43,6 +43,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -54,6 +55,7 @@ import android.os.WorkSource;
 import android.preference.PreferenceManager;
 import android.telecom.VideoProfile;
 import android.telephony.AccessNetworkConstants;
+import android.telephony.CarrierBandwidth;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CellIdentity;
 import android.telephony.CellIdentityCdma;
@@ -380,7 +382,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         WorkSource workSource = new WorkSource(Process.myUid(),
             mContext.getPackageName());
         doReturn(cellLocation).when(mSST).getCellIdentity();
-        assertEquals(cellLocation, mPhoneUT.getCellIdentity());
+        assertEquals(cellLocation, mPhoneUT.getCurrentCellIdentity());
 
         // Switch to CDMA
         switchToCdma();
@@ -389,7 +391,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         doReturn(cdmaCellLocation).when(mSST).getCellIdentity();
 
         CellIdentityCdma actualCellLocation =
-                (CellIdentityCdma) mPhoneUT.getCellIdentity();
+                (CellIdentityCdma) mPhoneUT.getCurrentCellIdentity();
 
         assertEquals(actualCellLocation, cdmaCellLocation);
     }
@@ -487,6 +489,42 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
             Connection connection = mPhoneUT.dial("1234567890",
                     new PhoneInternalInterface.DialArgs.Builder().build());
             verify(mCT).dialGsm("1234567890", null, null);
+        } catch (CallStateException e) {
+            fail();
+        }
+    }
+
+    @Test
+    @SmallTest
+    public void testWpsDialOverCs() throws Exception {
+        try {
+            setupForWpsCallTest();
+
+            mContextFixture.getCarrierConfigBundle().putBoolean(
+                    CarrierConfigManager.KEY_SUPPORT_WPS_OVER_IMS_BOOL, false);
+
+            Connection connection = mPhoneUT.dial("*27216505551212",
+                    new PhoneInternalInterface.DialArgs.Builder().build());
+            verify(mCT).dialGsm("*27216505551212", null, null);
+            verify(mImsCT).hangupAllConnections();
+        } catch (CallStateException e) {
+            fail();
+        }
+    }
+
+    @Test
+    @SmallTest
+    public void testWpsDialOverIms() throws Exception {
+        try {
+            setupForWpsCallTest();
+
+            mContextFixture.getCarrierConfigBundle().putBoolean(
+                    CarrierConfigManager.KEY_SUPPORT_WPS_OVER_IMS_BOOL, true);
+
+            Connection connection = mPhoneUT.dial("*27216505551212",
+                    new PhoneInternalInterface.DialArgs.Builder().build());
+            verify(mCT).dialGsm("*27216505551212", null, null);
+            verify(mImsCT, never()).hangupAllConnections();
         } catch (CallStateException e) {
             fail();
         }
@@ -1087,7 +1125,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     @Test
     @SmallTest
     public void testGetIccCardUnknownAndAbsent() {
-        // If UiccSlot.isStateUnknown is true, we should return a dummy IccCard with the state
+        // If UiccSlot.isStateUnknown is true, we should return a placeholder IccCard with the state
         // set to UNKNOWN
         doReturn(null).when(mUiccController).getUiccProfileForPhone(anyInt());
         UiccSlot mockSlot = mock(UiccSlot.class);
@@ -1097,7 +1135,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         IccCard iccCard = mPhoneUT.getIccCard();
         assertEquals(IccCardConstants.State.UNKNOWN, iccCard.getState());
 
-        // if isStateUnknown is false, we should return a dummy IccCard with the state set to
+        // if isStateUnknown is false, we should return a placeholder IccCard with the state set to
         // ABSENT
         doReturn(false).when(mockSlot).isStateUnknown();
         iccCard = mPhoneUT.getIccCard();
@@ -1111,7 +1149,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         IccCard iccCard = mPhoneUT.getIccCard();
 
-        // The iccCard should be a dummy object, not null.
+        // The iccCard should be a placeholder object, not null.
         assertTrue(!(iccCard instanceof UiccProfile));
 
         assertTrue(iccCard != null);
@@ -1394,5 +1432,40 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         doThrow(callStateException).when(mImsPhone).dial("*135#", dialArgs);
 
         replaceInstance(Phone.class, "mImsPhone", mPhoneUT, mImsPhone);
+    }
+
+    @Test
+    public void testEventCarrierConfigChanged() {
+        mPhoneUT.mCi = mMockCi;
+        mPhoneUT.sendMessage(mPhoneUT.obtainMessage(Phone.EVENT_CARRIER_CONFIG_CHANGED));
+        processAllMessages();
+
+        ArgumentCaptor<Message> captor = ArgumentCaptor.forClass(Message.class);
+        verify(mMockCi).getRadioCapability(captor.capture());
+        assertEquals(captor.getValue().what, Phone.EVENT_GET_RADIO_CAPABILITY);
+    }
+
+    private void setupForWpsCallTest() throws Exception {
+        mSST.mSS = mServiceState;
+        doReturn(ServiceState.STATE_IN_SERVICE).when(mServiceState).getState();
+        when(mImsPhone.getCallTracker()).thenReturn(mImsCT);
+        mCT.mForegroundCall = mGsmCdmaCall;
+        mCT.mBackgroundCall = mGsmCdmaCall;
+        mCT.mRingingCall = mGsmCdmaCall;
+        doReturn(GsmCdmaCall.State.IDLE).when(mGsmCdmaCall).getState();
+        replaceInstance(Phone.class, "mImsPhone", mPhoneUT, mImsPhone);
+    }
+
+    @Test
+    public void testEventLCEUpdate() {
+        mPhoneUT.mCi = mMockCi;
+        mPhoneUT.sendMessage(mPhoneUT.obtainMessage(GsmCdmaPhone.EVENT_LINK_CAPACITY_CHANGED,
+                new AsyncResult(null, new LinkCapacityEstimate(1000, 500, 100, 50), null)));
+        processAllMessages();
+        CarrierBandwidth bandwidth = mPhoneUT.getCarrierBandwidth();
+        assertEquals(bandwidth.getPrimaryDownlinkCapacityKbps(), 900);
+        assertEquals(bandwidth.getPrimaryUplinkCapacityKbps(), 450);
+        assertEquals(bandwidth.getSecondaryDownlinkCapacityKbps(), 100);
+        assertEquals(bandwidth.getSecondaryUplinkCapacityKbps(), 50);
     }
 }

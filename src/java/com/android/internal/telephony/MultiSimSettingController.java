@@ -37,6 +37,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.AsyncResult;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.os.ParcelUuid;
 import android.provider.Settings;
@@ -139,6 +140,10 @@ public class MultiSimSettingController extends Handler {
     // mCarrierConfigLoadedSubIds[0] = INVALID_SUBSCRIPTION_ID.
     private int[] mCarrierConfigLoadedSubIds;
 
+    // It indicates whether "Ask every time" option for default SMS subscription is supported by the
+    // device.
+    private final boolean mIsAskEverytimeSupportedForSms;
+
     private final BroadcastReceiver mIntentReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -193,6 +198,8 @@ public class MultiSimSettingController extends Handler {
         PhoneConfigurationManager.registerForMultiSimConfigChange(
                 this, EVENT_MULTI_SIM_CONFIG_CHANGED, null);
 
+        mIsAskEverytimeSupportedForSms = mContext.getResources()
+                .getBoolean(com.android.internal.R.bool.config_sms_ask_every_time_support);
         context.registerReceiver(mIntentReceiver, new IntentFilter(
                 CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED));
     }
@@ -227,6 +234,7 @@ public class MultiSimSettingController extends Handler {
      * Notify subscription info change.
      */
     public void notifySubscriptionInfoChanged() {
+        log("notifySubscriptionInfoChanged");
         obtainMessage(EVENT_SUBSCRIPTION_INFO_CHANGED).sendToTarget();
     }
 
@@ -329,6 +337,22 @@ public class MultiSimSettingController extends Handler {
      */
     private void onSubscriptionsChanged() {
         if (DBG) log("onSubscriptionsChanged");
+        reEvaluateAll();
+    }
+
+    /**
+     * This method is called when a phone object is removed (for example when going from multi-sim
+     * to single-sim).
+     * NOTE: This method does not post a message to self, instead it calls reEvaluateAll() directly.
+     * so it should only be called from the main thread. The reason is to update defaults asap
+     * after multi_sim_config property has been updated (see b/163582235).
+     */
+    public void onPhoneRemoved() {
+        if (DBG) log("onPhoneRemoved");
+        if (Looper.myLooper() != this.getLooper()) {
+            throw new RuntimeException("This method must be called from the same looper as "
+                    + "MultiSimSettingController.");
+        }
         reEvaluateAll();
     }
 
@@ -540,7 +564,8 @@ public class MultiSimSettingController extends Handler {
         if (DBG) log("[updateDefaultValues] Update default sms subscription");
         boolean smsSelected = updateDefaultValue(mPrimarySubList,
                 mSubController.getDefaultSmsSubId(),
-                (newValue -> mSubController.setDefaultSmsSubId(newValue)));
+                (newValue -> mSubController.setDefaultSmsSubId(newValue)),
+                mIsAskEverytimeSupportedForSms);
 
         sendSubChangeNotificationIfNeeded(change, dataSelected, voiceSelected, smsSelected);
     }
@@ -635,8 +660,9 @@ public class MultiSimSettingController extends Handler {
         if (mPrimarySubList.size() == 1 && change == PRIMARY_SUB_REMOVED
                 && (!dataSelected || !smsSelected || !voiceSelected)) {
             dialogType = EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE_ALL;
-        } else if (mPrimarySubList.size() > 1 && isUserVisibleChange(change)) {
-            // If change is SWAPPED_IN_GROUP or MARKED_OPPT orINITIALIZED, don't ask user again.
+        } else if (mPrimarySubList.size() > 1 && (isUserVisibleChange(change)
+                || (change == PRIMARY_SUB_INITIALIZED && !dataSelected))) {
+            // If change is SWAPPED_IN_GROUP or MARKED_OPPT, don't ask user again.
             dialogType = EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE_DATA;
         }
 
@@ -773,14 +799,23 @@ public class MultiSimSettingController extends Handler {
     // Returns whether the new default value is valid.
     private boolean updateDefaultValue(List<Integer> primarySubList, int oldValue,
             UpdateDefaultAction action) {
+        return updateDefaultValue(primarySubList, oldValue, action, true);
+    }
+
+    private boolean updateDefaultValue(List<Integer> primarySubList, int oldValue,
+            UpdateDefaultAction action, boolean allowInvalidSubId) {
         int newValue = INVALID_SUBSCRIPTION_ID;
 
         if (primarySubList.size() > 0) {
             for (int subId : primarySubList) {
                 if (DBG) log("[updateDefaultValue] Record.id: " + subId);
-                // If the old subId is still active, or there's another active primary subscription
-                // that is in the same group, that should become the new default subscription.
-                if (areSubscriptionsInSameGroup(subId, oldValue)) {
+                // 1) If the old subId is still active, or there's another active primary
+                // subscription that is in the same group, that should become the new default
+                // subscription.
+                // 2) If the old subId is INVALID_SUBSCRIPTION_ID and allowInvalidSubId is false,
+                // first active subscription is used for new default always.
+                if (areSubscriptionsInSameGroup(subId, oldValue)
+                        || (!allowInvalidSubId && oldValue == INVALID_SUBSCRIPTION_ID)) {
                     newValue = subId;
                     log("[updateDefaultValue] updates to subId=" + newValue);
                     break;

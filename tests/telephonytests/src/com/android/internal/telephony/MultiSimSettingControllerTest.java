@@ -34,9 +34,11 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import android.content.Intent;
+import android.os.HandlerThread;
 import android.os.ParcelUuid;
 import android.os.PersistableBundle;
 import android.provider.Settings;
@@ -51,6 +53,7 @@ import android.testing.TestableLooper;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -60,6 +63,9 @@ import org.mockito.Mock;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @RunWith(AndroidTestingRunner.class)
 @TestableLooper.RunWithLooper
@@ -353,6 +359,41 @@ public class MultiSimSettingControllerTest extends TelephonyTest {
         assertEquals(EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE_ALL,
                 intent.getIntExtra(EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE, -1));
         assertEquals(2, intent.getIntExtra(EXTRA_SUBSCRIPTION_ID, -1));
+    }
+
+    @Test
+    @SmallTest
+    public void testSimpleDsdsFirstBoot() {
+        // at first boot default is not set
+        doReturn(-1).when(mSubControllerMock).getDefaultDataSubId();
+
+        doReturn(true).when(mPhoneMock1).isUserDataEnabled();
+        doReturn(true).when(mPhoneMock2).isUserDataEnabled();
+        // After initialization, sub 2 should have mobile data off.
+        mMultiSimSettingControllerUT.notifyAllSubscriptionLoaded();
+        mMultiSimSettingControllerUT.notifyCarrierConfigChanged(0, 1);
+        mMultiSimSettingControllerUT.notifyCarrierConfigChanged(1, 2);
+        processAllMessages();
+        verify(mDataEnabledSettingsMock1).setDataEnabled(
+                TelephonyManager.DATA_ENABLED_REASON_USER, false);
+        verify(mDataEnabledSettingsMock2).setDataEnabled(
+                TelephonyManager.DATA_ENABLED_REASON_USER, false);
+
+        // as a result of the above calls, update new values to be returned
+        doReturn(false).when(mPhoneMock1).isUserDataEnabled();
+        doReturn(false).when(mPhoneMock2).isUserDataEnabled();
+
+        Intent intent = captureBroadcastIntent();
+        assertEquals(ACTION_PRIMARY_SUBSCRIPTION_LIST_CHANGED, intent.getAction());
+        assertEquals(EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE_DATA,
+                intent.getIntExtra(EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE, -1));
+
+        // Setting default data should not trigger any more setDataEnabled().
+        doReturn(2).when(mSubControllerMock).getDefaultDataSubId();
+        mMultiSimSettingControllerUT.notifyDefaultDataSubChanged();
+        processAllMessages();
+        verify(mDataEnabledSettingsMock1, times(1)).setDataEnabled(anyInt(), anyBoolean());
+        verify(mDataEnabledSettingsMock2, times(1)).setDataEnabled(anyInt(), anyBoolean());
     }
 
     @Test
@@ -663,5 +704,42 @@ public class MultiSimSettingControllerTest extends TelephonyTest {
         // This time user data should be disabled on phone1.
         verify(mDataEnabledSettingsMock2).setDataEnabled(
                 TelephonyManager.DATA_ENABLED_REASON_USER, false);
+    }
+
+    @Test
+    @SmallTest
+    public void testOnPhoneRemoved() {
+        try {
+            mMultiSimSettingControllerUT.onPhoneRemoved();
+        } catch (RuntimeException re) {
+            Assert.fail("Exception not expected when calling from the same thread");
+        }
+    }
+
+    @Test
+    @SmallTest
+    public void testOnPhoneRemoved_DifferentThread() {
+        AtomicBoolean result = new AtomicBoolean(false);
+        CountDownLatch latch = new CountDownLatch(1);
+        HandlerThread handlerThread = new HandlerThread("MultiSimSettingControllerTest") {
+            public void onLooperPrepared() {
+                try {
+                    mMultiSimSettingControllerUT.onPhoneRemoved();
+                } catch (RuntimeException re) {
+                    result.set(true); // true to indicate that the test passed
+                }
+                latch.countDown();
+            }
+        };
+        handlerThread.start();
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                Assert.fail("CountDownLatch did not reach 0");
+            } else if (!result.get()) {
+                Assert.fail("Exception expected when not calling from the same thread");
+            }
+        } catch (InterruptedException ie) {
+            Assert.fail("InterruptedException during latch.await");
+        }
     }
 }

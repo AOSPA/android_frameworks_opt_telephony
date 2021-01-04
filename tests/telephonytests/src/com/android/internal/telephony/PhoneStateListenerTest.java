@@ -21,7 +21,9 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.verify;
 
 import android.telephony.PhoneStateListener;
+import android.telephony.PhysicalChannelConfig;
 import android.telephony.ServiceState;
+import android.telephony.SubscriptionManager;
 import android.telephony.emergency.EmergencyNumber;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.testing.AndroidTestingRunner;
@@ -34,6 +36,8 @@ import org.junit.runner.RunWith;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 @RunWith(AndroidTestingRunner.class)
 @TestableLooper.RunWithLooper
@@ -43,6 +47,8 @@ public class PhoneStateListenerTest extends TelephonyTest {
     private boolean mUserMobileDataState = false;
     private EmergencyNumber mCalledEmergencyNumber;
     private EmergencyNumber mTextedEmergencyNumber;
+    private List<PhysicalChannelConfig> mPhysicalChannelConfigs;
+
 
     @Before
     public void setUp() throws Exception {
@@ -61,7 +67,8 @@ public class PhoneStateListenerTest extends TelephonyTest {
                 mUserMobileDataState = true;
             }
 
-            public void onOutgoingEmergencyCall(EmergencyNumber emergencyNumber) {
+            public void onOutgoingEmergencyCall(EmergencyNumber emergencyNumber,
+                    int subscriptionId) {
                 logd("OutgoingCallEmergencyNumber Changed");
                 mCalledEmergencyNumber = emergencyNumber;
             }
@@ -69,6 +76,12 @@ public class PhoneStateListenerTest extends TelephonyTest {
             public void onOutgoingEmergencySms(EmergencyNumber emergencyNumber) {
                 logd("OutgoingSmsEmergencyNumber Changed");
                 mTextedEmergencyNumber = emergencyNumber;
+            }
+
+            @Override
+            public void onPhysicalChannelConfigurationChanged(List<PhysicalChannelConfig> configs) {
+                logd("PhysicalChannelConfig Changed");
+                mPhysicalChannelConfigs = configs;
             }
         };
         processAllMessages();
@@ -125,7 +138,7 @@ public class PhoneStateListenerTest extends TelephonyTest {
                 EmergencyNumber.EMERGENCY_CALL_ROUTING_NORMAL);
 
         ((IPhoneStateListener) field.get(mPhoneStateListenerUT)).onOutgoingEmergencyCall(
-                emergencyNumber);
+                emergencyNumber, SubscriptionManager.INVALID_SUBSCRIPTION_ID);
         processAllMessages();
 
         assertTrue(mCalledEmergencyNumber.equals(emergencyNumber));
@@ -148,9 +161,30 @@ public class PhoneStateListenerTest extends TelephonyTest {
                 EmergencyNumber.EMERGENCY_CALL_ROUTING_NORMAL);
 
         ((IPhoneStateListener) field.get(mPhoneStateListenerUT)).onOutgoingEmergencySms(
-                emergencyNumber);
+                emergencyNumber, SubscriptionManager.DEFAULT_SUBSCRIPTION_ID);
         processAllMessages();
 
         assertTrue(mTextedEmergencyNumber.equals(emergencyNumber));
+    }
+
+    @Test @SmallTest
+    public void testTriggerPhysicalChannelConfigurationChanged() throws Exception {
+        Field field = PhoneStateListener.class.getDeclaredField("callback");
+        field.setAccessible(true);
+
+        assertNull(mPhysicalChannelConfigs);
+
+        PhysicalChannelConfig config = new PhysicalChannelConfig.Builder()
+                .setCellConnectionStatus(PhysicalChannelConfig.CONNECTION_PRIMARY_SERVING)
+                .setCellBandwidthDownlinkKhz(20000 /* bandwidth */)
+                .build();
+
+        List<PhysicalChannelConfig> configs = Collections.singletonList(config);
+
+        ((IPhoneStateListener) field.get(mPhoneStateListenerUT))
+                .onPhysicalChannelConfigurationChanged(configs);
+        processAllMessages();
+
+        assertTrue(mPhysicalChannelConfigs.equals(configs));
     }
 }

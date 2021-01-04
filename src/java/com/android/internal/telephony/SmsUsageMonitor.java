@@ -26,12 +26,13 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.XmlResourceParser;
 import android.database.ContentObserver;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Process;
 import android.os.UserHandle;
 import android.provider.Settings;
-import android.telephony.PhoneNumberUtils;
 import android.telephony.SmsManager;
+import android.telephony.TelephonyManager;
 import android.util.AtomicFile;
 import android.util.Xml;
 
@@ -252,7 +253,7 @@ public class SmsUsageMonitor {
      * Create SMS usage monitor.
      * @param context the context to use to load resources and get TelephonyManager service
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public SmsUsageMonitor(Context context) {
         mContext = context;
         ContentResolver resolver = context.getContentResolver();
@@ -361,7 +362,7 @@ public class SmsUsageMonitor {
      * @return true if application is allowed to send the requested number
      *  of new sms messages
      */
-    @UnsupportedAppUsage
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean check(String appName, int smsWaiting) {
         synchronized (mSmsStamp) {
             removeExpiredTimestamps();
@@ -400,8 +401,9 @@ public class SmsUsageMonitor {
      */
     public int checkDestination(String destAddress, String countryIso) {
         synchronized (mSettingsObserverHandler) {
+            TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
             // always allow emergency numbers
-            if (PhoneNumberUtils.isEmergencyNumber(destAddress, countryIso)) {
+            if (tm.isEmergencyNumber(destAddress)) {
                 if (DBG) Rlog.d(TAG, "isEmergencyNumber");
                 return SmsManager.SMS_CATEGORY_NOT_SHORT_CODE;
             }

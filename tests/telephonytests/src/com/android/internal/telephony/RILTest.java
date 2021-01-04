@@ -19,6 +19,8 @@ package com.android.internal.telephony;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_ACKNOWLEDGE_INCOMING_GSM_SMS_WITH_PDU;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_ALLOW_DATA;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CDMA_GET_SUBSCRIPTION_SOURCE;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CDMA_SEND_SMS;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CDMA_SEND_SMS_EXPECT_MORE;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CHANGE_SIM_PIN;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CHANGE_SIM_PIN2;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CONFERENCE;
@@ -112,7 +114,7 @@ import android.hardware.radio.V1_0.RadioResponseInfo;
 import android.hardware.radio.V1_0.RadioResponseType;
 import android.hardware.radio.V1_0.RadioTechnologyFamily;
 import android.hardware.radio.V1_0.SmsWriteArgs;
-import android.hardware.radio.V1_5.IRadio;
+import android.hardware.radio.V1_6.IRadio;
 import android.hardware.radio.deprecated.V1_0.IOemHook;
 import android.net.ConnectivityManager;
 import android.net.InetAddresses;
@@ -168,6 +170,9 @@ import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -201,6 +206,7 @@ public class RILTest extends TelephonyTest {
     private HalVersion mRadioVersionV13 = new HalVersion(1, 3);
     private HalVersion mRadioVersionV14 = new HalVersion(1, 4);
     private HalVersion mRadioVersionV15 = new HalVersion(1, 5);
+    private HalVersion mRadioVersionV16 = new HalVersion(1, 6);
 
     private RIL mRILInstance;
     private RIL mRILUnderTest;
@@ -708,6 +714,29 @@ public class RILTest extends TelephonyTest {
 
     @FlakyTest
     @Test
+    public void testSetRadioPower_1_6() throws Exception {
+        boolean on = true, forEmergencyCall = false, preferredForEmergencyCall = false;
+
+        // Use Radio HAL v1.6
+        try {
+            replaceInstance(RIL.class, "mRadioVersion", mRILUnderTest, mRadioVersionV16);
+        } catch (Exception e) {
+        }
+
+        mRILUnderTest.setRadioPower(
+                on, forEmergencyCall, preferredForEmergencyCall, obtainMessage());
+        verify(mRadioProxy)
+                .setRadioPower_1_6(
+                        mSerialNumberCaptor.capture(),
+                        eq(on),
+                        eq(forEmergencyCall),
+                        eq(preferredForEmergencyCall));
+        verifyRILResponse_1_6(
+                mRILUnderTest, mSerialNumberCaptor.getValue(), RIL_REQUEST_RADIO_POWER);
+    }
+
+    @FlakyTest
+    @Test
     public void testSendDtmf() throws Exception {
         char c = 'c';
         mRILUnderTest.sendDtmf(c, obtainMessage());
@@ -730,6 +759,24 @@ public class RILTest extends TelephonyTest {
 
     @FlakyTest
     @Test
+    public void testSendSMS_1_6() throws Exception {
+        // Use Radio HAL v1.6
+        try {
+            replaceInstance(RIL.class, "mRadioVersion", mRILUnderTest, mRadioVersionV16);
+        } catch (Exception e) {
+        }
+        String smscPdu = "smscPdu";
+        String pdu = "pdu";
+        GsmSmsMessage msg = new GsmSmsMessage();
+        msg.smscPdu = smscPdu;
+        msg.pdu = pdu;
+        mRILUnderTest.sendSMS(smscPdu, pdu, obtainMessage());
+        verify(mRadioProxy).sendSms_1_6(mSerialNumberCaptor.capture(), eq(msg));
+        verifyRILResponse(mRILUnderTest, mSerialNumberCaptor.getValue(), RIL_REQUEST_SEND_SMS);
+    }
+
+    @FlakyTest
+    @Test
     public void testSendSMSExpectMore() throws Exception {
         String smscPdu = "smscPdu";
         String pdu = "pdu";
@@ -740,6 +787,93 @@ public class RILTest extends TelephonyTest {
         verify(mRadioProxy).sendSMSExpectMore(mSerialNumberCaptor.capture(), eq(msg));
         verifyRILResponse(
                 mRILUnderTest, mSerialNumberCaptor.getValue(), RIL_REQUEST_SEND_SMS_EXPECT_MORE);
+    }
+
+    @FlakyTest
+    @Test
+    public void testSendSMSExpectMore_1_6() throws Exception {
+        // Use Radio HAL v1.6
+        try {
+            replaceInstance(RIL.class, "mRadioVersion", mRILUnderTest, mRadioVersionV16);
+        } catch (Exception e) {
+        }
+        String smscPdu = "smscPdu";
+        String pdu = "pdu";
+        GsmSmsMessage msg = new GsmSmsMessage();
+        msg.smscPdu = smscPdu;
+        msg.pdu = pdu;
+        mRILUnderTest.sendSMSExpectMore(smscPdu, pdu, obtainMessage());
+        verify(mRadioProxy).sendSMSExpectMore_1_6(mSerialNumberCaptor.capture(), eq(msg));
+        verifyRILResponse(
+                mRILUnderTest, mSerialNumberCaptor.getValue(), RIL_REQUEST_SEND_SMS_EXPECT_MORE);
+    }
+
+    @FlakyTest
+    @Test
+    public void testSendCdmaSMS_1_6() throws Exception {
+        // Use Radio HAL v1.6
+        try {
+            replaceInstance(RIL.class, "mRadioVersion", mRILUnderTest, mRadioVersionV16);
+        } catch (Exception e) {
+        }
+        byte[] pdu = "000010020000000000000000000000000000000000".getBytes();
+        CdmaSmsMessage msg = new CdmaSmsMessage();
+        constructCdmaSendSmsRilRequest(msg, pdu);
+        mRILUnderTest.sendCdmaSms(pdu, obtainMessage());
+        verify(mRadioProxy).sendCdmaSms_1_6(mSerialNumberCaptor.capture(), eq(msg));
+        verifyRILResponse(mRILUnderTest, mSerialNumberCaptor.getValue(), RIL_REQUEST_CDMA_SEND_SMS);
+    }
+
+    @FlakyTest
+    @Test
+    public void testSendCdmaSMSExpectMore_1_6() throws Exception {
+        // Use Radio HAL v1.6
+        try {
+            replaceInstance(RIL.class, "mRadioVersion", mRILUnderTest, mRadioVersionV16);
+        } catch (Exception e) {
+        }
+        byte[] pdu = "000010020000000000000000000000000000000000".getBytes();
+        CdmaSmsMessage msg = new CdmaSmsMessage();
+        constructCdmaSendSmsRilRequest(msg, pdu);
+        mRILUnderTest.sendCdmaSMSExpectMore(pdu, obtainMessage());
+        verify(mRadioProxy).sendCdmaSmsExpectMore_1_6(mSerialNumberCaptor.capture(), eq(msg));
+        verifyRILResponse(mRILUnderTest, mSerialNumberCaptor.getValue(),
+                RIL_REQUEST_CDMA_SEND_SMS_EXPECT_MORE);
+    }
+
+    private void constructCdmaSendSmsRilRequest(CdmaSmsMessage msg, byte[] pdu) {
+        int addrNbrOfDigits;
+        int subaddrNbrOfDigits;
+        int bearerDataLength;
+        ByteArrayInputStream bais = new ByteArrayInputStream(pdu);
+        DataInputStream dis = new DataInputStream(bais);
+
+        try {
+            msg.teleserviceId = dis.readInt(); // teleServiceId
+            msg.isServicePresent = (byte) dis.readInt() == 1 ? true : false; // servicePresent
+            msg.serviceCategory = dis.readInt(); // serviceCategory
+            msg.address.digitMode = dis.read();  // address digit mode
+            msg.address.numberMode = dis.read(); // address number mode
+            msg.address.numberType = dis.read(); // address number type
+            msg.address.numberPlan = dis.read(); // address number plan
+            addrNbrOfDigits = (byte) dis.read();
+            for (int i = 0; i < addrNbrOfDigits; i++) {
+                msg.address.digits.add(dis.readByte()); // address_orig_bytes[i]
+            }
+            msg.subAddress.subaddressType = dis.read(); //subaddressType
+            msg.subAddress.odd = (byte) dis.read() == 1 ? true : false; //subaddr odd
+            subaddrNbrOfDigits = (byte) dis.read();
+            for (int i = 0; i < subaddrNbrOfDigits; i++) {
+                msg.subAddress.digits.add(dis.readByte()); //subaddr_orig_bytes[i]
+            }
+
+            bearerDataLength = dis.read();
+            for (int i = 0; i < bearerDataLength; i++) {
+                msg.bearerData.add(dis.readByte()); //bearerData[i]
+            }
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
     }
 
     @FlakyTest
@@ -1278,6 +1412,23 @@ public class RILTest extends TelephonyTest {
         assertFalse(ril.getWakeLock(RIL.FOR_WAKELOCK).isHeld());
     }
 
+    private static void verifyRILResponse_1_6(RIL ril, int serial, int requestType) {
+        android.hardware.radio.V1_6.RadioResponseInfo responseInfo =
+                createFakeRadioResponseInfo_1_6(
+                        serial, RadioError.NONE, RadioResponseType.SOLICITED);
+
+        RILRequest rr = ril.processResponse_1_6(responseInfo);
+        assertNotNull(rr);
+
+        assertEquals(serial, rr.getSerial());
+        assertEquals(requestType, rr.getRequest());
+        assertTrue(ril.getWakeLock(RIL.FOR_WAKELOCK).isHeld());
+
+        ril.processResponseDone_1_6(rr, responseInfo, null);
+        assertEquals(0, ril.getRilRequestList().size());
+        assertFalse(ril.getWakeLock(RIL.FOR_WAKELOCK).isHeld());
+    }
+
     private static void verifyRILErrorResponse(RIL ril, int serial, int requestType, int error) {
         RadioResponseInfo responseInfo =
                 createFakeRadioResponseInfo(serial, error, RadioResponseType.SOLICITED);
@@ -1317,6 +1468,16 @@ public class RILTest extends TelephonyTest {
 
     private static RadioResponseInfo createFakeRadioResponseInfo(int serial, int error, int type) {
         RadioResponseInfo respInfo = new RadioResponseInfo();
+        respInfo.serial = serial;
+        respInfo.error = error;
+        respInfo.type = type;
+        return respInfo;
+    }
+
+    private static android.hardware.radio.V1_6.RadioResponseInfo createFakeRadioResponseInfo_1_6(
+            int serial, int error, int type) {
+        android.hardware.radio.V1_6.RadioResponseInfo respInfo =
+                new android.hardware.radio.V1_6.RadioResponseInfo();
         respInfo.serial = serial;
         respInfo.error = error;
         respInfo.type = type;
@@ -1995,7 +2156,7 @@ public class RILTest extends TelephonyTest {
 
         DataCallResponse response = new DataCallResponse.Builder()
                 .setCause(0)
-                .setSuggestedRetryTime(-1)
+                .setRetryDurationMillis(-1L)
                 .setId(0)
                 .setLinkStatus(2)
                 .setProtocolType(ApnSetting.PROTOCOL_IPV4V6)
@@ -2068,7 +2229,7 @@ public class RILTest extends TelephonyTest {
 
         response = new DataCallResponse.Builder()
                 .setCause(0)
-                .setSuggestedRetryTime(-1)
+                .setRetryDurationMillis(-1L)
                 .setId(0)
                 .setLinkStatus(2)
                 .setProtocolType(ApnSetting.PROTOCOL_IPV4V6)

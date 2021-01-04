@@ -323,7 +323,7 @@ public class TransportManager extends Handler {
      */
     private synchronized void setCurrentTransport(@ApnType int apnType, int transport) {
         mCurrentTransports.put(apnType, transport);
-        logl("setCurrentTransport: apnType=" + ApnSetting.getApnTypeString(apnType)
+        logl("setCurrentTransport: apnType=" + ApnSetting.getApnTypeStringInternal(apnType)
                 + ", transport=" + AccessNetworkConstants.transportTypeToString(transport));
         final SharedPreferences sp
                 = PreferenceManager.getDefaultSharedPreferences(mPhone.getContext());
@@ -356,7 +356,8 @@ public class TransportManager extends Handler {
                     int targetTransport = ACCESS_NETWORK_TRANSPORT_TYPE_MAP.get(
                             networks.qualifiedNetworks[0]);
                     logl("Handover needed for APN type: "
-                            + ApnSetting.getApnTypeString(networks.apnType) + ", target transport: "
+                            + ApnSetting.getApnTypeStringInternal(networks.apnType)
+                            + ", target transport: "
                             + AccessNetworkConstants.transportTypeToString(targetTransport));
                     // No matter whether this APN is in pending handover list,
                     // Here prohibit the handover request for different target transport till the
@@ -375,7 +376,8 @@ public class TransportManager extends Handler {
                                             logl("Handover succeeded.");
                                         } else {
                                             logl("APN type "
-                                                    + ApnSetting.getApnTypeString(networks.apnType)
+                                                    + ApnSetting.getApnTypeStringInternal(
+                                                            networks.apnType)
                                                     + " handover to "
                                                     + AccessNetworkConstants.transportTypeToString(
                                                     targetTransport) + " failed."
