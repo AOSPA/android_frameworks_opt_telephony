@@ -246,6 +246,8 @@ public abstract class Connection {
     protected boolean mNumberConverted = false;
     protected String mConvertedNumber;
 
+    protected ArrayList<String> mForwardedNumber = null; //May be null. Incoming calls only.
+
     protected String mPostDialString;      // outgoing calls only
     protected int mNextPostDialChar;       // index into postDialString
 
@@ -363,6 +365,15 @@ public abstract class Connection {
     // return whether connection is AdhocConference or not
     public boolean isAdhocConference() {
         return mIsAdhocConference;
+    }
+
+    /**
+     * Gets redirecting address (e.g. phone number) associated with connection.
+     *
+     * @return ArrayList of the forwarded number or null if unavailable
+     */
+    public ArrayList<String> getForwardedNumber() {
+        return mForwardedNumber;
     }
 
     /**
@@ -595,6 +606,20 @@ public abstract class Connection {
             }
         } else {
             Rlog.e(TAG, "setEmergencyCallInfo: call tracker is null");
+        }
+    }
+
+    /**
+     * Set the non-detectable emergency number information.
+     */
+    public void setNonDetectableEmergencyCallInfo(int eccCategory) {
+        if (!mIsEmergencyCall) {
+            mIsEmergencyCall = true;
+            mEmergencyNumberInfo = new EmergencyNumber(mAddress, ""/*countryIso*/,
+                                    ""/*mnc*/, eccCategory,
+                                    new ArrayList<String>(),
+                                    EmergencyNumber.EMERGENCY_NUMBER_SOURCE_NETWORK_SIGNALING,
+                                    EmergencyNumber.EMERGENCY_CALL_ROUTING_UNKNOWN);
         }
     }
 

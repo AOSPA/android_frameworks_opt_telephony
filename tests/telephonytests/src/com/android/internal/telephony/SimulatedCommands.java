@@ -50,6 +50,7 @@ import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
 import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataProfile;
+import android.telephony.data.SliceInfo;
 import android.telephony.emergency.EmergencyNumber;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -136,7 +137,8 @@ public class SimulatedCommands extends BaseCommands
     boolean mSimFdnEnabled;
     int mPin2UnlockAttempts;
     int mPuk2UnlockAttempts;
-    int mNetworkType;
+    int mPreferredNetworkType;
+    int mAllowedNetworkType;
     String mPin2Code;
     boolean mSsnNotifyOn = false;
     private int mVoiceRegState = NetworkRegistrationInfo.REGISTRATION_STATE_HOME;
@@ -1179,10 +1181,10 @@ public class SimulatedCommands extends BaseCommands
     @Override
     public void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
                               boolean allowRoaming, int reason, LinkProperties linkProperties,
-                              int pduSessionId, Message result) {
+                              int pduSessionId, SliceInfo sliceInfo, Message result) {
 
         SimulatedCommandsVerifier.getInstance().setupDataCall(accessNetworkType, dataProfile,
-                isRoaming, allowRoaming, reason, linkProperties, pduSessionId, result);
+                isRoaming, allowRoaming, reason, linkProperties, pduSessionId, sliceInfo, result);
 
         if (mSetupDataCallResult == null) {
             try {
@@ -1229,7 +1231,7 @@ public class SimulatedCommands extends BaseCommands
     @Override
     public void setPreferredNetworkType(int networkType , Message result) {
         SimulatedCommandsVerifier.getInstance().setPreferredNetworkType(networkType, result);
-        mNetworkType = networkType;
+        mPreferredNetworkType = networkType;
         resultSuccess(result, null);
     }
 
@@ -1238,8 +1240,26 @@ public class SimulatedCommands extends BaseCommands
         SimulatedCommandsVerifier.getInstance().getPreferredNetworkType(result);
         int ret[] = new int[1];
 
-        ret[0] = mNetworkType;
+        ret[0] = mPreferredNetworkType;
         resultSuccess(result, ret);
+    }
+
+    @Override
+    public void setAllowedNetworkTypeBitmask(
+            @TelephonyManager.NetworkTypeBitMask int networkTypeBitmask, Message response) {
+        SimulatedCommandsVerifier.getInstance()
+            .setAllowedNetworkTypeBitmask(networkTypeBitmask, response);
+        mAllowedNetworkType = networkTypeBitmask;
+        resultSuccess(response, null);
+    }
+
+    @Override
+    public void getAllowedNetworkTypeBitmask(Message response) {
+        SimulatedCommandsVerifier.getInstance().getAllowedNetworkTypeBitmask(response);
+        int[] ret = new int[1];
+
+        ret[0] = mAllowedNetworkType;
+        resultSuccess(response, ret);
     }
 
     @Override

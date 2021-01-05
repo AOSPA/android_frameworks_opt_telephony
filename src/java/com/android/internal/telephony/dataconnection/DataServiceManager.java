@@ -39,7 +39,7 @@ import android.os.PersistableBundle;
 import android.os.RegistrantList;
 import android.os.RemoteException;
 import android.os.UserHandle;
-import android.permission.PermissionManager;
+import android.permission.LegacyPermissionManager;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.TransportType;
 import android.telephony.AnomalyReporter;
@@ -51,6 +51,7 @@ import android.telephony.data.DataService;
 import android.telephony.data.DataServiceCallback;
 import android.telephony.data.IDataService;
 import android.telephony.data.IDataServiceCallback;
+import android.telephony.data.SliceInfo;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.Phone;
@@ -89,7 +90,7 @@ public class DataServiceManager extends Handler {
 
     private final CarrierConfigManager mCarrierConfigManager;
     private final AppOpsManager mAppOps;
-    private final PermissionManager mPermissionManager;
+    private final LegacyPermissionManager mPermissionManager;
 
     private final int mTransportType;
 
@@ -110,6 +111,9 @@ public class DataServiceManager extends Handler {
     private String mTargetBindingPackageName;
 
     private CellularDataServiceConnection mServiceConnection;
+
+    private final UUID mAnomalyUUID = UUID.fromString("fc1956de-c080-45de-8431-a1faab687110");
+    private String mLastBoundPackageName;
 
     /**
      * Helpful for logging
@@ -141,8 +145,10 @@ public class DataServiceManager extends Handler {
         @Override
         public void binderDied() {
             // TODO: try to rebind the service.
-            loge("DataService " + mTargetBindingPackageName +  ", transport type " + mTransportType
+            loge("DataService " + mLastBoundPackageName +  ", transport type " + mTransportType
                     + " died.");
+            String message = "Iwlan Data Service Crashed," + mLastBoundPackageName;
+            AnomalyReporter.reportAnomaly(mAnomalyUUID, message);
         }
     }
 
@@ -214,12 +220,15 @@ public class DataServiceManager extends Handler {
             mIDataService = IDataService.Stub.asInterface(service);
             mDeathRecipient = new DataServiceManagerDeathRecipient();
             mBound = true;
+            mLastBoundPackageName = getDataServicePackageName();
 
             try {
                 service.linkToDeath(mDeathRecipient, 0);
                 mIDataService.createDataServiceProvider(mPhone.getPhoneId());
                 mIDataService.registerForDataCallListChanged(mPhone.getPhoneId(),
                         new CellularDataServiceCallback("dataCallListChanged"));
+                mIDataService.registerForUnthrottleApn(mPhone.getPhoneId(),
+                        new CellularDataServiceCallback("unthrottleApn"));
             } catch (RemoteException e) {
                 mDeathRecipient.binderDied();
                 loge("Remote exception. " + e);
@@ -347,8 +356,8 @@ public class DataServiceManager extends Handler {
         // NOTE: Do NOT use AppGlobals to retrieve the permission manager; AppGlobals
         // caches the service instance, but we need to explicitly request a new service
         // so it can be mocked out for tests
-        mPermissionManager =
-                (PermissionManager) phone.getContext().getSystemService(Context.PERMISSION_SERVICE);
+        mPermissionManager = (LegacyPermissionManager) phone.getContext().getSystemService(
+                Context.LEGACY_PERMISSION_SERVICE);
         mAppOps = (AppOpsManager) phone.getContext().getSystemService(Context.APP_OPS_SERVICE);
 
         IntentFilter intentFilter = new IntentFilter();
@@ -613,12 +622,15 @@ public class DataServiceManager extends Handler {
      * @param pduSessionId The pdu session id to be used for this data call.  A value of -1 means
      *                     no pdu session id was attached to this call.
      *                     Reference: 3GPP TS 24.007 section 11.2.3.1b
+     * @param sliceInfo The slice that represents S-NSSAI.
+     *                  Reference: 3GPP TS 24.501
      * @param onCompleteMessage The result message for this request. Null if the client does not
      *        care about the result.
      */
     public void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
                               boolean allowRoaming, int reason, LinkProperties linkProperties,
-                              int pduSessionId, Message onCompleteMessage) {
+                              int pduSessionId, @Nullable  SliceInfo sliceInfo,
+                              Message onCompleteMessage) {
         if (DBG) log("setupDataCall");
         if (!mBound) {
             loge("setupDataCall: Data service not bound.");
@@ -634,7 +646,8 @@ public class DataServiceManager extends Handler {
             sendMessageDelayed(obtainMessage(EVENT_WATCHDOG_TIMEOUT, callback),
                     REQUEST_UNRESPONDED_TIMEOUT);
             mIDataService.setupDataCall(mPhone.getPhoneId(), accessNetworkType, dataProfile,
-                    isRoaming, allowRoaming, reason, linkProperties, pduSessionId, callback);
+                    isRoaming, allowRoaming, reason, linkProperties, pduSessionId, sliceInfo,
+                    callback);
         } catch (RemoteException e) {
             loge("setupDataCall: Cannot invoke setupDataCall on data service.");
             mMessageMap.remove(callback.asBinder());

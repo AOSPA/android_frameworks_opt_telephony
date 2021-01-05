@@ -159,6 +159,7 @@ public class ImsPhoneTest extends TelephonyTest {
         mImsPhoneUT.registerForIncomingRing(mTestHandler,
                 EVENT_INCOMING_RING, null);
         mImsPhoneUT.setVoiceCallSessionStats(mVoiceCallSessionStats);
+        mImsPhoneUT.setImsStats(mImsStats);
         doReturn(mImsUtInterface).when(mImsCT).getUtInterface();
         // When the mock GsmCdmaPhone gets setIsInEcbm called, ensure isInEcm matches.
         // TODO: Move this to a separate test class for EcbmHandler

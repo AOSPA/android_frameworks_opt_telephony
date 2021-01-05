@@ -338,7 +338,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 int subId = intent.getIntExtra(PhoneConstants.SUBSCRIPTION_KEY,
                         SubscriptionManager.INVALID_SUBSCRIPTION_ID);
                 if (subId == mPhone.getSubId()) {
-                    cacheCarrierConfiguration(subId);
+                    updateCarrierConfiguration(subId);
                     log("onReceive : Updating mAllowEmergencyVideoCalls = " +
                             mAllowEmergencyVideoCalls);
                 }
@@ -917,7 +917,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         intentfilter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         intentfilter.addAction(TelecomManager.ACTION_DEFAULT_DIALER_CHANGED);
         mPhone.getContext().registerReceiver(mReceiver, intentfilter);
-        cacheCarrierConfiguration(mPhone.getSubId());
+        updateCarrierConfiguration(mPhone.getSubId());
 
         mPhone.getDefaultPhone().getDataEnabledSettings().registerForDataEnabledChanged(
                 this, EVENT_DATA_ENABLED_CHANGED, null);
@@ -1259,9 +1259,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     public synchronized Connection dial(String dialString, ImsPhone.ImsDialArgs dialArgs)
             throws CallStateException {
         boolean isPhoneInEcmMode = isPhoneInEcbMode();
-        TelephonyManager tm =
-                (TelephonyManager) mPhone.getContext().getSystemService(Context.TELEPHONY_SERVICE);
-        boolean isEmergencyNumber = tm.isEmergencyNumber(dialString);
+        boolean isEmergencyNumber = dialArgs.isEmergency;
 
         if (!shouldNumberBePlacedOnIms(isEmergencyNumber, dialString)) {
             Rlog.i(LOG_TAG, "dial: shouldNumberBePlacedOnIms = false");
@@ -1408,11 +1406,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     }
 
     /**
-     * Caches frequently used carrier configuration items locally.
+     * Caches frequently used carrier configuration items locally and notifies ImsService of new
+     * configuration if the subId is valid (there is an active sub ID loaded).
      *
-     * @param subId The sub id.
+     * @param subId The sub id to use to update configuration, may be invalid if a SIM has been
+     *              removed.
      */
-    private void cacheCarrierConfiguration(int subId) {
+    private void updateCarrierConfiguration(int subId) {
         CarrierConfigManager carrierConfigManager = (CarrierConfigManager)
                 mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
         if (carrierConfigManager == null
@@ -1432,6 +1432,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         mCarrierConfigLoaded = true;
 
         updateCarrierConfigCache(carrierConfig);
+        if (mImsManager != null) {
+            mImsManager.updateImsServiceConfig();
+        }
     }
 
     /**
@@ -1552,9 +1555,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         // Always unmute when initiating a new call
         setMute(false);
-        TelephonyManager tm =
-                (TelephonyManager) mPhone.getContext().getSystemService(Context.TELEPHONY_SERVICE);
-        boolean isEmergencyCall = tm.isEmergencyNumber(conn.getAddress());
+        boolean isEmergencyCall = conn.isEmergency();
         int serviceType = isEmergencyCall
                 ? ImsCallProfile.SERVICE_TYPE_EMERGENCY : ImsCallProfile.SERVICE_TYPE_NORMAL;
         int callType = ImsCallProfile.getCallTypeFromVideoState(videoState);
@@ -1566,6 +1567,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             ImsCallProfile profile = mImsManager.createCallProfile(serviceType, callType);
             if (conn.isAdhocConference()) {
                 profile.setCallExtraBoolean(ImsCallProfile.EXTRA_CONFERENCE, true);
+                // Also set value for EXTRA_CONFERENCE_DEPRECATED in case receivers are using old
+                // values.
+                profile.setCallExtraBoolean(ImsCallProfile.EXTRA_CONFERENCE_DEPRECATED, true);
             }
             profile.setCallExtraInt(ImsCallProfile.EXTRA_OIR, clirMode);
             profile.setCallExtraInt(ImsCallProfile.EXTRA_RETRY_CALL_FAIL_REASON,
@@ -1593,6 +1597,22 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 isStartRttCall = intentExtras.getBoolean(
                     android.telecom.TelecomManager.EXTRA_START_CALL_WITH_RTT, true);
                 if (DBG) log("dialInternal: isStartRttCall = " + isStartRttCall);
+
+                if (intentExtras.containsKey(android.telecom.TelecomManager.EXTRA_PRIORITY)) {
+                    profile.setCallExtraInt(ImsCallProfile.EXTRA_PRIORITY, intentExtras.getInt(
+                            android.telecom.TelecomManager.EXTRA_PRIORITY));
+                }
+
+                if (intentExtras.containsKey(android.telecom.TelecomManager.EXTRA_LOCATION)) {
+                    profile.setCallExtraParcelable(ImsCallProfile.EXTRA_LOCATION,
+                            intentExtras.getParcelable(
+                                    android.telecom.TelecomManager.EXTRA_LOCATION));
+                }
+
+                if (intentExtras.containsKey(
+                        android.telecom.TelecomManager.EXTRA_OUTGOING_PICTURE)) {
+                    // TODO(hallliu) Set ImsCallProfile.EXTRA_PICTURE_URL with cached URL string
+                }
 
                 // Set the RTT mode to 1 if sim supports RTT and if the connection has
                 // valid RTT text stream
@@ -2926,6 +2946,11 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         public void onCallStartFailed(ImsCall imsCall, ImsReasonInfo reasonInfo) {
             if (DBG) log("onCallStartFailed reasonCode=" + reasonInfo.getCode());
 
+            int eccCategory = EmergencyNumber.EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED;
+            if (imsCall != null && imsCall.getCallProfile() != null) {
+                eccCategory = imsCall.getCallProfile().getEmergencyServiceCategories();
+            }
+
             if (mHoldSwitchingState == HoldSwapState.HOLDING_TO_ANSWER_INCOMING) {
                 // If we put a call on hold to answer an incoming call, we should reset the
                 // variables that keep track of the switch here.
@@ -2947,7 +2972,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     mPendingMO.finalize();
                     mPendingMO = null;
                     updatePhoneState();
-                    mPhone.initiateSilentRedial();
+                    mPhone.initiateSilentRedial(reasonInfo.getExtraCode() ==
+                            ImsReasonInfo.EXTRA_CODE_CALL_RETRY_EMERGENCY, eccCategory);
                     return;
                 } else {
                     sendCallStartFailedDisconnect(imsCall, reasonInfo);
@@ -2964,7 +2990,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     removeConnection(conn);
                 }
                 updatePhoneState();
-                mPhone.initiateSilentRedial();
+                mPhone.initiateSilentRedial(reasonInfo.getExtraCode() ==
+                        ImsReasonInfo.EXTRA_CODE_CALL_RETRY_EMERGENCY, eccCategory);
             }
         }
 
@@ -3935,6 +3962,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         @Override
         public void onSetFeatureResponse(int feature, int network, int value, int status) {
             mMetrics.writeImsSetFeatureValue(mPhone.getPhoneId(), feature, network, value);
+            mPhone.getImsStats().onSetFeatureResponse(feature, network, value);
         }
 
         @Override
@@ -5099,8 +5127,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         mPhone.onFeatureCapabilityChanged();
 
-        mMetrics.writeOnImsCapabilities(mPhone.getPhoneId(), getImsRegistrationTech(),
-                mMmTelCapabilities);
+        int regTech = getImsRegistrationTech();
+        mMetrics.writeOnImsCapabilities(mPhone.getPhoneId(), regTech, mMmTelCapabilities);
+        mPhone.getImsStats().onImsCapabilitiesChanged(regTech, mMmTelCapabilities);
     }
 
     @VisibleForTesting

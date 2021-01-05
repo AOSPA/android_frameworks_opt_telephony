@@ -51,6 +51,7 @@ import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.TransportType;
 import android.telephony.Annotation.ApnType;
 import android.telephony.Annotation.DataFailureCause;
+import android.telephony.AnomalyReporter;
 import android.telephony.Annotation.DataState;
 import android.telephony.Annotation.NetworkType;
 import android.telephony.CarrierConfigManager;
@@ -68,6 +69,7 @@ import android.telephony.data.DataService;
 import android.telephony.data.DataServiceCallback;
 import android.telephony.data.Qos;
 import android.telephony.data.QosSession;
+import android.telephony.data.SliceInfo;
 import android.text.TextUtils;
 import android.util.LocalLog;
 import android.util.Pair;
@@ -110,6 +112,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -304,6 +307,7 @@ public class DataConnection extends StateMachine {
     private int mUplinkBandwidth = 14;
     private Qos mDefaultQos = null;
     private List<QosSession> mQosSessions = new ArrayList<>();
+    private SliceInfo mSliceInfo;
 
     /** The corresponding network agent for this data connection. */
     private DcNetworkAgent mNetworkAgent;
@@ -575,7 +579,7 @@ public class DataConnection extends StateMachine {
 
         @Override
         public String toString() {
-            return name() + "  SetupResult.mFailCause=" + mFailCause;
+            return name() + "  SetupResult.mFailCause=" + DataFailCause.toString(mFailCause);
         }
     }
 
@@ -617,9 +621,21 @@ public class DataConnection extends StateMachine {
         return mPduSessionId;
     }
 
+    public SliceInfo getSliceInfo() {
+        return mSliceInfo;
+    }
+
     public void updateQosParameters(DataCallResponse response) {
         mDefaultQos = response.getDefaultQos();
         mQosSessions = response.getQosSessions();
+    }
+
+    /**
+     * Update the latest slice info on this data connection with
+     * {@link DataCallResponse#getSliceInfo}.
+     */
+    public void updateSliceInfo(DataCallResponse response) {
+        mSliceInfo = response.getSliceInfo();
     }
 
     @VisibleForTesting
@@ -892,6 +908,7 @@ public class DataConnection extends StateMachine {
             return DataFailCause.NONE;
         }
 
+        // setup data call for REQUEST_TYPE_NORMAL
         allocatePduSessionId(psi -> {
             this.setPduSessionId(psi);
             mDataServiceManager.setupDataCall(
@@ -902,6 +919,7 @@ public class DataConnection extends StateMachine {
                     reason,
                     linkProperties,
                     psi,
+                    null, //slice info is null since this is not a handover
                     msg);
             TelephonyMetrics.getInstance().writeSetupDataCall(mPhone.getPhoneId(), cp.mRilRat,
                     dp.getProfileId(), dp.getApn(), dp.getProtocolType());
@@ -989,6 +1007,7 @@ public class DataConnection extends StateMachine {
                 reason,
                 linkProperties,
                 srcDc.getPduSessionId(),
+                srcDc.getSliceInfo(),
                 msg);
         TelephonyMetrics.getInstance().writeSetupDataCall(mPhone.getPhoneId(), cp.mRilRat,
                 dp.getProfileId(), dp.getApn(), dp.getProtocolType());
@@ -1147,8 +1166,9 @@ public class DataConnection extends StateMachine {
                         new Throwable(DataFailCause.toString(cause)));
             }
             if (DBG) {
-                log("notifyConnectCompleted at " + timeStamp + " cause=" + cause
-                        + " connectionCompletedMsg=" + msgToString(connectionCompletedMsg));
+                log("notifyConnectCompleted at " + timeStamp + " cause="
+                        + DataFailCause.toString(cause) + " connectionCompletedMsg="
+                        + msgToString(connectionCompletedMsg));
             }
 
             connectionCompletedMsg.sendToTarget();
@@ -1300,6 +1320,7 @@ public class DataConnection extends StateMachine {
 
             updatePcscfAddr(response);
             updateQosParameters(response);
+            updateSliceInfo(response);
             result = updateLinkProperty(response).setupResult;
         }
 
@@ -1738,6 +1759,16 @@ public class DataConnection extends StateMachine {
         if ((mUnmeteredUseOnly && !mRestrictedNetworkOverride) || mUnmeteredOverride
                 || (mSubscriptionOverride & SUBSCRIPTION_OVERRIDE_UNMETERED) != 0) {
             result.addCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED);
+            if (result.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    && (mPhone.getRadioAccessFamily() & TelephonyManager.NETWORK_TYPE_BITMASK_NR)
+                    == 0) {
+                String message = "Unexpected TEMPORARILY_NOT_METERED on devices not supporting NR.";
+                loge(message);
+                // Using fixed UUID to avoid duplicate bugreport notification
+                AnomalyReporter.reportAnomaly(
+                        UUID.fromString("9151f0fc-01df-4afb-b744-9c4529055248"),
+                        message);
+            }
         } else {
             result.removeCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED);
         }
@@ -2251,7 +2282,7 @@ public class DataConnection extends StateMachine {
             if (mConnectionParams != null) {
                 if (DBG) {
                     log("DcInactiveState: enter notifyConnectCompleted +ALL failCause="
-                            + mDcFailCause);
+                            + DataFailCause.toString(mDcFailCause));
                 }
                 notifyConnectCompleted(mConnectionParams, mDcFailCause, mHandoverFailureMode,
                         true);
@@ -2259,7 +2290,7 @@ public class DataConnection extends StateMachine {
             if (mDisconnectParams != null) {
                 if (DBG) {
                     log("DcInactiveState: enter notifyDisconnectCompleted +ALL failCause="
-                            + mDcFailCause);
+                            + DataFailCause.toString(mDcFailCause));
                 }
                 notifyDisconnectCompleted(mDisconnectParams, true);
             }
@@ -2267,7 +2298,7 @@ public class DataConnection extends StateMachine {
                     && mDcFailCause != DataFailCause.NONE) {
                 if (DBG) {
                     log("DcInactiveState: enter notifyAllDisconnectCompleted failCause="
-                            + mDcFailCause);
+                            + DataFailCause.toString(mDcFailCause));
                 }
                 notifyAllWithEvent(null, DctConstants.EVENT_DISCONNECT_DONE,
                         DataFailCause.toString(mDcFailCause));
@@ -2371,7 +2402,7 @@ public class DataConnection extends StateMachine {
                     .registerCarrierPrivilegesListener(
                             getHandler(), EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED, null);
             notifyDataConnectionState();
-            mDataCallSessionStats.onSetupDataCall();
+            mDataCallSessionStats.onSetupDataCall(mApnSetting.getApnTypeBitmask());
         }
         @Override
         public boolean processMessage(Message msg) {
@@ -2444,8 +2475,10 @@ public class DataConnection extends StateMachine {
                             } else if (delay >= 0) {
                                 retryTime = SystemClock.elapsedRealtime() + delay;
                             }
+                            int newRequestType = DcTracker.calculateNewRetryRequestType(
+                                    mHandoverFailureMode, cp.mRequestType, mDcFailCause);
                             mDct.getDataThrottler().setRetryTime(mApnSetting.getApnTypeBitmask(),
-                                    retryTime, dataCallResponse.getHandoverFailureMode());
+                                    retryTime, newRequestType);
 
                             String str = "DcActivatingState: ERROR_DATA_SERVICE_SPECIFIC_ERROR "
                                     + " delay=" + delay
@@ -2474,8 +2507,9 @@ public class DataConnection extends StateMachine {
                     }
                     retVal = HANDLED;
                     mDataCallSessionStats
-                            .onSetupDataCallResponse(dataCallResponse, cp.mRilRat, cp.mProfileId,
-                                    mApnSetting.getApnTypeBitmask(), mApnSetting.getProtocol());
+                            .onSetupDataCallResponse(dataCallResponse, cp.mRilRat,
+                                    mApnSetting.getApnTypeBitmask(), mApnSetting.getProtocol(),
+                                    result.mFailCause);
                     break;
                 case EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED:
                     AsyncResult asyncResult = (AsyncResult) msg.obj;
@@ -3444,7 +3478,7 @@ public class DataConnection extends StateMachine {
                 + " mApnSetting=" + mApnSetting + " RefCount=" + mApnContexts.size()
                 + " mCid=" + mCid + " mCreateTime=" + mCreateTime
                 + " mLastastFailTime=" + mLastFailTime
-                + " mLastFailCause=" + mLastFailCause
+                + " mLastFailCause=" + DataFailCause.toString(mLastFailCause)
                 + " mTag=" + mTag
                 + " mLinkProperties=" + mLinkProperties
                 + " linkCapabilities=" + getNetworkCapabilities()
@@ -3601,7 +3635,7 @@ public class DataConnection extends StateMachine {
         pw.println("mCid=" + mCid);
         pw.println("mConnectionParams=" + mConnectionParams);
         pw.println("mDisconnectParams=" + mDisconnectParams);
-        pw.println("mDcFailCause=" + mDcFailCause);
+        pw.println("mDcFailCause=" + DataFailCause.toString(mDcFailCause));
         pw.println("mPhone=" + mPhone);
         pw.println("mSubId=" + mSubId);
         pw.println("mLinkProperties=" + mLinkProperties);
@@ -3612,7 +3646,7 @@ public class DataConnection extends StateMachine {
         pw.println("mNetworkCapabilities=" + getNetworkCapabilities());
         pw.println("mCreateTime=" + TimeUtils.logTimeOfDay(mCreateTime));
         pw.println("mLastFailTime=" + TimeUtils.logTimeOfDay(mLastFailTime));
-        pw.println("mLastFailCause=" + mLastFailCause);
+        pw.println("mLastFailCause=" + DataFailCause.toString(mLastFailCause));
         pw.println("mUserData=" + mUserData);
         pw.println("mSubscriptionOverride=" + Integer.toHexString(mSubscriptionOverride));
         pw.println("mRestrictedNetworkOverride=" + mRestrictedNetworkOverride);

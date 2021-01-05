@@ -93,6 +93,7 @@ import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.gsm.GsmMmiCode;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
+import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCallTracker;
 import com.android.internal.telephony.imsphone.ImsPhoneMmiCode;
 import com.android.internal.telephony.metrics.VoiceCallSessionStats;
@@ -313,6 +314,8 @@ public class GsmCdmaPhone extends Phone {
                 EVENT_UICC_APPS_ENABLEMENT_SETTING_CHANGED, null, false);
 
         loadTtyMode();
+
+        CallManager.getInstance().registerPhone(this);
         logd("GsmCdmaPhone: constructor: sub = " + mPhoneId);
     }
 
@@ -1329,8 +1332,12 @@ public class GsmCdmaPhone extends Phone {
         }
         TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
         boolean isEmergency = tm.isEmergencyNumber(dialString);
+        ImsPhone.ImsDialArgs.Builder imsDialArgsBuilder;
+        imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder.from(dialArgs)
+                                                 .setIsEmergency(isEmergency);
+        mDialArgs = dialArgs = imsDialArgsBuilder.build();
+
         Phone imsPhone = mImsPhone;
-        mDialArgs = dialArgs;
 
         CarrierConfigManager configManager =
                 (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
@@ -1444,13 +1451,8 @@ public class GsmCdmaPhone extends Phone {
             mIsTestingEmergencyCallbackMode = true;
             mCi.testingEmergencyCall();
         }
-        if (isPhoneTypeGsm()) {
-            return dialInternal(dialString, new DialArgs.Builder<>()
-                    .setIntentExtras(dialArgs.intentExtras)
-                    .build());
-        } else {
-            return dialInternal(dialString, dialArgs);
-        }
+
+        return dialInternal(dialString, dialArgs);
     }
 
     /**
@@ -1516,7 +1518,7 @@ public class GsmCdmaPhone extends Phone {
             if (DBG) logd("dialInternal: dialing w/ mmi '" + mmi + "'...");
 
             if (mmi == null) {
-                return mCT.dialGsm(newDialString, dialArgs.uusInfo, dialArgs.intentExtras);
+                return mCT.dialGsm(newDialString, dialArgs);
             } else if (mmi.isTemporaryModeCLIR()) {
                 return mCT.dialGsm(mmi.mDialingNumber, mmi.getCLIRMode(), dialArgs.uusInfo,
                         dialArgs.intentExtras);
@@ -1527,7 +1529,7 @@ public class GsmCdmaPhone extends Phone {
                 return null;
             }
         } else {
-            return mCT.dial(newDialString, dialArgs.intentExtras);
+            return mCT.dial(newDialString, dialArgs);
         }
     }
 
@@ -2857,14 +2859,6 @@ public class GsmCdmaPhone extends Phone {
                                 .config_switch_phone_on_voice_reg_state_change)) {
                     mCi.getVoiceRadioTechnology(obtainMessage(EVENT_REQUEST_VOICE_RADIO_TECH_DONE));
                 }
-                // Force update IMS service if it is available, if it isn't the config will be
-                // updated when ImsPhoneCallTracker opens a connection.
-                ImsManager imsManager = ImsManager.getInstance(mContext, mPhoneId);
-                if (imsManager.isServiceAvailable() && getIccRecordsLoaded()) {
-                    imsManager.updateImsServiceConfig();
-                } else {
-                    logd("ImsManager/IccRecords Loaded are not available to update CarrierConfig.");
-                }
 
                 // Update broadcastEmergencyCallStateChanges
                 // also cache the config value for displaying 14 digit IMEI
@@ -3141,7 +3135,7 @@ public class GsmCdmaPhone extends Phone {
                     Rlog.d(LOG_TAG, "get phone radio capability fail, no need to change " +
                             "mRadioCapability");
                 } else {
-                    radioCapabilityUpdated(rc);
+                    radioCapabilityUpdated(rc, false);
                 }
                 Rlog.d(LOG_TAG, "EVENT_GET_RADIO_CAPABILITY: phone rc: " + rc);
                 break;
