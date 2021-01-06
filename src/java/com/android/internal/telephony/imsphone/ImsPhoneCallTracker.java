@@ -1590,13 +1590,17 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     );
                 }
 
-                isStartRttCall = intentExtras.getBoolean(
+                boolean isExtraStartRttCall = intentExtras.getBoolean(
                     android.telecom.TelecomManager.EXTRA_START_CALL_WITH_RTT, true);
+                boolean isSettingStartRttCall = QtiImsUtils.canStartRttCall(mPhone.getPhoneId(),
+                                                                            mPhone.getContext());
+                isStartRttCall = isExtraStartRttCall && isSettingStartRttCall;
                 if (DBG) log("dialInternal: isStartRttCall = " + isStartRttCall);
 
                 // Set the RTT mode to 1 if sim supports RTT and if the connection has
                 // valid RTT text stream
-                if (mPhone.isRttSupported() && conn.hasRttTextStream() && isStartRttCall) {
+                if (isRttSupported() && conn.hasRttTextStream() && isStartRttCall) {
+                    if (DBG) log("dialInternal: setting RTT mode to full");
                     profile.mMediaProfile.mRttMode = ImsStreamMediaProfile.RTT_MODE_FULL;
                 }
 
@@ -1618,11 +1622,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 // being sent to the lower layers/to the network.
             }
 
-            int mode = QtiImsUtils.getRttOperatingMode(mPhone.getContext(), mPhone.getPhoneId());
+            int mode = QtiImsUtils.getRttOperatingMode(mPhone.getPhoneId(), mPhone.getContext());
             if (DBG) log("RTT: setRttModeBasedOnOperator mode = " + mode);
 
             // Override RTT mode as per operator requirements not supported by AOSP
-            if (mPhone.isRttSupported() && mPhone.isRttOn()) {
+            if (isRttSupported() && isRttOn()) {
+                if (DBG) log("dialInternal: RTT is ON and supported");
                 if (isStartRttCall &&
                         (!profile.isVideoCall() || QtiImsUtils.isRttSupportedOnVtCalls(
                         mPhone.getPhoneId(),mPhone.getContext()))) {
@@ -5147,13 +5152,16 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     private ImsStreamMediaProfile addRttAttributeIfRequired(ImsCall call,
             ImsStreamMediaProfile mediaProfile) {
 
-        if (!mPhone.isRttSupported()) {
+        if (!isRttSupported()) {
+            if (DBG) log("addRttAttributeIfRequired: RTT is not supported");
             return mediaProfile;
         }
 
         ImsCallProfile profile = call.getCallProfile();
         if (profile.mMediaProfile != null && profile.mMediaProfile.isRttCall() &&
-                (mPhone.isRttVtCallAllowed(call))) {
+                (!call.getCallProfile().isVideoCall() ||
+                        QtiImsUtils.isRttSupportedOnVtCalls(mPhone.getPhoneId(),
+                                                            mPhone.getContext()))) {
             if (DBG) log("RTT: addRttAttributeIfRequired = " +
                     profile.mMediaProfile.isRttCall());
             // If RTT UI option is on, then incoming RTT call should always be accepted
@@ -5175,6 +5183,14 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
         }
         return countryIso;
+    }
+
+    private boolean isRttSupported() {
+        return QtiImsUtils.isRttSupported(mPhone.getPhoneId(), mPhone.getContext());
+    }
+
+    private boolean isRttOn() {
+        return QtiImsUtils.isRttOn(mPhone.getPhoneId(), mPhone.getContext());
     }
 
     @Override
