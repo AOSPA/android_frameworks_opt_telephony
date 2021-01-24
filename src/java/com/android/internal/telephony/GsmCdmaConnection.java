@@ -32,6 +32,7 @@ import android.telephony.PhoneNumberUtils;
 import android.telephony.ServiceState;
 import android.text.TextUtils;
 
+import com.android.internal.telephony.PhoneInternalInterface.DialArgs;
 import com.android.internal.telephony.cdma.CdmaCallWaitingNotification;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
@@ -39,6 +40,9 @@ import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.telephony.Rlog;
+
+import java.util.ArrayList;
+import java.util.Arrays;
 
 /**
  * {@hide}
@@ -137,6 +141,7 @@ public class GsmCdmaConnection extends Connection {
         mAddress = dc.number;
         setEmergencyCallInfo(mOwner);
 
+        mForwardedNumber = new ArrayList<String>(Arrays.asList(dc.forwardedNumber));
         mIsIncoming = dc.isMT;
         mCreateTime = System.currentTimeMillis();
         mCnapName = dc.name;
@@ -158,7 +163,7 @@ public class GsmCdmaConnection extends Connection {
 
     /** This is an MO call, created when dialing */
     public GsmCdmaConnection (GsmCdmaPhone phone, String dialString, GsmCdmaCallTracker ct,
-                              GsmCdmaCall parent, boolean isEmergencyCall) {
+                              GsmCdmaCall parent, DialArgs dialArgs) {
         super(phone.getPhoneType());
         createWakeLock(phone.getContext());
         acquireWakeLock();
@@ -177,8 +182,15 @@ public class GsmCdmaConnection extends Connection {
         }
 
         mAddress = PhoneNumberUtils.extractNetworkPortionAlt(dialString);
-        if (isEmergencyCall) {
+        if (dialArgs.isEmergency) {
             setEmergencyCallInfo(mOwner);
+
+            // There was no emergency number info found for this call, however it is
+            // still marked as an emergency number. This may happen if it was a redialed
+            // non-detectable emergency call from IMS.
+            if (getEmergencyNumberInfo() == null) {
+                setNonDetectableEmergencyCallInfo(dialArgs.eccCategory);
+            }
         }
 
         mPostDialString = PhoneNumberUtils.extractPostDialPortion(dialString);
@@ -817,6 +829,14 @@ public class GsmCdmaConnection extends Connection {
             mAudioCodec = dc.audioQuality;
             mMetrics.writeAudioCodecGsmCdma(mOwner.getPhone().getPhoneId(), dc.audioQuality);
             mOwner.getPhone().getVoiceCallSessionStats().onAudioCodecChanged(this, dc.audioQuality);
+        }
+
+        ArrayList<String> forwardedNumber =
+                new ArrayList<String>(Arrays.asList(dc.forwardedNumber));
+        if (!equalsHandlesNulls(mForwardedNumber, forwardedNumber)) {
+            if (Phone.DEBUG_PHONE) log("update: mForwardedNumber, # changed!");
+            mForwardedNumber = forwardedNumber;
+            changed = true;
         }
 
         // A null cnapName should be the same as ""

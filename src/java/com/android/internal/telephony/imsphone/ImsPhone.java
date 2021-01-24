@@ -53,6 +53,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.AsyncResult;
 import android.os.Build;
@@ -66,6 +67,7 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.ResultReceiver;
 import android.os.UserHandle;
+import android.preference.PreferenceManager;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.CarrierConfigManager;
 import android.telephony.NetworkRegistrationInfo;
@@ -74,6 +76,7 @@ import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.UssdResponse;
+import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsCallForwardInfo;
 import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.ImsReasonInfo;
@@ -110,8 +113,8 @@ import com.android.internal.telephony.ServiceStateTracker;
 import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
-import com.android.internal.telephony.gsm.GsmMmiCode;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
+import com.android.internal.telephony.metrics.ImsStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.metrics.VoiceCallSessionStats;
 import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
@@ -149,6 +152,9 @@ public class ImsPhone extends ImsPhoneBase {
     private static final int EVENT_GET_CLIP_DONE                     = EVENT_LAST + 11;
 
 
+    // String to Call Composer Option Prefix set by user
+    private static final String PREF_USER_SET_CALL_COMPOSER_PREFIX = "userset_callcomposer_prefix";
+
     /**
      * Used to create ImsManager instances, which may be injected during testing.
      */
@@ -163,36 +169,33 @@ public class ImsPhone extends ImsPhoneBase {
     public static class ImsDialArgs extends DialArgs {
         public static class Builder extends DialArgs.Builder<ImsDialArgs.Builder> {
             private android.telecom.Connection.RttTextStream mRttTextStream;
-            private int mClirMode = CommandsInterface.CLIR_DEFAULT;
             private int mRetryCallFailCause = ImsReasonInfo.CODE_UNSPECIFIED;
             private int mRetryCallFailNetworkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
 
             public static ImsDialArgs.Builder from(DialArgs dialArgs) {
+                if (dialArgs instanceof ImsDialArgs) {
+                    return new ImsDialArgs.Builder()
+                            .setUusInfo(dialArgs.uusInfo)
+                            .setIsEmergency(dialArgs.isEmergency)
+                            .setVideoState(dialArgs.videoState)
+                            .setIntentExtras(dialArgs.intentExtras)
+                            .setRttTextStream(((ImsDialArgs)dialArgs).rttTextStream)
+                            .setClirMode(dialArgs.clirMode)
+                            .setRetryCallFailCause(((ImsDialArgs)dialArgs).retryCallFailCause)
+                            .setRetryCallFailNetworkType(
+                                    ((ImsDialArgs)dialArgs).retryCallFailNetworkType);
+                }
                 return new ImsDialArgs.Builder()
                         .setUusInfo(dialArgs.uusInfo)
+                        .setIsEmergency(dialArgs.isEmergency)
                         .setVideoState(dialArgs.videoState)
-                        .setIntentExtras(dialArgs.intentExtras);
-            }
-
-            public static ImsDialArgs.Builder from(ImsDialArgs dialArgs) {
-                return new ImsDialArgs.Builder()
-                        .setUusInfo(dialArgs.uusInfo)
-                        .setVideoState(dialArgs.videoState)
-                        .setIntentExtras(dialArgs.intentExtras)
-                        .setRttTextStream(dialArgs.rttTextStream)
                         .setClirMode(dialArgs.clirMode)
-                        .setRetryCallFailCause(dialArgs.retryCallFailCause)
-                        .setRetryCallFailNetworkType(dialArgs.retryCallFailNetworkType);
+                        .setIntentExtras(dialArgs.intentExtras);
             }
 
             public ImsDialArgs.Builder setRttTextStream(
                     android.telecom.Connection.RttTextStream s) {
                 mRttTextStream = s;
-                return this;
-            }
-
-            public ImsDialArgs.Builder setClirMode(int clirMode) {
-                this.mClirMode = clirMode;
                 return this;
             }
 
@@ -217,15 +220,12 @@ public class ImsPhone extends ImsPhoneBase {
          */
         public final android.telecom.Connection.RttTextStream rttTextStream;
 
-        /** The CLIR mode to use */
-        public final int clirMode;
         public final int retryCallFailCause;
         public final int retryCallFailNetworkType;
 
         private ImsDialArgs(ImsDialArgs.Builder b) {
             super(b);
             this.rttTextStream = b.mRttTextStream;
-            this.clirMode = b.mClirMode;
             this.retryCallFailCause = b.mRetryCallFailCause;
             this.retryCallFailNetworkType = b.mRetryCallFailNetworkType;
         }
@@ -242,6 +242,8 @@ public class ImsPhone extends ImsPhoneBase {
     private ServiceState mSS = new ServiceState();
 
     private final ImsManagerFactory mImsManagerFactory;
+
+    private SharedPreferences mImsPhoneSharedPreferences;
 
     // To redial silently through GSM or CDMA when dialing through IMS fails
     private String mLastDialString;
@@ -264,6 +266,8 @@ public class ImsPhone extends ImsPhoneBase {
     // List of Registrants to send supplementary service notifications to.
     private RegistrantList mSsnRegistrants = new RegistrantList();
 
+    private ImsStats mImsStats;
+
     private Uri[] mCurrentSubscriberUris;
 
     protected void setCurrentSubscriberUris(Uri[] currentSubscriberUris) {
@@ -273,6 +277,18 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public Uri[] getCurrentSubscriberUris() {
         return mCurrentSubscriberUris;
+    }
+
+    /** Set call composer status from users for the current subscription */
+    public void setCallComposerStatus(int status) {
+        mImsPhoneSharedPreferences.edit().putInt(
+                PREF_USER_SET_CALL_COMPOSER_PREFIX + getSubId(), status).commit();
+    }
+
+    /** Get call composer status from users for the current subscription */
+    public int getCallComposerStatus() {
+        return mImsPhoneSharedPreferences.getInt(PREF_USER_SET_CALL_COMPOSER_PREFIX + getSubId(),
+                TelephonyManager.CALL_COMPOSER_STATUS_OFF);
     }
 
     @Override
@@ -400,6 +416,8 @@ public class ImsPhone extends ImsPhoneBase {
 
         mDefaultPhone = defaultPhone;
         mImsManagerFactory = imsManagerFactory;
+        mImsPhoneSharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+        mImsStats = new ImsStats(this);
         // The ImsExternalCallTracker needs to be defined before the ImsPhoneCallTracker, as the
         // ImsPhoneCallTracker uses a thread to spool up the ImsManager.  Part of this involves
         // setting the multiendpoint listener on the external call tracker.  So we need to ensure
@@ -881,11 +899,7 @@ public class ImsPhone extends ImsPhoneBase {
     public Connection startConference(String[] participantsToDial, DialArgs dialArgs)
             throws CallStateException {
          ImsDialArgs.Builder imsDialArgsBuilder;
-         if (!(dialArgs instanceof ImsDialArgs)) {
-             imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
-         } else {
-             imsDialArgsBuilder = ImsDialArgs.Builder.from((ImsDialArgs) dialArgs);
-         }
+         imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
          return mCT.startConference(participantsToDial, imsDialArgsBuilder.build());
     }
 
@@ -910,12 +924,8 @@ public class ImsPhone extends ImsPhoneBase {
         }
 
         ImsDialArgs.Builder imsDialArgsBuilder;
+        imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
         // Get the CLIR info if needed
-        if (!(dialArgs instanceof ImsDialArgs)) {
-            imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
-        } else {
-            imsDialArgsBuilder = ImsDialArgs.Builder.from((ImsDialArgs) dialArgs);
-        }
         imsDialArgsBuilder.setClirMode(mCT.getClirMode());
 
         if (mDefaultPhone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA) {
@@ -1555,8 +1565,19 @@ public class ImsPhone extends ImsPhoneBase {
 
     /* package */ void
     initiateSilentRedial() {
-        String result = mLastDialString;
-        AsyncResult ar = new AsyncResult(null, result, null);
+        initiateSilentRedial(false, EmergencyNumber.EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED);
+    }
+
+    /* package */ void
+    initiateSilentRedial(boolean isEmergency, int eccCategory) {
+        DialArgs dialArgs = new DialArgs.Builder()
+                                        .setIsEmergency(isEmergency)
+                                        .setEccCategory(eccCategory)
+                                        .build();
+        int cause = CallFailCause.LOCAL_CALL_CS_RETRY_REQUIRED;
+        AsyncResult ar = new AsyncResult(null,
+                                         new SilentRedialParam(mLastDialString, cause, dialArgs),
+                                         null);
         if (ar != null) {
             mSilentRedialRegistrants.notifyRegistrants(ar);
         }
@@ -2486,6 +2507,7 @@ public class ImsPhone extends ImsPhoneBase {
                     + AccessNetworkConstants.transportTypeToString(imsRadioTech));
             setServiceState(ServiceState.STATE_IN_SERVICE);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.CONNECTED, null);
+            mImsStats.onImsRegistered(imsRadioTech);
         }
 
         @Override
@@ -2499,6 +2521,7 @@ public class ImsPhone extends ImsPhoneBase {
             setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.PROGRESSING,
                     null);
+            mImsStats.onImsRegistering(imsRadioTech);
         }
 
         @Override
@@ -2509,6 +2532,7 @@ public class ImsPhone extends ImsPhoneBase {
             processDisconnectReason(imsReasonInfo);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.DISCONNECTED,
                     imsReasonInfo);
+            mImsStats.onImsUnregistered(imsReasonInfo);
         }
 
         @Override
@@ -2525,13 +2549,8 @@ public class ImsPhone extends ImsPhoneBase {
     public DialArgs updateDialArgsForVolteSilentRedial(DialArgs dialArgs, int causeCode) {
         if (dialArgs != null) {
             ImsPhone.ImsDialArgs.Builder imsDialArgsBuilder;
-            if (dialArgs instanceof ImsPhone.ImsDialArgs) {
-                imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder
-                                      .from((ImsPhone.ImsDialArgs) dialArgs);
-            } else {
-                imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder
-                                      .from(dialArgs);
-            }
+            imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder.from(dialArgs);
+
             Bundle extras = new Bundle(dialArgs.intentExtras);
             if (causeCode == CallFailCause.EMC_REDIAL_ON_VOWIFI && isWifiCallingEnabled()) {
                 extras.putString(ImsCallProfile.EXTRA_CALL_RAT_TYPE,
@@ -2549,6 +2568,17 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public VoiceCallSessionStats getVoiceCallSessionStats() {
         return mDefaultPhone.getVoiceCallSessionStats();
+    }
+
+    /** Returns the {@link ImsStats} for this IMS phone. */
+    public ImsStats getImsStats() {
+        return mImsStats;
+    }
+
+    /** Sets the {@link ImsStats} mock for this IMS phone during unit testing. */
+    @VisibleForTesting
+    public void setImsStats(ImsStats imsStats) {
+        mImsStats = imsStats;
     }
 
     public boolean hasAliveCall() {

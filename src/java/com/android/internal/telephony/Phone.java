@@ -23,6 +23,7 @@ import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.net.LinkProperties;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
@@ -68,6 +69,7 @@ import android.telephony.ims.stub.ImsRegistrationImplBase;
 import android.text.TextUtils;
 import android.util.LocalLog;
 import android.util.SparseArray;
+import android.util.Xml;
 
 import com.android.ims.ImsCall;
 import com.android.ims.ImsConfig;
@@ -95,9 +97,17 @@ import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.uicc.UsimServiceTable;
 import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.internal.util.XmlUtils;
 import com.android.telephony.Rlog;
 
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
+import java.io.File;
 import java.io.FileDescriptor;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -727,10 +737,13 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                 Rlog.d(LOG_TAG, "Event EVENT_INITIATE_SILENT_REDIAL Received");
                 ar = (AsyncResult) msg.obj;
                 if ((ar.exception == null) && (ar.result != null)) {
-                    String dialString = (String) ar.result;
+                    SilentRedialParam result = (SilentRedialParam) ar.result;
+                    String dialString = result.dialString;
+                    int causeCode = result.causeCode;
+                    DialArgs dialArgs = result.dialArgs;
                     if (TextUtils.isEmpty(dialString)) return;
                     try {
-                        Connection cn = dialInternal(dialString, new DialArgs.Builder().build());
+                        Connection cn = dialInternal(dialString, dialArgs);
                         Rlog.d(LOG_TAG, "Notify redial connection changed cn: " + cn);
                         if (mImsPhone != null) {
                             // Don't care it is null or not.
@@ -2754,6 +2767,12 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         mNotifier.notifyOutgoingEmergencySms(this, emergencyNumber);
     }
 
+    /** Notify the data enabled changes. */
+    public void notifyDataEnabled(boolean enabled,
+            @TelephonyManager.DataEnabledReason int reason) {
+        mNotifier.notifyDataEnabled(enabled, reason);
+    }
+
     /**
      * @return true if a mobile originating emergency call is active
      */
@@ -3426,6 +3445,98 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         }
 
         return activeApnTypes.toArray(new String[activeApnTypes.size()]);
+    }
+
+
+    /**
+     *  Location to an updatable file listing carrier provisioning urls.
+     *  An example:
+     *
+     * <?xml version="1.0" encoding="utf-8"?>
+     *  <provisioningUrls>
+     *   <provisioningUrl mcc="310" mnc="4">http://myserver.com/foo?mdn=%3$s&amp;iccid=%1$s&amp;imei=%2$s</provisioningUrl>
+     *  </provisioningUrls>
+     */
+    private static final String PROVISIONING_URL_PATH =
+            "/data/misc/radio/provisioning_urls.xml";
+    private final File mProvisioningUrlFile = new File(PROVISIONING_URL_PATH);
+
+    /** XML tag for root element. */
+    private static final String TAG_PROVISIONING_URLS = "provisioningUrls";
+    /** XML tag for individual url */
+    private static final String TAG_PROVISIONING_URL = "provisioningUrl";
+    /** XML attribute for mcc */
+    private static final String ATTR_MCC = "mcc";
+    /** XML attribute for mnc */
+    private static final String ATTR_MNC = "mnc";
+
+    private String getProvisioningUrlBaseFromFile() {
+        XmlPullParser parser;
+        final Configuration config = mContext.getResources().getConfiguration();
+
+        try (FileReader fileReader = new FileReader(mProvisioningUrlFile)) {
+            parser = Xml.newPullParser();
+            parser.setInput(fileReader);
+            XmlUtils.beginDocument(parser, TAG_PROVISIONING_URLS);
+
+            while (true) {
+                XmlUtils.nextElement(parser);
+
+                final String element = parser.getName();
+                if (element == null) break;
+
+                if (element.equals(TAG_PROVISIONING_URL)) {
+                    String mcc = parser.getAttributeValue(null, ATTR_MCC);
+                    try {
+                        if (mcc != null && Integer.parseInt(mcc) == config.mcc) {
+                            String mnc = parser.getAttributeValue(null, ATTR_MNC);
+                            if (mnc != null && Integer.parseInt(mnc) == config.mnc) {
+                                parser.next();
+                                if (parser.getEventType() == XmlPullParser.TEXT) {
+                                    return parser.getText();
+                                }
+                            }
+                        }
+                    } catch (NumberFormatException e) {
+                        Rlog.e(LOG_TAG, "Exception in getProvisioningUrlBaseFromFile: " + e);
+                    }
+                }
+            }
+            return null;
+        } catch (FileNotFoundException e) {
+            Rlog.e(LOG_TAG, "Carrier Provisioning Urls file not found");
+        } catch (XmlPullParserException e) {
+            Rlog.e(LOG_TAG, "Xml parser exception reading Carrier Provisioning Urls file: " + e);
+        } catch (IOException e) {
+            Rlog.e(LOG_TAG, "I/O exception reading Carrier Provisioning Urls file: " + e);
+        }
+        return null;
+    }
+
+    /**
+     * Get the mobile provisioning url.
+     */
+    public String getMobileProvisioningUrl() {
+        String url = getProvisioningUrlBaseFromFile();
+        if (TextUtils.isEmpty(url)) {
+            url = mContext.getResources().getString(R.string.mobile_provisioning_url);
+            Rlog.d(LOG_TAG, "getMobileProvisioningUrl: url from resource =" + url);
+        } else {
+            Rlog.d(LOG_TAG, "getMobileProvisioningUrl: url from File =" + url);
+        }
+        // Populate the iccid, imei and phone number in the provisioning url.
+        if (!TextUtils.isEmpty(url)) {
+            String phoneNumber = getLine1Number();
+            if (TextUtils.isEmpty(phoneNumber)) {
+                phoneNumber = "0000000000";
+            }
+            url = String.format(url,
+                    getIccSerialNumber() /* ICCID */,
+                    getDeviceId() /* IMEI */,
+                    phoneNumber /* Phone number */);
+        }
+
+        return url;
     }
 
     /**
@@ -4127,8 +4238,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      *  here.
      *
      *  @param rc the phone radio capability currently in effect for this phone.
+     *  @param capabilitySwitched whether this method called after a radio capability switch
+     *      completion or called when radios first become available.
      */
-    public void radioCapabilityUpdated(RadioCapability rc) {
+    public void radioCapabilityUpdated(RadioCapability rc, boolean capabilitySwitched) {
         // Called when radios first become available or after a capability switch
         // Update the cached value
         mRadioCapability.set(rc);
@@ -4137,6 +4250,12 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             boolean restoreSelection = !mContext.getResources().getBoolean(
                     com.android.internal.R.bool.skip_restoring_network_selection);
             sendSubscriptionSettings(restoreSelection);
+        }
+
+        // When radio capability switch is done, query IMEI value and update it in Phone objects
+        // to make it in sync with the IMEI value currently used by Logical-Modem.
+        if (capabilitySwitched) {
+            mCi.getDeviceIdentity(obtainMessage(EVENT_GET_DEVICE_IDENTITY_DONE));
         }
     }
 
@@ -4419,8 +4538,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * - {@link android.telephony.TelephonyManager#CARD_POWER_UP}
      * - {@link android.telephony.TelephonyManager#CARD_POWER_UP_PASS_THROUGH}
      **/
-    public void setSimPowerState(int state, WorkSource workSource) {
-        mCi.setSimCardPower(state, null, workSource);
+    public void setSimPowerState(int state, Message result, WorkSource workSource) {
+        mCi.setSimCardPower(state, result, workSource);
     }
 
     public SIMRecords getSIMRecords() {
