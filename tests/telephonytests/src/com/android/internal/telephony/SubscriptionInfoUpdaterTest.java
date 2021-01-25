@@ -166,8 +166,8 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
                 .getActiveSubIdList(/*visibleOnly*/false);
         mIccRecord = mUiccProfile.getIccRecords();
 
-        mUpdater = new SubscriptionInfoUpdater(Looper.myLooper(), mContext,
-            new CommandsInterface[]{mSimulatedCommands});
+        mUpdater =
+                new SubscriptionInfoUpdater(Looper.myLooper(), mContext, mSubscriptionController);
         processAllMessages();
 
         assertFalse(mUpdater.isSubInfoInitialized());
