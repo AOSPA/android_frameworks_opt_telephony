@@ -129,6 +129,7 @@ public class ImsPhoneTest extends TelephonyTest {
     private static final int EVENT_SUPP_SERVICE_FAILED = 2;
     private static final int EVENT_INCOMING_RING = 3;
     private static final int EVENT_EMERGENCY_CALLBACK_MODE_EXIT = 4;
+    private static final int EVENT_CALL_RING_CONTINUE = 15;
 
     private boolean mIsPhoneUtInEcm = false;
 
@@ -674,7 +675,7 @@ public class ImsPhoneTest extends TelephonyTest {
     @SmallTest
     public void testImsRegistered() throws Exception {
         mImsPhoneUT.setServiceState(ServiceState.STATE_IN_SERVICE);
-        mImsPhoneUT.setImsRegistrationState(RegistrationManager.REGISTRATION_STATE_REGISTERED);
+        mImsPhoneUT.setImsRegistered(true);
         assertTrue(mImsPhoneUT.isImsRegistered());
 
         LinkedBlockingQueue<Integer> result = new LinkedBlockingQueue<>(1);
@@ -686,23 +687,9 @@ public class ImsPhoneTest extends TelephonyTest {
 
     @Test
     @SmallTest
-    public void testImsRegistering() throws Exception {
-        mImsPhoneUT.setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
-        mImsPhoneUT.setImsRegistrationState(RegistrationManager.REGISTRATION_STATE_REGISTERING);
-        assertFalse(mImsPhoneUT.isImsRegistered());
-
-        LinkedBlockingQueue<Integer> result = new LinkedBlockingQueue<>(1);
-        mImsPhoneUT.getImsRegistrationState(result::offer);
-        Integer regResult = result.poll(1000, TimeUnit.MILLISECONDS);
-        assertNotNull(regResult);
-        assertEquals(RegistrationManager.REGISTRATION_STATE_REGISTERING, regResult.intValue());
-    }
-
-    @Test
-    @SmallTest
     public void testImsDeregistered() throws Exception {
         mImsPhoneUT.setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
-        mImsPhoneUT.setImsRegistrationState(RegistrationManager.REGISTRATION_STATE_NOT_REGISTERED);
+        mImsPhoneUT.setImsRegistered(false);
         assertFalse(mImsPhoneUT.isImsRegistered());
 
         LinkedBlockingQueue<Integer> result = new LinkedBlockingQueue<>(1);
@@ -955,6 +942,13 @@ public class ImsPhoneTest extends TelephonyTest {
 
         mImsPhoneUT.dial("*135#", new ImsPhone.ImsDialArgs.Builder().build());
         verify(mImsCT).sendUSSD(eq("*135#"), any());
+    }
+
+    @Test
+    @SmallTest
+    public void testHandleMessageCallRingContinue() throws Exception {
+        Message m = Message.obtain(mImsPhoneUT.getHandler(), EVENT_CALL_RING_CONTINUE);
+        mImsPhoneUT.handleMessage(m);
     }
 
     private ServiceState getServiceStateDataAndVoice(int rat, int regState, boolean isRoaming) {
