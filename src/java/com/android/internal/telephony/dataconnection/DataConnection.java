@@ -517,7 +517,7 @@ public class DataConnection extends StateMachine {
         return mHandoverState == HANDOVER_STATE_COMPLETED;
     }
 
-    boolean isBeingInTransferring() {
+    boolean isBeingTransferred() {
         return mHandoverState == HANDOVER_STATE_BEING_TRANSFERRED;
     }
 
