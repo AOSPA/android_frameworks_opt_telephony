@@ -1824,9 +1824,9 @@ public class DcTrackerTest extends TelephonyTest {
         clearInvocations(mHandler);
     }
 
-    private void setUpSubscriptionPlans(boolean is5GUnmetered) throws Exception {
+    private void setUpSubscriptionPlans(boolean isNrUnmetered) throws Exception {
         List<SubscriptionPlan> plans = new ArrayList<>();
-        if (is5GUnmetered) {
+        if (isNrUnmetered) {
             plans.add(SubscriptionPlan.Builder
                     .createRecurring(ZonedDateTime.parse("2007-03-14T00:00:00.000Z"),
                             Period.ofMonths(1))
@@ -1842,6 +1842,10 @@ public class DcTrackerTest extends TelephonyTest {
                 .setDataUsage(500_000_000, System.currentTimeMillis())
                 .build());
         replaceInstance(DcTracker.class, "mSubscriptionPlans", mDct, plans);
+    }
+
+    private void resetSubscriptionPlans() throws Exception {
+        replaceInstance(DcTracker.class, "mSubscriptionPlans", mDct, null);
     }
 
     private boolean isNetworkTypeUnmetered(int networkType) throws Exception {
@@ -1906,7 +1910,6 @@ public class DcTrackerTest extends TelephonyTest {
         plans.add(SubscriptionPlan.Builder
                 .createRecurring(ZonedDateTime.parse("2007-03-14T00:00:00.000Z"),
                         Period.ofMonths(1))
-                .setTitle("Some 5GB Plan")
                 .setDataLimit(SubscriptionPlan.BYTES_UNLIMITED,
                         SubscriptionPlan.LIMIT_BEHAVIOR_THROTTLED)
                 .build());
@@ -1915,6 +1918,8 @@ public class DcTrackerTest extends TelephonyTest {
         assertTrue(isNetworkTypeUnmetered(TelephonyManager.NETWORK_TYPE_NR));
         assertTrue(isNetworkTypeUnmetered(TelephonyManager.NETWORK_TYPE_LTE));
         assertTrue(isNetworkTypeUnmetered(TelephonyManager.NETWORK_TYPE_UNKNOWN));
+
+        resetSubscriptionPlans();
     }
 
     @Test
@@ -1963,6 +1968,7 @@ public class DcTrackerTest extends TelephonyTest {
         verify(mDataConnection, times(2)).onMeterednessChanged(true);
 
         resetDataConnection(id);
+        resetSubscriptionPlans();
     }
 
     @Test
@@ -2024,6 +2030,7 @@ public class DcTrackerTest extends TelephonyTest {
         verify(mDataConnection, times(2)).onMeterednessChanged(true);
 
         resetDataConnection(id);
+        resetSubscriptionPlans();
     }
 
     @Test
@@ -2052,6 +2059,7 @@ public class DcTrackerTest extends TelephonyTest {
         verify(mDataConnection, times(1)).onMeterednessChanged(false);
 
         resetDataConnection(id);
+        resetSubscriptionPlans();
     }
 
     @Test
@@ -2084,6 +2092,7 @@ public class DcTrackerTest extends TelephonyTest {
         assertFalse(getWatchdogStatus());
 
         resetDataConnection(id);
+        resetSubscriptionPlans();
     }
 
     /**
