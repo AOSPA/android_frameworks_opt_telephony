@@ -296,7 +296,9 @@ public class SubscriptionController extends ISub.Stub {
             SubscriptionManager.DISPLAY_NAME,
             SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES,
             SubscriptionManager.UICC_APPLICATIONS_ENABLED,
-            SubscriptionManager.IMS_RCS_UCE_ENABLED));
+            SubscriptionManager.IMS_RCS_UCE_ENABLED,
+            SubscriptionManager.CROSS_SIM_CALLING_ENABLED
+    ));
 
     public static SubscriptionController init(Context c) {
         synchronized (SubscriptionController.class) {
@@ -364,6 +366,10 @@ public class SubscriptionController extends ISub.Stub {
      * Should only be triggered once.
      */
     public void notifySubInfoReady() {
+        PhoneSwitcher phoneSwitcher = PhoneSwitcher.getInstance();
+        if (phoneSwitcher != null) {
+            phoneSwitcher.notifySubInfoReady();
+        }
         // broadcast default subId.
         sendDefaultChangedBroadcast(SubscriptionManager.getDefaultSubscriptionId());
     }
@@ -1648,12 +1654,20 @@ public class SubscriptionController extends ISub.Stub {
      * Insert an empty SubInfo record into the database.
      *
      * <p>NOTE: This is not accessible to external processes, so it does not need a permission
-     * check. It is only intended for use by {@link SubscriptionInfoUpdater}.
+     * check. It is only intended for use by {@link SubscriptionInfoUpdater}. If there is a
+     * subscription record exist with the same ICCID, no new empty record will be created.
      *
-     * <p>Precondition: No record exists with this iccId.
+     * @return the URL of the newly created row. Return <code>null</code> if no new empty record is
+     * created.
      */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    @Nullable
     public Uri insertEmptySubInfoRecord(String iccId, int slotIndex) {
+        if (getSubInfoForIccId(iccId) != null) {
+            loge("insertEmptySubInfoRecord: Found existing record by ICCID. Do not create a "
+                    + "new empty entry.");
+            return null;
+        }
         return insertEmptySubInfoRecord(iccId, null, slotIndex,
                 SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM);
     }
@@ -2116,6 +2130,7 @@ public class SubscriptionController extends ISub.Stub {
             case SubscriptionManager.WFC_IMS_ROAMING_ENABLED:
             case SubscriptionManager.DATA_ROAMING:
             case SubscriptionManager.IMS_RCS_UCE_ENABLED:
+            case SubscriptionManager.CROSS_SIM_CALLING_ENABLED:
                 values.put(propKey, cursor.getInt(columnIndex));
                 break;
             case SubscriptionManager.DISPLAY_NAME:
@@ -3039,6 +3054,7 @@ public class SubscriptionController extends ISub.Stub {
             case SubscriptionManager.WFC_IMS_ROAMING_MODE:
             case SubscriptionManager.WFC_IMS_ROAMING_ENABLED:
             case SubscriptionManager.IMS_RCS_UCE_ENABLED:
+            case SubscriptionManager.CROSS_SIM_CALLING_ENABLED:
                 value.put(propKey, Integer.parseInt(propValue));
                 break;
             case SubscriptionManager.ALLOWED_NETWORK_TYPES:
@@ -3111,6 +3127,7 @@ public class SubscriptionController extends ISub.Stub {
                         case SubscriptionManager.WFC_IMS_ROAMING_MODE:
                         case SubscriptionManager.WFC_IMS_ROAMING_ENABLED:
                         case SubscriptionManager.IMS_RCS_UCE_ENABLED:
+                        case SubscriptionManager.CROSS_SIM_CALLING_ENABLED:
                         case SubscriptionManager.IS_OPPORTUNISTIC:
                         case SubscriptionManager.GROUP_UUID:
                         case SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES:

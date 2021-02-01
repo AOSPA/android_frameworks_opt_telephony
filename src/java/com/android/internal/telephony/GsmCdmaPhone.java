@@ -157,8 +157,10 @@ public class GsmCdmaPhone extends Phone {
     //CDMA
     private static final String VM_NUMBER_CDMA = "vm_number_key_cdma";
     private static final String PREFIX_WPS = "*272";
-    private static final String PREFIX_WPS_CLIR_ACTIVATE = "*31#*272";
+    // WPS prefix when CLIR is being deactivated for the call.
     private static final String PREFIX_WPS_CLIR_DEACTIVATE = "#31#*272";
+    // WPS prefix when CLIS is being activated for the call.
+    private static final String PREFIX_WPS_CLIR_ACTIVATE = "*31#*272";
     private CdmaSubscriptionSourceManager mCdmaSSM;
     public int mCdmaSubscriptionSource = CdmaSubscriptionSourceManager.SUBSCRIPTION_SOURCE_UNKNOWN;
     private PowerManager.WakeLock mWakeLock;
@@ -283,8 +285,10 @@ public class GsmCdmaPhone extends Phone {
         // DcTracker uses ServiceStateTracker and DisplayInfoController so needs to be created
         // after they are instantiated
         for (int transport : mTransportManager.getAvailableTransports()) {
-            mDcTrackers.put(transport, mTelephonyComponentFactory.inject(DcTracker.class.getName())
-                    .makeDcTracker(this, transport));
+            DcTracker dcTracker = mTelephonyComponentFactory.inject(DcTracker.class.getName())
+                    .makeDcTracker(this, transport);
+            mDcTrackers.put(transport, dcTracker);
+            mTransportManager.registerDataThrottler(dcTracker.getDataThrottler());
         }
 
         mCarrierResolver = mTelephonyComponentFactory.inject(CarrierResolver.class.getName())
@@ -1332,9 +1336,9 @@ public class GsmCdmaPhone extends Phone {
                 (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
 
         /** Check if the call is Wireless Priority Service call */
-        boolean isWpsCall = dialString != null ? (dialString.startsWith(PREFIX_WPS) ||
-                dialString.startsWith(PREFIX_WPS_CLIR_ACTIVATE) ||
-                dialString.startsWith(PREFIX_WPS_CLIR_DEACTIVATE)) : false;
+        boolean isWpsCall = dialString != null ? (dialString.startsWith(PREFIX_WPS)
+                || dialString.startsWith(PREFIX_WPS_CLIR_ACTIVATE)
+                || dialString.startsWith(PREFIX_WPS_CLIR_DEACTIVATE)) : false;
         boolean allowWpsOverIms = configManager.getConfigForSubId(getSubId())
                 .getBoolean(CarrierConfigManager.KEY_SUPPORT_WPS_OVER_IMS_BOOL);
 
@@ -1655,7 +1659,16 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void setRadioPower(boolean power, boolean forEmergencyCall,
             boolean isSelectedPhoneForEmergencyCall, boolean forceApply) {
-        mSST.setRadioPower(power, forEmergencyCall, isSelectedPhoneForEmergencyCall, forceApply);
+        setRadioPowerForReason(power, forEmergencyCall, isSelectedPhoneForEmergencyCall, forceApply,
+                Phone.RADIO_POWER_REASON_USER);
+    }
+
+    @Override
+    public void setRadioPowerForReason(boolean power, boolean forEmergencyCall,
+            boolean isSelectedPhoneForEmergencyCall, boolean forceApply, int reason) {
+        mSST.setRadioPowerForReason(power, forEmergencyCall, isSelectedPhoneForEmergencyCall,
+                forceApply, reason);
+
     }
 
     private void storeVoiceMailNumber(String number) {
@@ -1863,6 +1876,11 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo) {
         CarrierInfoManager.setCarrierInfoForImsiEncryption(imsiEncryptionInfo, mContext, mPhoneId);
+    }
+
+    @Override
+    public void deleteCarrierInfoForImsiEncryption() {
+        CarrierInfoManager.deleteCarrierInfoForImsiEncryption(mContext);
     }
 
     @Override

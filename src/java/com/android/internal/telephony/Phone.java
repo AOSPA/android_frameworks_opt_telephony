@@ -2631,6 +2631,15 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         mCi.setSystemSelectionChannels(specifiers, response);
     }
 
+    /**
+     * Get which bands the modem's background scan is acting on.
+     *
+     * @param response Callback message.
+     */
+    public void getSystemSelectionChannels(Message response) {
+        mCi.getSystemSelectionChannels(response);
+    }
+
     public void notifyDataActivity() {
         mNotifier.notifyDataActivity(this);
     }
@@ -2719,8 +2728,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /** Notify {@link PhysicalChannelConfig} changes. */
-    public void notifyPhysicalChannelConfiguration(List<PhysicalChannelConfig> configs) {
+    public void notifyPhysicalChannelConfig(List<PhysicalChannelConfig> configs) {
         mPhysicalChannelConfigRegistrants.notifyRegistrants(new AsyncResult(null, configs, null));
+        mNotifier.notifyPhysicalChannelConfig(this, configs);
     }
 
     public List<PhysicalChannelConfig> getPhysicalChannelConfigList() {
@@ -3738,6 +3748,13 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return;
     }
 
+    /**
+     * Deletes all the keys for a given Carrier from the device keystore.
+     */
+    public void deleteCarrierInfoForImsiEncryption() {
+        return;
+    }
+
     public int getCarrierId() {
         return TelephonyManager.UNKNOWN_CARRIER_ID;
     }
@@ -4222,6 +4239,21 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public void startLceAfterRadioIsAvailable() {
         mCi.startLceService(DEFAULT_REPORT_INTERVAL_MS, LCE_PULL_MODE,
                 obtainMessage(EVENT_CONFIG_LCE));
+    }
+
+    /**
+     * Control the data throttling at modem.
+     *
+     * @param result Message that will be sent back to the requester
+     * @param workSource calling Worksource
+     * @param dataThrottlingAction the DataThrottlingAction that is being requested. Defined in
+     *      android.telephony.TelephonyManger.
+     * @param completionWindowMillis milliseconds in which data throttling action has to be
+     *      achieved.
+     */
+    public void setDataThrottling(Message result, WorkSource workSource,
+            int dataThrottlingAction, long completionWindowMillis) {
+        mCi.setDataThrottling(result, workSource, dataThrottlingAction, completionWindowMillis);
     }
 
     /**

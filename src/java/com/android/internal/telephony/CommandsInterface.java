@@ -220,6 +220,10 @@ public interface CommandsInterface {
     void registerForDataCallListChanged(Handler h, int what, Object obj);
     /** Unregister from data call list changed event */
     void unregisterForDataCallListChanged(Handler h);
+    /** Register for the apn unthrottled event */
+    void registerForApnUnthrottled(Handler h, int what, Object obj);
+    /** Unregister for apn unthrottled event */
+    void unregisterForApnUnthrottled(Handler h);
 
     /** InCall voice privacy notifications */
     void registerForInCallVoicePrivacyOn(Handler h, int what, Object obj);
@@ -1831,7 +1835,7 @@ public interface CommandsInterface {
      */
     void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
                        boolean allowRoaming, int reason, LinkProperties linkProperties,
-                       Message result);
+                       int pduSessionId, Message result);
 
     /**
      * Deactivate packet data connection
@@ -2502,6 +2506,13 @@ public interface CommandsInterface {
             Message onComplete) {}
 
     /**
+     * Get which bands the modem's background scan is acting on.
+     *
+     * @param onComplete a message to send when complete.
+     */
+    default void getSystemSelectionChannels(Message onComplete) {}
+
+    /**
      * Whether uicc applications are enabled or not.
      *
      * @param onCompleteMessage a Message to return to the requester
@@ -2543,4 +2554,52 @@ public interface CommandsInterface {
      * @param result Message will be sent back to handler and result.obj will be the AsycResult.
      */
     default void getBarringInfo(Message result) {};
+
+    /**
+     * Allocates a pdu session id
+     *
+     * AsyncResult.result is the allocated pdu session id
+     *
+     * @param result Message will be sent back to handler and result.obj will be the AsycResult.
+     *
+     */
+    default void allocatePduSessionId(Message result) {};
+
+    /**
+     * Release the pdu session id
+     *
+     * @param result Message that will be sent back to handler.
+     * @param pduSessionId The id that was allocated and should now be released.
+     *
+     */
+    default void releasePduSessionId(Message result, int pduSessionId) {};
+
+    /**
+     * Indicates that a handover has started
+     *
+     * @param result Message that will be sent back to handler.
+     * @param callId Identifier associated with the data call
+     */
+    default void startHandover(Message result, int callId) {};
+
+    /**
+     * Indicates that a handover has been cancelled
+     *
+     * @param result Message that will be sent back to handler.
+     * @param callId Identifier associated with the data call
+     */
+    default void cancelHandover(Message result, int callId) {};
+
+    /**
+     * Control the data throttling at modem.
+     *
+     * @param result Message that will be sent back to the requester
+     * @param workSource calling Worksource
+     * @param dataThrottlingAction the DataThrottlingAction that is being requested.
+     *      Defined in android.hardware.radio@1.6.types.
+     * @param completionWindowMillis milliseconds in which data throttling action has to be
+     *      achieved.
+     */
+    default void setDataThrottling(Message result, WorkSource workSource,
+            int dataThrottlingAction, long completionWindowMillis) {};
 }

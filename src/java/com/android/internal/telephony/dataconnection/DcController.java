@@ -297,9 +297,14 @@ public class DcController extends Handler {
                         }
                     }
                 } else {
+                    // Update the pdu session id
+                    dc.setPduSessionId(newState.getPduSessionId());
+
                     dc.updatePcscfAddr(newState);
+
                     // Its active so update the DataConnections link properties
                     UpdateLinkPropertyResult result = dc.updateLinkProperty(newState);
+                    dc.updateQosParameters(newState);
                     if (result.oldLp.equals(result.newLp)) {
                         if (DBG) log("onDataStateChanged: no change");
                     } else {

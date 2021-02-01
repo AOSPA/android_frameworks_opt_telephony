@@ -65,6 +65,7 @@ import static com.android.internal.telephony.RILConstants.RIL_UNSOL_STK_SESSION_
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_SUPP_SVC_NOTIFICATION;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_UICC_APPLICATIONS_ENABLEMENT_CHANGED;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_UICC_SUBSCRIPTION_STATUS_CHANGED;
+import static com.android.internal.telephony.RILConstants.RIL_UNSOL_UNTHROTTLE_APN;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_VOICE_RADIO_TECH_CHANGED;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOl_CDMA_PRL_CHANGED;
 
@@ -86,6 +87,7 @@ import android.hardware.radio.V1_0.SuppSvcNotification;
 import android.hardware.radio.V1_2.CellConnectionStatus;
 import android.hardware.radio.V1_6.IRadioIndication;
 import android.os.AsyncResult;
+import android.os.RemoteException;
 import android.sysprop.TelephonyProperties;
 import android.telephony.Annotation.RadioPowerState;
 import android.telephony.AnomalyReporter;
@@ -381,8 +383,10 @@ public class RadioIndication extends IRadioIndication.Stub {
         responseDataCallListChanged(indicationType, dcList);
     }
 
-    /**  unthrottleApn */
-    public void unthrottleApn(int indicationType, String apn) {
+    @Override
+    public void unthrottleApn(int indicationType, String apn)
+            throws RemoteException {
+        responseApnUnthrottled(indicationType, apn);
     }
 
     public void suppSvcNotify(int indicationType, SuppSvcNotification suppSvcNotification) {
@@ -804,6 +808,18 @@ public class RadioIndication extends IRadioIndication.Stub {
         mRil.mRilCellInfoListRegistrants.notifyRegistrants(new AsyncResult(null, response, null));
     }
 
+    /** Get unsolicited message for cellInfoList using HAL V1_5 */
+    public void cellInfoList_1_6(int indicationType,
+            ArrayList<android.hardware.radio.V1_6.CellInfo> records) {
+        mRil.processIndication(indicationType);
+
+        ArrayList<CellInfo> response = RIL.convertHalCellInfoList_1_6(records);
+
+        if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_CELL_INFO_LIST, response);
+
+        mRil.mRilCellInfoListRegistrants.notifyRegistrants(new AsyncResult(null, response, null));
+    }
+
     /** Get unsolicited message for uicc applications enablement changes. */
     public void uiccApplicationsEnablementChanged(int indicationType, boolean enabled) {
         mRil.processIndication(indicationType);
@@ -837,6 +853,12 @@ public class RadioIndication extends IRadioIndication.Stub {
     public void networkScanResult_1_5(int indicationType,
             android.hardware.radio.V1_5.NetworkScanResult result) {
         responseNetworkScan_1_5(indicationType, result);
+    }
+
+    /** Incremental network scan results with HAL V1_6 */
+    public void networkScanResult_1_6(int indicationType,
+            android.hardware.radio.V1_6.NetworkScanResult result) {
+        responseNetworkScan_1_6(indicationType, result);
     }
 
     public void imsNetworkStateChanged(int indicationType) {
@@ -1225,6 +1247,16 @@ public class RadioIndication extends IRadioIndication.Stub {
         mRil.mRilNetworkScanResultRegistrants.notifyRegistrants(new AsyncResult(null, nsr, null));
     }
 
+    private void responseNetworkScan_1_6(int indicationType,
+            android.hardware.radio.V1_6.NetworkScanResult result) {
+        mRil.processIndication(indicationType);
+
+        ArrayList<CellInfo> cellInfos = RIL.convertHalCellInfoList_1_6(result.networkInfos);
+        NetworkScanResult nsr = new NetworkScanResult(result.status, result.error, cellInfos);
+        if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_NETWORK_SCAN_RESULT, nsr);
+        mRil.mRilNetworkScanResultRegistrants.notifyRegistrants(new AsyncResult(null, nsr, null));
+    }
+
     private void responseDataCallListChanged(int indicationType, List<?> dcList) {
         mRil.processIndication(indicationType);
 
@@ -1233,5 +1265,14 @@ public class RadioIndication extends IRadioIndication.Stub {
         ArrayList<DataCallResponse> response = RIL.convertDataCallResultList(dcList);
         mRil.mDataCallListChangedRegistrants.notifyRegistrants(
                 new AsyncResult(null, response, null));
+    }
+
+    private void responseApnUnthrottled(int indicationType, String apn) {
+        mRil.processIndication(indicationType);
+
+        if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_UNTHROTTLE_APN, apn);
+
+        mRil.mApnUnthrottledRegistrants.notifyRegistrants(
+                new AsyncResult(null, apn, null));
     }
 }
