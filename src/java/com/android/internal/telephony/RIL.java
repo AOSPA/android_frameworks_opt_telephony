@@ -1765,7 +1765,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
         long messageId = ((SMSDispatcher.SmsTracker) result.obj).mMessageId;
         if (RILJ_LOGV) {
-            Rlog.d(RILJ_LOG_TAG, "getOutgoingSmsMessageId messageId: " + messageId);
+            Rlog.d(RILJ_LOG_TAG, "getOutgoingSmsMessageId "
+                    + SmsController.formatCrossStackMessageId(messageId));
         }
         return messageId;
     }
@@ -3551,14 +3552,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
     public void isNrDualConnectivityEnabled(Message result, WorkSource workSource) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
-            RILRequest rr = obtainRequest(RIL_REQUEST_IS_NR_DUAL_CONNECTIVITY_ENABLED, result,
-                    workSource == null ? mRILDefaultWorkSource : workSource);
-
-            if (RILJ_LOGD) {
-                riljLog(rr.serialString() + "> "
-                        + requestToString(rr.mRequest));
-            }
-
             if (mRadioVersion.less(RADIO_HAL_VERSION_1_6)) {
                 if (result != null) {
                     AsyncResult.forMessage(result, null,
@@ -3570,6 +3563,15 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
             android.hardware.radio.V1_6.IRadio radioProxy16 =
                     (android.hardware.radio.V1_6.IRadio) radioProxy;
+
+            RILRequest rr = obtainRequest(RIL_REQUEST_IS_NR_DUAL_CONNECTIVITY_ENABLED, result,
+                    workSource == null ? mRILDefaultWorkSource : workSource);
+
+            if (RILJ_LOGD) {
+                riljLog(rr.serialString() + "> "
+                        + requestToString(rr.mRequest));
+            }
+
             try {
                 radioProxy16.isNrDualConnectivityEnabled(rr.mSerial);
             } catch (RemoteException | RuntimeException e) {
@@ -5343,7 +5345,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
             SignalThresholdInfo signalThresholdInfo) {
         android.hardware.radio.V1_5.SignalThresholdInfo signalThresholdInfoHal =
                 new android.hardware.radio.V1_5.SignalThresholdInfo();
-        signalThresholdInfoHal.signalMeasurement = signalThresholdInfo.getSignalMeasurement();
+        signalThresholdInfoHal.signalMeasurement = signalThresholdInfo.getSignalMeasurementType();
         signalThresholdInfoHal.hysteresisMs = signalThresholdInfo.getHysteresisMs();
         signalThresholdInfoHal.hysteresisDb = signalThresholdInfo.getHysteresisDb();
         signalThresholdInfoHal.thresholds = primitiveArrayToArrayList(

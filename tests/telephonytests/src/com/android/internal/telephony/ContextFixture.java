@@ -81,6 +81,7 @@ import android.telephony.euicc.EuiccManager;
 import android.test.mock.MockContentProvider;
 import android.test.mock.MockContentResolver;
 import android.test.mock.MockContext;
+import android.util.DisplayMetrics;
 import android.util.Log;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -331,6 +332,11 @@ public class ContextFixture implements TestFixture<Context> {
         @Override
         public Resources getResources() {
             return mResources;
+        }
+
+        @Override
+        public Context createConfigurationContext(Configuration overrideConfiguration) {
+            return spy(new FakeContext());
         }
 
         @Override
@@ -624,7 +630,6 @@ public class ContextFixture implements TestFixture<Context> {
     // The application context is the most important object this class provides to the system
     // under test.
     private final Context mContext = spy(new FakeContext());
-
     // We then create a spy on the application context allowing standard Mockito-style
     // when(...) logic to be used to add specific little responses where needed.
 
@@ -657,6 +662,7 @@ public class ContextFixture implements TestFixture<Context> {
     private final ContentProvider mContentProvider = spy(new FakeContentProvider());
 
     private final Configuration mConfiguration = new Configuration();
+    private final DisplayMetrics mDisplayMetrics = new DisplayMetrics();
     private final SharedPreferences mSharedPreferences = PreferenceManager
             .getDefaultSharedPreferences(TestApplication.getAppContext());
     private final MockContentResolver mContentResolver = new MockContentResolver();
@@ -711,6 +717,8 @@ public class ContextFixture implements TestFixture<Context> {
         mConfiguration.locale = Locale.US;
         doReturn(mConfiguration).when(mResources).getConfiguration();
 
+        mDisplayMetrics.density = 2.25f;
+        doReturn(mDisplayMetrics).when(mResources).getDisplayMetrics();
         mContentResolver.addProvider(Settings.AUTHORITY, mContentProvider);
         // Settings caches the provider after first get/set call, this is needed to make sure
         // Settings is using mContentProvider as the cached provider across all tests.
