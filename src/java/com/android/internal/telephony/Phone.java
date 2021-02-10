@@ -3907,6 +3907,16 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
+     * Return if outgoing Ims voice allowed
+     */
+    public boolean isOutgoingImsVoiceAllowed() {
+        if (mImsPhone != null) {
+            return mImsPhone.isOutgoingImsVoiceAllowed();
+        }
+        return false;
+    }
+
+    /**
      * Return if UT capability of ImsPhone is enabled or not
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)

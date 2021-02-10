@@ -263,6 +263,8 @@ public class ImsPhone extends ImsPhoneBase {
 
     private boolean mIsInImsEcm = false;
 
+    private boolean mIsOutgoingImsVoiceAllowed = false;
+
     // List of Registrants to send supplementary service notifications to.
     private RegistrantList mSsnRegistrants = new RegistrantList();
 
@@ -2177,6 +2179,11 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    @Override
+    public boolean isOutgoingImsVoiceAllowed() {
+        return mIsOutgoingImsVoiceAllowed;
+    }
+
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public boolean isUtEnabled() {
@@ -2330,6 +2337,8 @@ public class ImsPhone extends ImsPhoneBase {
             mRegLocalLog.log("handleImsUnregistered: onImsMmTelDisconnected imsRadioTech="
                     + imsReasonInfo);
             setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
+            mIsOutgoingImsVoiceAllowed =
+                    imsReasonInfo.getExtraCode() == QtiImsUtils.CODE_IS_PS_ONLY_ATTACHED;
             processDisconnectReason(imsReasonInfo);
             getDefaultPhone().setImsRegistrationState(false);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.DISCONNECTED,
