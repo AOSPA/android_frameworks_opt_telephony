@@ -1013,8 +1013,11 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 externalCallTracker != null
                         ? externalCallTracker.getExternalCallStateListener() : null;
 
-        mImsManager.open(mMmTelFeatureListener, mPhone.getImsEcbmStateListener(),
-                externalCallStateListener);
+        EcbmHandler ecbmHandler = EcbmHandler.getInstance();
+
+        mImsManager.open(mMmTelFeatureListener,
+            ecbmHandler.getImsEcbmStateListener(mPhone.getPhoneId()),
+            externalCallStateListener);
         mImsManager.addRegistrationCallback(mPhone.getImsMmTelRegistrationCallback(), this::post);
         mImsManager.addCapabilitiesCallback(mImsCapabilityCallback, this::post);
 
@@ -1023,7 +1026,6 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         mImsManager.getConfigInterface().addConfigCallback(mConfigCallback);
 
         // Get the ECBM interface and set EcbmHandler's listener object for notifications
-        EcbmHandler ecbmHandler = EcbmHandler.getInstance();
         if (ecbmHandler.isInEcm()) {
             // Call exit ECBM which will invoke onECBMExited
             try {
