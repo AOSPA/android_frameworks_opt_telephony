@@ -1291,7 +1291,7 @@ public class GsmCdmaPhone extends Phone {
                 && mImsPhone != null
                 && isOutgoingImsVoiceAllowed()
                 && Settings.Global.getInt(mContext.getContentResolver(),
-                        "enable_allow_PS_only_dial", 0) == 1
+                        "enable_allow_PS_only_dial", 1) == 1
                 && (mImsPhone.getServiceState().getState() == ServiceState.STATE_OUT_OF_SERVICE)
                 && (mSST.mSS.getState() == ServiceState.STATE_OUT_OF_SERVICE);
     }
