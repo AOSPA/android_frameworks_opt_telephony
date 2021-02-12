@@ -2254,7 +2254,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      *
      * @return effective network type
      */
-    private @TelephonyManager.NetworkTypeBitMask long getEffectiveAllowedNetworkTypes() {
+    public @TelephonyManager.NetworkTypeBitMask long getEffectiveAllowedNetworkTypes() {
         long allowedNetworkTypes = TelephonyManager.getAllNetworkTypesBitmask();
         synchronized (mAllowedNetworkTypesForReasons) {
             for (long networkTypes : mAllowedNetworkTypesForReasons.values()) {
@@ -2457,7 +2457,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         updateAllowedNetworkTypes(response);
     }
 
-    protected void updateAllowedNetworkTypes(Message response) {
+    public void updateAllowedNetworkTypes(Message response) {
         int modemRaf = getRadioAccessFamily();
         if (modemRaf == RadioAccessFamily.RAF_UNKNOWN) {
             Rlog.d(LOG_TAG, "setPreferredNetworkType: Abort, unknown RAF: "
