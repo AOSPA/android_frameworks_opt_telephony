@@ -156,7 +156,7 @@ public class ServiceStateTracker extends Handler {
             TimeUnit.SECONDS.toMillis(10);
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    private CommandsInterface mCi;
+    protected CommandsInterface mCi;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private UiccController mUiccController = null;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -3345,36 +3345,40 @@ public class ServiceStateTracker extends Handler {
                 }
 
             default:
-                // Issue all poll-related commands at once then count down the responses, which
-                // are allowed to arrive out-of-order
-                mPollingContext[0]++;
-                mCi.getOperator(obtainMessage(EVENT_POLL_STATE_OPERATOR, mPollingContext));
+                issuePollCommands();
+                break;
+        }
+    }
 
-                mPollingContext[0]++;
-                mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
-                        .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
-                                obtainMessage(EVENT_POLL_STATE_PS_CELLULAR_REGISTRATION,
-                                        mPollingContext));
+    protected void issuePollCommands() {
+        log("issuePollCommands");
+        // Issue all poll-related commands at once then count down the responses, which
+        // are allowed to arrive out-of-order
+        mPollingContext[0]++;
+        mCi.getOperator(obtainMessage(EVENT_POLL_STATE_OPERATOR, mPollingContext));
 
-                mPollingContext[0]++;
-                mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
-                        .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_CS,
+        mPollingContext[0]++;
+        mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
+                        obtainMessage(EVENT_POLL_STATE_PS_CELLULAR_REGISTRATION, mPollingContext));
+
+        mPollingContext[0]++;
+        mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_CS,
                         obtainMessage(EVENT_POLL_STATE_CS_CELLULAR_REGISTRATION, mPollingContext));
 
-                if (mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN) != null) {
-                    mPollingContext[0]++;
-                    mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
-                            .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
-                                    obtainMessage(EVENT_POLL_STATE_PS_IWLAN_REGISTRATION,
-                                            mPollingContext));
-                }
+        if (mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN) != null) {
+            mPollingContext[0]++;
+            mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
+                    .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
+                            obtainMessage(EVENT_POLL_STATE_PS_IWLAN_REGISTRATION,
+                                    mPollingContext));
+        }
 
-                if (mPhone.isPhoneTypeGsm()) {
-                    mPollingContext[0]++;
-                    mCi.getNetworkSelectionMode(obtainMessage(
-                            EVENT_POLL_STATE_NETWORK_SELECTION_MODE, mPollingContext));
-                }
-                break;
+        if (mPhone.isPhoneTypeGsm()) {
+            mPollingContext[0]++;
+            mCi.getNetworkSelectionMode(obtainMessage(
+                    EVENT_POLL_STATE_NETWORK_SELECTION_MODE, mPollingContext));
         }
     }
 
