@@ -24,7 +24,9 @@ import android.os.Message;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.NetworkScanRequest;
 import android.telephony.SignalThresholdInfo;
+import android.telephony.TelephonyManager;
 import android.telephony.data.DataProfile;
+import android.telephony.data.SliceInfo;
 import android.telephony.emergency.EmergencyNumber;
 
 import com.android.internal.telephony.BaseCommands;
@@ -283,7 +285,7 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     @Override
     public void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
                               boolean allowRoaming, int reason, LinkProperties linkProperties,
-                              int pduSessionId, Message result) {
+                              int pduSessionId, SliceInfo sliceInfo, Message result) {
     }
 
     @Override
@@ -452,6 +454,15 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
 
     @Override
     public void getPreferredNetworkType(Message response) {
+    }
+
+    @Override
+    public void setAllowedNetworkTypeBitmask(
+            @TelephonyManager.NetworkTypeBitMask int networkTypeBitmask, Message response) {
+    }
+
+    @Override
+    public void getAllowedNetworkTypeBitmask(Message response) {
     }
 
     @Override

@@ -53,6 +53,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.AsyncResult;
 import android.os.Build;
@@ -66,6 +67,7 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.ResultReceiver;
 import android.os.UserHandle;
+import android.preference.PreferenceManager;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.CarrierConfigManager;
 import android.telephony.NetworkRegistrationInfo;
@@ -74,6 +76,7 @@ import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.UssdResponse;
+import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsCallForwardInfo;
 import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.ImsReasonInfo;
@@ -110,8 +113,8 @@ import com.android.internal.telephony.ServiceStateTracker;
 import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
-import com.android.internal.telephony.gsm.GsmMmiCode;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
+import com.android.internal.telephony.metrics.ImsStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.metrics.VoiceCallSessionStats;
 import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
@@ -149,6 +152,9 @@ public class ImsPhone extends ImsPhoneBase {
     private static final int EVENT_GET_CLIP_DONE                     = EVENT_LAST + 11;
 
 
+    // String to Call Composer Option Prefix set by user
+    private static final String PREF_USER_SET_CALL_COMPOSER_PREFIX = "userset_callcomposer_prefix";
+
     /**
      * Used to create ImsManager instances, which may be injected during testing.
      */
@@ -163,36 +169,33 @@ public class ImsPhone extends ImsPhoneBase {
     public static class ImsDialArgs extends DialArgs {
         public static class Builder extends DialArgs.Builder<ImsDialArgs.Builder> {
             private android.telecom.Connection.RttTextStream mRttTextStream;
-            private int mClirMode = CommandsInterface.CLIR_DEFAULT;
             private int mRetryCallFailCause = ImsReasonInfo.CODE_UNSPECIFIED;
             private int mRetryCallFailNetworkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
 
             public static ImsDialArgs.Builder from(DialArgs dialArgs) {
+                if (dialArgs instanceof ImsDialArgs) {
+                    return new ImsDialArgs.Builder()
+                            .setUusInfo(dialArgs.uusInfo)
+                            .setIsEmergency(dialArgs.isEmergency)
+                            .setVideoState(dialArgs.videoState)
+                            .setIntentExtras(dialArgs.intentExtras)
+                            .setRttTextStream(((ImsDialArgs)dialArgs).rttTextStream)
+                            .setClirMode(dialArgs.clirMode)
+                            .setRetryCallFailCause(((ImsDialArgs)dialArgs).retryCallFailCause)
+                            .setRetryCallFailNetworkType(
+                                    ((ImsDialArgs)dialArgs).retryCallFailNetworkType);
+                }
                 return new ImsDialArgs.Builder()
                         .setUusInfo(dialArgs.uusInfo)
+                        .setIsEmergency(dialArgs.isEmergency)
                         .setVideoState(dialArgs.videoState)
-                        .setIntentExtras(dialArgs.intentExtras);
-            }
-
-            public static ImsDialArgs.Builder from(ImsDialArgs dialArgs) {
-                return new ImsDialArgs.Builder()
-                        .setUusInfo(dialArgs.uusInfo)
-                        .setVideoState(dialArgs.videoState)
-                        .setIntentExtras(dialArgs.intentExtras)
-                        .setRttTextStream(dialArgs.rttTextStream)
                         .setClirMode(dialArgs.clirMode)
-                        .setRetryCallFailCause(dialArgs.retryCallFailCause)
-                        .setRetryCallFailNetworkType(dialArgs.retryCallFailNetworkType);
+                        .setIntentExtras(dialArgs.intentExtras);
             }
 
             public ImsDialArgs.Builder setRttTextStream(
                     android.telecom.Connection.RttTextStream s) {
                 mRttTextStream = s;
-                return this;
-            }
-
-            public ImsDialArgs.Builder setClirMode(int clirMode) {
-                this.mClirMode = clirMode;
                 return this;
             }
 
@@ -217,15 +220,12 @@ public class ImsPhone extends ImsPhoneBase {
          */
         public final android.telecom.Connection.RttTextStream rttTextStream;
 
-        /** The CLIR mode to use */
-        public final int clirMode;
         public final int retryCallFailCause;
         public final int retryCallFailNetworkType;
 
         private ImsDialArgs(ImsDialArgs.Builder b) {
             super(b);
             this.rttTextStream = b.mRttTextStream;
-            this.clirMode = b.mClirMode;
             this.retryCallFailCause = b.mRetryCallFailCause;
             this.retryCallFailNetworkType = b.mRetryCallFailNetworkType;
         }
@@ -242,6 +242,8 @@ public class ImsPhone extends ImsPhoneBase {
     private ServiceState mSS = new ServiceState();
 
     private final ImsManagerFactory mImsManagerFactory;
+
+    private SharedPreferences mImsPhoneSharedPreferences;
 
     // To redial silently through GSM or CDMA when dialing through IMS fails
     private String mLastDialString;
@@ -264,6 +266,8 @@ public class ImsPhone extends ImsPhoneBase {
     // List of Registrants to send supplementary service notifications to.
     private RegistrantList mSsnRegistrants = new RegistrantList();
 
+    private ImsStats mImsStats;
+
     private Uri[] mCurrentSubscriberUris;
 
     protected void setCurrentSubscriberUris(Uri[] currentSubscriberUris) {
@@ -273,6 +277,18 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public Uri[] getCurrentSubscriberUris() {
         return mCurrentSubscriberUris;
+    }
+
+    /** Set call composer status from users for the current subscription */
+    public void setCallComposerStatus(int status) {
+        mImsPhoneSharedPreferences.edit().putInt(
+                PREF_USER_SET_CALL_COMPOSER_PREFIX + getSubId(), status).commit();
+    }
+
+    /** Get call composer status from users for the current subscription */
+    public int getCallComposerStatus() {
+        return mImsPhoneSharedPreferences.getInt(PREF_USER_SET_CALL_COMPOSER_PREFIX + getSubId(),
+                TelephonyManager.CALL_COMPOSER_STATUS_OFF);
     }
 
     @Override
@@ -400,6 +416,8 @@ public class ImsPhone extends ImsPhoneBase {
 
         mDefaultPhone = defaultPhone;
         mImsManagerFactory = imsManagerFactory;
+        mImsPhoneSharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+        mImsStats = new ImsStats(this);
         // The ImsExternalCallTracker needs to be defined before the ImsPhoneCallTracker, as the
         // ImsPhoneCallTracker uses a thread to spool up the ImsManager.  Part of this involves
         // setting the multiendpoint listener on the external call tracker.  So we need to ensure
@@ -444,14 +462,6 @@ public class ImsPhone extends ImsPhoneBase {
         // Settings provider or CarrierConfig may not be loaded now.
 
         mDefaultPhone.registerForVolteSilentRedial(this, EVENT_INITIATE_VOLTE_SILENT_REDIAL, null);
-
-        // Register receiver for sending RTT text message and
-        // for receving RTT Operation
-        // .i.e.Upgrade Initiate, Upgrade accept, Upgrade reject
-        IntentFilter filter2 = new IntentFilter();
-        filter2.addAction(QtiImsUtils.ACTION_SEND_RTT_TEXT);
-        filter2.addAction(QtiImsUtils.ACTION_RTT_OPERATION);
-        mDefaultPhone.getContext().registerReceiver(mRttReceiver, filter2);
     }
 
     //todo: get rid of this function. It is not needed since parentPhone obj never changes
@@ -473,7 +483,6 @@ public class ImsPhone extends ImsPhoneBase {
                         .unregisterForDataRegStateOrRatChanged(transport, this);
             }
             mDefaultPhone.unregisterForServiceStateChanged(this);
-            mDefaultPhone.getContext().unregisterReceiver(mRttReceiver);
         }
 
         if (mDefaultPhone != null) {
@@ -881,11 +890,7 @@ public class ImsPhone extends ImsPhoneBase {
     public Connection startConference(String[] participantsToDial, DialArgs dialArgs)
             throws CallStateException {
          ImsDialArgs.Builder imsDialArgsBuilder;
-         if (!(dialArgs instanceof ImsDialArgs)) {
-             imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
-         } else {
-             imsDialArgsBuilder = ImsDialArgs.Builder.from((ImsDialArgs) dialArgs);
-         }
+         imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
          return mCT.startConference(participantsToDial, imsDialArgsBuilder.build());
     }
 
@@ -910,12 +915,8 @@ public class ImsPhone extends ImsPhoneBase {
         }
 
         ImsDialArgs.Builder imsDialArgsBuilder;
+        imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
         // Get the CLIR info if needed
-        if (!(dialArgs instanceof ImsDialArgs)) {
-            imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
-        } else {
-            imsDialArgsBuilder = ImsDialArgs.Builder.from((ImsDialArgs) dialArgs);
-        }
         imsDialArgsBuilder.setClirMode(mCT.getClirMode());
 
         if (mDefaultPhone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA) {
@@ -1555,8 +1556,19 @@ public class ImsPhone extends ImsPhoneBase {
 
     /* package */ void
     initiateSilentRedial() {
-        String result = mLastDialString;
-        AsyncResult ar = new AsyncResult(null, result, null);
+        initiateSilentRedial(false, EmergencyNumber.EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED);
+    }
+
+    /* package */ void
+    initiateSilentRedial(boolean isEmergency, int eccCategory) {
+        DialArgs dialArgs = new DialArgs.Builder()
+                                        .setIsEmergency(isEmergency)
+                                        .setEccCategory(eccCategory)
+                                        .build();
+        int cause = CallFailCause.LOCAL_CALL_CS_RETRY_REQUIRED;
+        AsyncResult ar = new AsyncResult(null,
+                                         new SilentRedialParam(mLastDialString, cause, dialArgs),
+                                         null);
         if (ar != null) {
             mSilentRedialRegistrants.notifyRegistrants(ar);
         }
@@ -2271,197 +2283,6 @@ public class ImsPhone extends ImsPhoneBase {
                 && psInfo.getAccessNetworkTechnology() == TelephonyManager.NETWORK_TYPE_IWLAN;
     }
 
-    private BroadcastReceiver mRttReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (mPhoneId != intent.getIntExtra(QtiImsUtils.EXTRA_PHONE_ID, 0)) {
-                Rlog.d(LOG_TAG, "RTT: intent - " + intent.getAction() +
-                        " received but not intended for phoneId: " + mPhoneId);
-                return;
-            }
-            if (QtiImsUtils.ACTION_SEND_RTT_TEXT.equals(intent.getAction())) {
-                Rlog.d(LOG_TAG, "RTT: Received ACTION_SEND_RTT_TEXT");
-                String data = intent.getStringExtra(QtiImsUtils.RTT_TEXT_VALUE);
-                sendRttMessage(data);
-            } else if (QtiImsUtils.ACTION_RTT_OPERATION.equals(intent.getAction())) {
-                Rlog.d(LOG_TAG, "RTT: Received ACTION_RTT_OPERATION");
-                int data = intent.getIntExtra(QtiImsUtils.RTT_OPERATION_TYPE, 0);
-                checkIfModifyRequestOrResponse(data);
-            } else {
-                Rlog.d(LOG_TAG, "RTT: unknown intent");
-            }
-        }
-    };
-
-    /**
-     * Sends Rtt message
-     * Rtt Message can be sent only when -
-     * operating mode is RTT_FULL and for non-VT calls only based on config
-     *
-     * @param data The Rtt text to be sent
-     */
-    public void sendRttMessage(String data) {
-        ImsCall imsCall = getForegroundCall().getImsCall();
-        if (imsCall == null) {
-            Rlog.d(LOG_TAG, "RTT: imsCall null");
-            return;
-        }
-
-        if (!imsCall.isRttCall()) {
-            Rlog.d(LOG_TAG, "RTT: imsCall not RTT capable");
-            return;
-        }
-
-        // Check for empty message
-        if (TextUtils.isEmpty(data)) {
-            Rlog.d(LOG_TAG, "RTT: Text null");
-            return;
-        }
-
-        if (!isRttVtCallAllowed(imsCall)) {
-            Rlog.d(LOG_TAG, "RTT: VT call is not allowed");
-            return;
-        }
-
-        Rlog.d(LOG_TAG, "RTT: sendRttMessage = " + data);
-        imsCall.sendRttMessage(data);
-    }
-
-    /**
-     * Sends RTT Upgrade request
-     *
-     * @param to: expected profile
-     */
-    public void sendRttModifyRequest(ImsCallProfile to) {
-        Rlog.d(LOG_TAG, "RTT: sendRttModifyRequest");
-        ImsCall imsCall = getForegroundCall().getImsCall();
-        if (imsCall == null) {
-            Rlog.d(LOG_TAG, "RTT: imsCall null");
-            return;
-        }
-
-        try {
-            imsCall.sendRttModifyRequest(to);
-        } catch (ImsException e) {
-            Rlog.e(LOG_TAG, "RTT: sendRttModifyRequest exception = " + e);
-        }
-    }
-
-    /**
-     * Sends RTT Upgrade response
-     *
-     * @param data : response for upgrade
-     */
-    public void sendRttModifyResponse(boolean response) {
-        ImsCall imsCall = getForegroundCall().getImsCall();
-        if (imsCall == null) {
-            Rlog.d(LOG_TAG, "RTT: imsCall null");
-            return;
-        }
-
-        if (!isRttVtCallAllowed(imsCall)) {
-            Rlog.d(LOG_TAG, "RTT: Not allowed for VT");
-            return;
-        }
-
-        Rlog.d(LOG_TAG, "RTT: sendRttModifyResponse = " + (response ? "ACCEPTED" : "REJECTED"));
-        imsCall.sendRttModifyResponse(response);
-    }
-
-    // Utility to check if the value coming in intent is for upgrade initiate or upgrade response
-    private void checkIfModifyRequestOrResponse(int data) {
-        if (!(isRttSupported() && (isRttOn() || isInEmergencyCall())) ||
-                   (ImsPhoneCall.State.ACTIVE != getForegroundCall().getState())) {
-            Rlog.d(LOG_TAG, "RTT: Request or Response not allowed");
-            return;
-        }
-
-        Rlog.d(LOG_TAG, "RTT: checkIfModifyRequestOrResponse data =  " + data);
-        switch (data) {
-            case QtiImsUtils.RTT_UPGRADE_INITIATE:
-                ImsCall currentCall = getForegroundCall().getImsCall();
-                boolean rttUpgradeSupported = QtiImsUtils.isRttUpgradeSupported(mPhoneId, mContext);
-                boolean rttVtSupported = QtiImsUtils.isRttSupportedOnVtCalls(mPhoneId, mContext);
-                boolean isVideoCall = (currentCall != null) ? currentCall.isVideoCall() : false;
-                if (!rttUpgradeSupported || (isVideoCall && !rttVtSupported)) {
-                    Rlog.d(LOG_TAG, "RTT: upgrade not supported");
-                    return;
-                }
-                // Rtt Upgrade means enable Rtt
-                packRttModifyRequestToProfile(ImsStreamMediaProfile.RTT_MODE_FULL);
-                break;
-            case QtiImsUtils.RTT_DOWNGRADE_INITIATE:
-                if (!QtiImsUtils.isRttDowngradeSupported(mPhoneId, mContext)) {
-                    Rlog.d(LOG_TAG, "RTT: downgrade not supported");
-                    return;
-                }
-                // Rtt downrade means disable Rtt
-                packRttModifyRequestToProfile(ImsStreamMediaProfile.RTT_MODE_DISABLED);
-                break;
-            case QtiImsUtils.RTT_UPGRADE_CONFIRM:
-                sendRttModifyResponse(true);
-                break;
-            case QtiImsUtils.RTT_UPGRADE_REJECT:
-                sendRttModifyResponse(false);
-                break;
-            case QtiImsUtils.SHOW_RTT_KEYBOARD:
-                ImsCall imsCall = getForegroundCall().getImsCall();
-                if (imsCall != null && isRttSupported() &&
-                    QtiImsUtils.shallShowRttVisibilitySetting(mPhoneId, mContext) &&
-                    !imsCall.isRttCall()) {
-                    packRttModifyRequestToProfile(ImsStreamMediaProfile.RTT_MODE_FULL);
-                }
-                break;
-             case QtiImsUtils.HIDE_RTT_KEYBOARD:
-                //no-op
-                break;
-        }
-    }
-
-    private void packRttModifyRequestToProfile(int data) {
-        if (getForegroundCall().getImsCall() == null) {
-            Rlog.d(LOG_TAG, "RTT: cannot send rtt modify request");
-            return;
-        }
-
-        ImsCallProfile fromProfile = getForegroundCall().getImsCall().getCallProfile();
-        ImsCallProfile toProfile = new ImsCallProfile(fromProfile.mServiceType,
-                fromProfile.mCallType);
-        toProfile.mMediaProfile.setRttMode(data);
-
-        Rlog.d(LOG_TAG, "RTT: packRttModifyRequestToProfile");
-        sendRttModifyRequest(toProfile);
-    }
-
-    public boolean isRttSupported() {
-        if (!QtiImsUtils.isRttSupported(mPhoneId, mContext)) {
-            Rlog.d(LOG_TAG, "RTT: RTT is not supported");
-            return false;
-        }
-        Rlog.d(LOG_TAG, "RTT: rtt supported = " +
-                QtiImsUtils.isRttSupported(mPhoneId, mContext) + ", Rtt mode = " +
-                QtiImsUtils.getRttOperatingMode(mContext, mPhoneId));
-        return true;
-    }
-
-    /*
-     * Rtt for VT calls is not supported for certain operators
-     * Check the config and process the request
-     */
-    public boolean isRttVtCallAllowed(ImsCall call) {
-        return !(call.getCallProfile().isVideoCall() &&
-                 !QtiImsUtils.isRttSupportedOnVtCalls(mPhoneId, mContext));
-    }
-
-    public boolean isRttOn() {
-        if (!QtiImsUtils.isRttOn(mContext, mPhoneId)) {
-            Rlog.d(LOG_TAG, "RTT: RTT is off");
-            return false;
-        }
-        Rlog.d(LOG_TAG, "RTT: Rtt on = " + QtiImsUtils.isRttOn(mContext, mPhoneId));
-        return true;
-    }
-
     public RegistrationManager.RegistrationCallback getImsMmTelRegistrationCallback() {
         return mImsMmTelRegistrationHelper.getCallback();
     }
@@ -2486,6 +2307,7 @@ public class ImsPhone extends ImsPhoneBase {
                     + AccessNetworkConstants.transportTypeToString(imsRadioTech));
             setServiceState(ServiceState.STATE_IN_SERVICE);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.CONNECTED, null);
+            mImsStats.onImsRegistered(imsRadioTech);
         }
 
         @Override
@@ -2499,6 +2321,7 @@ public class ImsPhone extends ImsPhoneBase {
             setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.PROGRESSING,
                     null);
+            mImsStats.onImsRegistering(imsRadioTech);
         }
 
         @Override
@@ -2509,6 +2332,7 @@ public class ImsPhone extends ImsPhoneBase {
             processDisconnectReason(imsReasonInfo);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.DISCONNECTED,
                     imsReasonInfo);
+            mImsStats.onImsUnregistered(imsReasonInfo);
         }
 
         @Override
@@ -2525,13 +2349,8 @@ public class ImsPhone extends ImsPhoneBase {
     public DialArgs updateDialArgsForVolteSilentRedial(DialArgs dialArgs, int causeCode) {
         if (dialArgs != null) {
             ImsPhone.ImsDialArgs.Builder imsDialArgsBuilder;
-            if (dialArgs instanceof ImsPhone.ImsDialArgs) {
-                imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder
-                                      .from((ImsPhone.ImsDialArgs) dialArgs);
-            } else {
-                imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder
-                                      .from(dialArgs);
-            }
+            imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder.from(dialArgs);
+
             Bundle extras = new Bundle(dialArgs.intentExtras);
             if (causeCode == CallFailCause.EMC_REDIAL_ON_VOWIFI && isWifiCallingEnabled()) {
                 extras.putString(ImsCallProfile.EXTRA_CALL_RAT_TYPE,
@@ -2549,6 +2368,17 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public VoiceCallSessionStats getVoiceCallSessionStats() {
         return mDefaultPhone.getVoiceCallSessionStats();
+    }
+
+    /** Returns the {@link ImsStats} for this IMS phone. */
+    public ImsStats getImsStats() {
+        return mImsStats;
+    }
+
+    /** Sets the {@link ImsStats} mock for this IMS phone during unit testing. */
+    @VisibleForTesting
+    public void setImsStats(ImsStats imsStats) {
+        mImsStats = imsStats;
     }
 
     public boolean hasAliveCall() {

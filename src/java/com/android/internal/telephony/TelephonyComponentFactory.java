@@ -465,9 +465,9 @@ public class TelephonyComponentFactory {
     }
 
     public SubscriptionInfoUpdater makeSubscriptionInfoUpdater(Looper looper, Context context,
-            CommandsInterface[] ci) {
+            SubscriptionController sc) {
         Rlog.i(TAG, "makeSubscriptionInfoUpdater");
-        return new SubscriptionInfoUpdater(looper, context, ci);
+        return new SubscriptionInfoUpdater(looper, context, sc);
     }
 
     public RIL makeRIL(Context context, int preferredNetworkType,
