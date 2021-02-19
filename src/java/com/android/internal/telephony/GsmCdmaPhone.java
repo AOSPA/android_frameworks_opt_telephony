@@ -15,7 +15,6 @@
  */
 
 package com.android.internal.telephony;
-
 import static com.android.internal.telephony.CommandException.Error.GENERIC_FAILURE;
 import static com.android.internal.telephony.CommandException.Error.SIM_BUSY;
 import static com.android.internal.telephony.CommandsInterface.CF_ACTION_DISABLE;
@@ -70,6 +69,7 @@ import android.telephony.CellIdentity;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.NetworkScanRequest;
 import android.telephony.PhoneNumberUtils;
+import android.telephony.RadioAccessFamily;
 import android.telephony.ServiceState;
 import android.telephony.ServiceState.RilRadioTechnology;
 import android.telephony.SignalThresholdInfo;
@@ -89,6 +89,7 @@ import com.android.internal.telephony.cdma.CdmaMmiCode;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
+import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.gsm.GsmMmiCode;
@@ -312,6 +313,10 @@ public class GsmCdmaPhone extends Phone {
 
         SubscriptionController.getInstance().registerForUiccAppsEnabled(this,
                 EVENT_UICC_APPS_ENABLEMENT_SETTING_CHANGED, null, false);
+
+        mLinkBandwidthEstimator = mTelephonyComponentFactory
+                .inject(LinkBandwidthEstimator.class.getName())
+                .makeLinkBandwidthEstimator(this);
 
         loadTtyMode();
 
@@ -1881,11 +1886,11 @@ public class GsmCdmaPhone extends Phone {
     }
 
     @Override
-    public ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int keyType) {
+    public ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int keyType, boolean fallback) {
         String operatorNumeric = TelephonyManager.from(mContext)
                 .getSimOperatorNumericForPhone(mPhoneId);
         return CarrierInfoManager.getCarrierInfoForImsiEncryption(keyType,
-                mContext, operatorNumeric);
+                mContext, operatorNumeric, fallback, getSubId());
     }
 
     @Override
@@ -2755,6 +2760,7 @@ public class GsmCdmaPhone extends Phone {
         // If this is on APM off, SIM may already be loaded. Send setPreferredNetworkType
         // request to RIL to preserve user setting across APM toggling
         setPreferredNetworkTypeIfSimLoaded();
+        notifyAllowedNetworkTypesChanged();
     }
 
     private void handleRadioOffOrNotAvailable() {
@@ -2800,6 +2806,11 @@ public class GsmCdmaPhone extends Phone {
                 mImeiSv = respId[1];
                 mEsn  =  respId[2];
                 mMeid =  respId[3];
+                // some modems return all 0's instead of null/empty string when MEID is unavailable
+                if (!TextUtils.isEmpty(mMeid) && mMeid.matches("^0*$")) {
+                    logd("EVENT_GET_DEVICE_IDENTITY_DONE: set mMeid to null");
+                    mMeid = null;
+                }
             }
             break;
 
@@ -2873,60 +2884,20 @@ public class GsmCdmaPhone extends Phone {
                     mCi.getVoiceRadioTechnology(obtainMessage(EVENT_REQUEST_VOICE_RADIO_TECH_DONE));
                 }
 
-                // Update broadcastEmergencyCallStateChanges
-                // also cache the config value for displaying 14 digit IMEI
+                // Cache the config value for displaying 14 digit IMEI
                 CarrierConfigManager configMgr = (CarrierConfigManager)
                         getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
                 PersistableBundle b = configMgr.getConfigForSubId(getSubId());
                 if (b != null) {
                     mEnable14DigitImei = b.getBoolean("config_enable_display_14digit_imei");
-                    boolean broadcastEmergencyCallStateChanges = b.getBoolean(
-                            CarrierConfigManager.KEY_BROADCAST_EMERGENCY_CALL_STATE_CHANGES_BOOL);
-                    logd("broadcastEmergencyCallStateChanges = " +
-                            broadcastEmergencyCallStateChanges);
-                    setBroadcastEmergencyCallStateChanges(broadcastEmergencyCallStateChanges);
-                } else {
-                    loge("didn't get broadcastEmergencyCallStateChanges from carrier config");
                 }
 
-                // Changing the cdma roaming settings based carrier config.
-                if (b != null) {
-                    int config_cdma_roaming_mode = b.getInt(
-                            CarrierConfigManager.KEY_CDMA_ROAMING_MODE_INT);
-                    int current_cdma_roaming_mode =
-                            Settings.Global.getInt(getContext().getContentResolver(),
-                            Settings.Global.CDMA_ROAMING_MODE,
-                            TelephonyManager.CDMA_ROAMING_MODE_RADIO_DEFAULT);
-                    switch (config_cdma_roaming_mode) {
-                        // Carrier's cdma_roaming_mode will overwrite the user's previous settings
-                        // Keep the user's previous setting in global variable which will be used
-                        // when carrier's setting is turn off.
-                        case TelephonyManager.CDMA_ROAMING_MODE_HOME:
-                        case TelephonyManager.CDMA_ROAMING_MODE_AFFILIATED:
-                        case TelephonyManager.CDMA_ROAMING_MODE_ANY:
-                            logd("cdma_roaming_mode is going to changed to "
-                                    + config_cdma_roaming_mode);
-                            setCdmaRoamingPreference(config_cdma_roaming_mode,
-                                    obtainMessage(EVENT_SET_ROAMING_PREFERENCE_DONE));
-                            break;
+                updateBroadcastEmergencyCallStateChangesAfterCarrierConfigChanged(b);
 
-                        // When carrier's setting is turn off, change the cdma_roaming_mode to the
-                        // previous user's setting
-                        case TelephonyManager.CDMA_ROAMING_MODE_RADIO_DEFAULT:
-                            if (current_cdma_roaming_mode != config_cdma_roaming_mode) {
-                                logd("cdma_roaming_mode is going to changed to "
-                                        + current_cdma_roaming_mode);
-                                setCdmaRoamingPreference(current_cdma_roaming_mode,
-                                        obtainMessage(EVENT_SET_ROAMING_PREFERENCE_DONE));
-                            }
+                updateCdmaRoamingSettingsAfterCarrierConfigChanged(b);
 
-                        default:
-                            loge("Invalid cdma_roaming_mode settings: "
-                                    + config_cdma_roaming_mode);
-                    }
-                } else {
-                    loge("didn't get the cdma_roaming_mode changes from the carrier config.");
-                }
+                updateNrSettingsAfterCarrierConfigChanged();
+
                 break;
 
             case EVENT_SET_ROAMING_PREFERENCE_DONE:
@@ -3493,7 +3464,8 @@ public class GsmCdmaPhone extends Phone {
      */
     public boolean shouldForceAutoNetworkSelect() {
 
-        int nwMode = Phone.PREFERRED_NT_MODE;
+        int networkTypeBitmask = RadioAccessFamily.getRafFromNetworkType(
+                RILConstants.PREFERRED_NETWORK_MODE);
         int subId = getSubId();
 
         // If it's invalid subId, we shouldn't force to auto network select mode.
@@ -3501,21 +3473,23 @@ public class GsmCdmaPhone extends Phone {
             return false;
         }
 
-        nwMode = android.provider.Settings.Global.getInt(mContext.getContentResolver(),
-                    android.provider.Settings.Global.PREFERRED_NETWORK_MODE + subId, nwMode);
+        networkTypeBitmask = (int) getAllowedNetworkTypes(
+                TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER);
 
-        logd("shouldForceAutoNetworkSelect in mode = " + nwMode);
+        logd("shouldForceAutoNetworkSelect in mode = " + networkTypeBitmask);
         /*
          *  For multimode targets in global mode manual network
          *  selection is disallowed. So we should force auto select mode.
          */
         if (isManualSelProhibitedInGlobalMode()
-                && ((nwMode == TelephonyManager.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA)
-                        || (nwMode == TelephonyManager.NETWORK_MODE_GLOBAL)) ){
-            logd("Should force auto network select mode = " + nwMode);
+                && ((networkTypeBitmask == RadioAccessFamily.getRafFromNetworkType(
+                TelephonyManager.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA))
+                || (networkTypeBitmask == RadioAccessFamily.getRafFromNetworkType(
+                TelephonyManager.NETWORK_MODE_GLOBAL)))) {
+            logd("Should force auto network select mode = " + networkTypeBitmask);
             return true;
         } else {
-            logd("Should not force auto network select mode = " + nwMode);
+            logd("Should not force auto network select mode = " + networkTypeBitmask);
         }
 
         /*
@@ -4508,5 +4482,64 @@ public class GsmCdmaPhone extends Phone {
         }
 
         return packages;
+    }
+
+    private void updateBroadcastEmergencyCallStateChangesAfterCarrierConfigChanged(
+            PersistableBundle config) {
+        if (config == null) {
+            loge("didn't get broadcastEmergencyCallStateChanges from carrier config");
+            return;
+        }
+
+        // get broadcastEmergencyCallStateChanges
+        boolean broadcastEmergencyCallStateChanges = config.getBoolean(
+                CarrierConfigManager.KEY_BROADCAST_EMERGENCY_CALL_STATE_CHANGES_BOOL);
+        logd("broadcastEmergencyCallStateChanges = " + broadcastEmergencyCallStateChanges);
+        setBroadcastEmergencyCallStateChanges(broadcastEmergencyCallStateChanges);
+    }
+
+    private void updateNrSettingsAfterCarrierConfigChanged() {
+        updateAllowedNetworkTypes(null);
+    }
+
+    private void updateCdmaRoamingSettingsAfterCarrierConfigChanged(PersistableBundle config) {
+        if (config == null) {
+            loge("didn't get the cdma_roaming_mode changes from the carrier config.");
+            return;
+        }
+
+        // Changing the cdma roaming settings based carrier config.
+        int config_cdma_roaming_mode = config.getInt(
+                CarrierConfigManager.KEY_CDMA_ROAMING_MODE_INT);
+        int current_cdma_roaming_mode =
+                Settings.Global.getInt(getContext().getContentResolver(),
+                        Settings.Global.CDMA_ROAMING_MODE,
+                        TelephonyManager.CDMA_ROAMING_MODE_RADIO_DEFAULT);
+        switch (config_cdma_roaming_mode) {
+            // Carrier's cdma_roaming_mode will overwrite the user's previous settings
+            // Keep the user's previous setting in global variable which will be used
+            // when carrier's setting is turn off.
+            case TelephonyManager.CDMA_ROAMING_MODE_HOME:
+            case TelephonyManager.CDMA_ROAMING_MODE_AFFILIATED:
+            case TelephonyManager.CDMA_ROAMING_MODE_ANY:
+                logd("cdma_roaming_mode is going to changed to "
+                        + config_cdma_roaming_mode);
+                setCdmaRoamingPreference(config_cdma_roaming_mode,
+                        obtainMessage(EVENT_SET_ROAMING_PREFERENCE_DONE));
+                break;
+
+            // When carrier's setting is turn off, change the cdma_roaming_mode to the
+            // previous user's setting
+            case TelephonyManager.CDMA_ROAMING_MODE_RADIO_DEFAULT:
+                if (current_cdma_roaming_mode != config_cdma_roaming_mode) {
+                    logd("cdma_roaming_mode is going to changed to "
+                            + current_cdma_roaming_mode);
+                    setCdmaRoamingPreference(current_cdma_roaming_mode,
+                            obtainMessage(EVENT_SET_ROAMING_PREFERENCE_DONE));
+                }
+                break;
+            default:
+                loge("Invalid cdma_roaming_mode settings: " + config_cdma_roaming_mode);
+        }
     }
 }

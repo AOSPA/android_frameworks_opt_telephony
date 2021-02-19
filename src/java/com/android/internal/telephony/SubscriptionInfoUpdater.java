@@ -36,9 +36,6 @@ import android.os.ParcelUuid;
 import android.os.PersistableBundle;
 import android.os.UserHandle;
 import android.preference.PreferenceManager;
-import android.provider.Settings;
-import android.provider.Settings.Global;
-import android.provider.Settings.SettingNotFoundException;
 import android.service.carrier.CarrierIdentifier;
 import android.service.carrier.CarrierService;
 import android.service.euicc.EuiccProfileInfo;
@@ -410,6 +407,26 @@ public class SubscriptionInfoUpdater extends Handler {
 
     protected void handleSimReady(int phoneId) {
         List<Integer> cardIds = new ArrayList<>();
+        logd("handleSimReady: phoneId: " + phoneId);
+
+        if (sIccId[phoneId] != null && sIccId[phoneId].equals(ICCID_STRING_FOR_NO_SIM)) {
+            logd(" SIM" + (phoneId + 1) + " hot plug in");
+            sIccId[phoneId] = null;
+        }
+
+        // ICCID is not available in IccRecords by the time SIM Ready event received
+        // hence get ICCID from UiccSlot.
+        UiccSlot uiccSlot = UiccController.getInstance().getUiccSlotForPhone(phoneId);
+        String iccId = (uiccSlot != null) ? IccUtils.stripTrailingFs(uiccSlot.getIccId()) : null;
+        if (!TextUtils.isEmpty(iccId)) {
+            // Call updateSubscriptionInfoByIccId() only if was
+            // not done earlier from SIM Locked event
+            if (sIccId[phoneId] == null) {
+                sIccId[phoneId] = iccId;
+
+                updateSubscriptionInfoByIccId(phoneId, true /* updateEmbeddedSubs */);
+            }
+        }
 
         cardIds.add(getCardIdFromPhoneId(phoneId));
         updateEmbeddedSubscriptions(cardIds, (hasChanges) -> {
@@ -421,7 +438,6 @@ public class SubscriptionInfoUpdater extends Handler {
         broadcastSimCardStateChanged(phoneId, TelephonyManager.SIM_STATE_PRESENT);
         broadcastSimApplicationStateChanged(phoneId, TelephonyManager.SIM_STATE_NOT_READY);
     }
-
 
     protected void handleSimNotReady(int phoneId) {
         logd("handleSimNotReady: phoneId: " + phoneId);
@@ -485,9 +501,14 @@ public class SubscriptionInfoUpdater extends Handler {
             logd("handleSimLoaded: IccID null");
             return;
         }
-        sIccId[phoneId] = IccUtils.stripTrailingFs(records.getFullIccId());
 
-        updateSubscriptionInfoByIccId(phoneId, true /* updateEmbeddedSubs */);
+        // Call updateSubscriptionInfoByIccId() only if was not done earlier from SIM READY event
+        if (sIccId[phoneId] == null) {
+            sIccId[phoneId] = IccUtils.stripTrailingFs(records.getFullIccId());
+
+            updateSubscriptionInfoByIccId(phoneId, true /* updateEmbeddedSubs */);
+        }
+
         List<SubscriptionInfo> subscriptionInfos =
                 mSubscriptionController.getSubInfoUsingSlotIndexPrivileged(phoneId);
         if (subscriptionInfos == null || subscriptionInfos.isEmpty()) {
@@ -540,36 +561,17 @@ public class SubscriptionInfoUpdater extends Handler {
                 int storedSubId = sp.getInt(CURR_SUBID + phoneId, -1);
 
                 if (storedSubId != subId) {
-                    int networkType = Settings.Global.getInt(
-                            PhoneFactory.getPhone(phoneId).getContext().getContentResolver(),
-                            Settings.Global.PREFERRED_NETWORK_MODE + subId,
-                            -1 /* invalid network mode */);
-
-                    if (networkType == -1) {
-                        networkType = RILConstants.PREFERRED_NETWORK_MODE;
-                        try {
-                            networkType = TelephonyManager.getIntAtIndex(
-                                    sContext.getContentResolver(),
-                                    Settings.Global.PREFERRED_NETWORK_MODE, phoneId);
-                        } catch (SettingNotFoundException retrySnfe) {
-                            Rlog.e(LOG_TAG, "Settings Exception Reading Value At Index for "
-                                    + "Settings.Global.PREFERRED_NETWORK_MODE");
-                        }
-
-                        Settings.Global.putInt(
-                                PhoneFactory.getPhone(phoneId).getContext().getContentResolver(),
-                                Global.PREFERRED_NETWORK_MODE + subId,
-                                networkType);
-                    }
+                    long networkType = PhoneFactory.getPhone(phoneId).getAllowedNetworkTypes(
+                            TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER);
 
                     // Set the modem network mode
-                    PhoneFactory.getPhone(phoneId).setPreferredNetworkType(networkType, null);
+                    PhoneFactory.getPhone(phoneId).setAllowedNetworkTypes(
+                            TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER, networkType, null);
 
                     // Only support automatic selection mode on SIM change.
                     PhoneFactory.getPhone(phoneId).getNetworkSelectionMode(
                             obtainMessage(EVENT_GET_NETWORK_SELECTION_MODE_DONE,
                                     new Integer(phoneId)));
-
                     // Update stored subId
                     SharedPreferences.Editor editor = sp.edit();
                     editor.putInt(CURR_SUBID + phoneId, subId);
