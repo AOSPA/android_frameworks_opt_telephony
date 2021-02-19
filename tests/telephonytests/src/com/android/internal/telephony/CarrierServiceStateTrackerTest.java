@@ -32,9 +32,10 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Message;
 import android.os.PersistableBundle;
-import android.provider.Settings;
 import android.telephony.CarrierConfigManager;
+import android.telephony.RadioAccessFamily;
 import android.telephony.ServiceState;
+import android.telephony.TelephonyManager;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.testing.AndroidTestingRunner;
 import android.testing.TestableLooper;
@@ -45,6 +46,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.MockitoAnnotations;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -71,12 +73,15 @@ public class CarrierServiceStateTrackerTest extends TelephonyTest {
         super.setUp(getClass().getSimpleName());
         mBundle = mContextFixture.getCarrierConfigBundle();
         when(mPhone.getSubId()).thenReturn(SUB_ID);
+
         mCarrierSST = new CarrierServiceStateTracker(mPhone, mSST);
         mSpyCarrierSST = spy(mCarrierSST);
         mSharedPreferences = mContext.getSharedPreferences((String) null, 0);
 
         mNotificationManager = (NotificationManager) mContext.getSystemService(
                 Context.NOTIFICATION_SERVICE);
+
+        setCarrierPrivilegesForSubId(true, SUB_ID);
 
         setDefaultValues();
         processAllMessages();
@@ -153,21 +158,30 @@ public class CarrierServiceStateTrackerTest extends TelephonyTest {
         doReturn(true).when(mSST).isRadioOn();
         doReturn(mNotificationBuilder).when(spyPrefNetworkNotification).getNotificationBuilder();
 
-        String prefNetworkMode = Settings.Global.PREFERRED_NETWORK_MODE + mPhone.getSubId();
-        Settings.Global.putInt(mContext.getContentResolver(), prefNetworkMode,
-                RILConstants.NETWORK_MODE_LTE_CDMA_EVDO);
-        mSpyCarrierSST.getContentObserver().dispatchChange(false,
-                Settings.Global.getUriFor(prefNetworkMode));
+        Map<Integer, Long> allowedNetworkTypesList = new HashMap<>();
+        long networkType = (long) RadioAccessFamily.getRafFromNetworkType(
+                TelephonyManager.NETWORK_MODE_LTE_CDMA_EVDO);
+        allowedNetworkTypesList.put(TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER,
+                networkType);
+        doReturn(networkType).when(mPhone).getAllowedNetworkTypes(
+                TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER);
+        mSpyCarrierSST.getAllowedNetworkTypesChangedListener().onAllowedNetworkTypesChanged(
+                allowedNetworkTypesList);
+
         processAllMessages();
         verify(mNotificationManager, atLeast(1)).notify(
                 eq(CarrierServiceStateTracker.PREF_NETWORK_NOTIFICATION_TAG),
                 eq(SUB_ID), isA(Notification.class));
 
+        networkType = (long) RadioAccessFamily.getRafFromNetworkType(
+                TelephonyManager.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA);
+        allowedNetworkTypesList.put(TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER,
+                networkType);
+        doReturn(networkType).when(mPhone).getAllowedNetworkTypes(
+                TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER);
+        mSpyCarrierSST.getAllowedNetworkTypesChangedListener().onAllowedNetworkTypesChanged(
+                allowedNetworkTypesList);
 
-        Settings.Global.putInt(mContext.getContentResolver(), prefNetworkMode,
-                RILConstants.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA);
-        mSpyCarrierSST.getContentObserver().dispatchChange(false,
-                Settings.Global.getUriFor(prefNetworkMode));
         processAllMessages();
         verify(mNotificationManager, atLeast(1)).cancel(
                 CarrierServiceStateTracker.PREF_NETWORK_NOTIFICATION_TAG, SUB_ID);

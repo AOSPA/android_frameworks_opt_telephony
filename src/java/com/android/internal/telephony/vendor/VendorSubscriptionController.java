@@ -70,12 +70,6 @@ public class VendorSubscriptionController extends SubscriptionController {
     private RegistrantList mAddSubscriptionRecordRegistrants = new RegistrantList();
 
     private static final String SETTING_USER_PREF_DATA_SUB = "user_preferred_data_sub";
-    /**
-     * This intent would be broadcasted when a subId/slotId pair added to the
-     * sSlotIdxToSubId hashmap.
-     */
-    private static final String ACTION_SUBSCRIPTION_RECORD_ADDED =
-            "android.intent.action.SUBSCRIPTION_INFO_RECORD_ADDED";
 
     public static VendorSubscriptionController init(Context c) {
         synchronized (VendorSubscriptionController.class) {
@@ -98,13 +92,11 @@ public class VendorSubscriptionController extends SubscriptionController {
 
     protected VendorSubscriptionController(Context c) {
         super(c);
-        if (DBG) logd(" init by Context");
 
         mTelecomManager = (TelecomManager) mContext.getSystemService(Context.TELECOM_SERVICE);
         mTelephonyManager = (TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE);
         sNumPhones = TelephonyManager.getDefault().getPhoneCount();
     }
-
     public void registerForAddSubscriptionRecord(Handler handler, int what, Object obj) {
         Registrant r = new Registrant(handler, what, obj);
         synchronized (mAddSubscriptionRecordRegistrants) {
@@ -124,60 +116,26 @@ public class VendorSubscriptionController extends SubscriptionController {
     }
 
     @Override
-    public int addSubInfoRecord(String iccId, int slotIndex) {
-        logd("addSubInfoRecord: broadcast intent subId[" + slotIndex + "]");
-        return addSubInfo(iccId, null, slotIndex, SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM);
-    }
-
-    @Override
-    public int addSubInfo(String uniqueId, String displayName, int slotIndex,
-            int subscriptionType) {
-
-        int retVal = super.addSubInfo(uniqueId, displayName, slotIndex, subscriptionType);
-
-        int[] subId = getSubId(slotIndex);
-        if (subId != null && (subId.length > 0)) {
-            // When a new entry added in sSlotIdxToSubId for slotId, broadcast intent
-            logd("addSubInfoRecord: broadcast intent subId[" + slotIndex + "] = " + subId[0]);
-            mAddSubscriptionRecordRegistrants.notifyRegistrants(
-                    new AsyncResult(null, slotIndex, null));
-            Intent intent = new Intent(ACTION_SUBSCRIPTION_RECORD_ADDED);
-            SubscriptionManager.putPhoneIdAndSubIdExtra(intent, slotIndex, subId[0]);
-            mContext.sendBroadcast(intent, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
-        }
-        return retVal;
-    }
-
-    @Override
     public int setUiccApplicationsEnabled(boolean enabled, int subId) {
-        if (DBG) logd("[setUiccApplicationsEnabled]+ enabled:" + enabled + " subId:" + subId);
 
-        enforceModifyPhoneState("setUiccApplicationsEnabled");
+        ContentValues value = new ContentValues(1);
+        value.put(SubscriptionManager.UICC_APPLICATIONS_ENABLED, enabled);
 
-        long identity = Binder.clearCallingIdentity();
-        try {
-            ContentValues value = new ContentValues(1);
-            value.put(SubscriptionManager.UICC_APPLICATIONS_ENABLED, enabled);
+        int result = mContext.getContentResolver().update(
+                SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
 
-            int result = mContext.getContentResolver().update(
-                    SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
+        // Refresh the Cache of Active Subscription Info List
+        refreshCachedActiveSubscriptionInfoList();
 
-            // Refresh the Cache of Active Subscription Info List
-            refreshCachedActiveSubscriptionInfoList();
+        notifySubscriptionInfoChanged();
 
-            notifyUiccAppsEnableChanged();
-            notifySubscriptionInfoChanged();
-
-            if (isActiveSubId(subId)) {
-                Phone phone = PhoneFactory.getPhone(getPhoneId(subId));
-                phone.enableUiccApplications(enabled, Message.obtain(
-                        mSubscriptionHandler, EVENT_UICC_APPS_ENABLEMENT_DONE, enabled));
-            }
-
-            return result;
-        } finally {
-            Binder.restoreCallingIdentity(identity);
+        if (isActiveSubId(subId)) {
+            Phone phone = PhoneFactory.getPhone(getPhoneId(subId));
+            phone.enableUiccApplications(enabled, Message.obtain(
+                    mSubscriptionHandler, EVENT_UICC_APPS_ENABLEMENT_DONE, enabled));
         }
+
+        return result;
     }
 
     /*

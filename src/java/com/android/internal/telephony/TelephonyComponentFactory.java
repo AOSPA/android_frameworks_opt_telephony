@@ -35,6 +35,7 @@ import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.cdma.EriManager;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
+import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.imsphone.ImsExternalCallTracker;
@@ -73,6 +74,7 @@ public class TelephonyComponentFactory {
     private static final String TAG = TelephonyComponentFactory.class.getSimpleName();
 
     private static TelephonyComponentFactory sInstance;
+    private final TelephonyFacade mTelephonyFacade = new TelephonyFacade();
 
     private InjectedComponents mInjectedComponents;
 
@@ -470,6 +472,13 @@ public class TelephonyComponentFactory {
         return new SubscriptionInfoUpdater(looper, context, sc);
     }
 
+    /**
+     * Create a new LinkBandwidthEstimator.
+     */
+    public LinkBandwidthEstimator makeLinkBandwidthEstimator(Phone phone) {
+        return new LinkBandwidthEstimator(phone, mTelephonyFacade);
+    }
+
     public RIL makeRIL(Context context, int preferredNetworkType,
             int cdmaSubscription, Integer instanceId) {
         Rlog.d(LOG_TAG, "makeRIL");
@@ -485,4 +494,5 @@ public class TelephonyComponentFactory {
         Rlog.i(TAG, " makeCarrierInfoManager ");
         return new CarrierInfoManager();
     }
+
 }
