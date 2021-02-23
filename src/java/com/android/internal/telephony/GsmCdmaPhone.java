@@ -397,6 +397,8 @@ public class GsmCdmaPhone extends Phone {
         mCi.registerForRilConnected(this, EVENT_RIL_CONNECTED, null);
         mCi.registerForVoiceRadioTechChanged(this, EVENT_VOICE_RADIO_TECH_CHANGED, null);
         mCi.registerForLceInfo(this, EVENT_LINK_CAPACITY_CHANGED, null);
+        mCi.registerForCarrierInfoForImsiEncryption(this,
+                EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION, null);
         IntentFilter filter = new IntentFilter(
                 CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         filter.addAction(TelecomManager.ACTION_CURRENT_TTY_MODE_CHANGED);
@@ -1896,6 +1898,7 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo) {
         CarrierInfoManager.setCarrierInfoForImsiEncryption(imsiEncryptionInfo, mContext, mPhoneId);
+        mCi.setCarrierInfoForImsiEncryption(imsiEncryptionInfo, null);
     }
 
     @Override
@@ -3203,6 +3206,10 @@ public class GsmCdmaPhone extends Phone {
                 }
                 break;
             }
+            case EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION: {
+                resetCarrierKeysForImsiEncryption();
+                break;
+            }
             default:
                 super.handleMessage(msg);
         }
@@ -3950,7 +3957,7 @@ public class GsmCdmaPhone extends Phone {
                         .setSignalMeasurementType(signalStrengthMeasure)
                         .setHysteresisMs(REPORTING_HYSTERESIS_MILLIS)
                         .setHysteresisDb(REPORTING_HYSTERESIS_DB)
-                        .setThresholdsUnlimited(consolidatedThresholds)
+                        .setThresholds(consolidatedThresholds, true /*isSystem*/)
                         .setIsEnabled(isEnabled)
                         .build(),
                 ran, null);
