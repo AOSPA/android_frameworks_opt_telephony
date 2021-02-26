@@ -3907,6 +3907,16 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
+     * Return if outgoing Ims voice allowed
+     */
+    public boolean isOutgoingImsVoiceAllowed() {
+        if (mImsPhone != null) {
+            return mImsPhone.isOutgoingImsVoiceAllowed();
+        }
+        return false;
+    }
+
+    /**
      * Return if UT capability of ImsPhone is enabled or not
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -4664,6 +4674,36 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     public boolean useSsOverIms(Message onComplete) {
         return false;
+    }
+
+    /**
+     * Check if device is idle. Device is idle when it is not in high power consumption mode.
+     *
+     * @see DeviceStateMonitor#shouldEnableHighPowerConsumptionIndications()
+     *
+     * @return true if device is idle
+     */
+    public boolean isDeviceIdle() {
+        DeviceStateMonitor dsm = getDeviceStateMonitor();
+        if (dsm == null) {
+            Rlog.e(LOG_TAG, "isDeviceIdle: DeviceStateMonitor is null");
+            return false;
+        }
+        return !dsm.shouldEnableHighPowerConsumptionIndications();
+    }
+
+    /**
+     * Get notified when device idleness state has changed
+     *
+     * @param isIdle true if the new state is idle
+     */
+    public void notifyDeviceIdleStateChanged(boolean isIdle) {
+        ServiceStateTracker sst = getServiceStateTracker();
+        if (sst == null) {
+            Rlog.e(LOG_TAG, "notifyDeviceIdleStateChanged: SST is null");
+            return;
+        }
+        sst.onDeviceIdleStateChanged(isIdle);
     }
 
     /**

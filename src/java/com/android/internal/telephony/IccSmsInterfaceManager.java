@@ -539,7 +539,7 @@ public class IccSmsInterfaceManager {
                     + " text='" + text + "' sentIntent=" + sentIntent + " deliveryIntent="
                     + deliveryIntent + " priority=" + priority + " expectMore=" + expectMore
                     + " validityPeriod=" + validityPeriod + " isForVVM=" + isForVvm
-                    + " id= " +  messageId);
+                    + " " + SmsController.formatCrossStackMessageId(messageId));
         }
         notifyIfOutgoingEmergencySms(destAddr);
         destAddr = filterDestAddress(destAddr);
@@ -745,7 +745,7 @@ public class IccSmsInterfaceManager {
             for (String part : parts) {
                 log("sendMultipartTextWithOptions: destAddr=" + destAddr + ", srAddr=" + scAddr
                         + ", part[" + (i++) + "]=" + part
-                        + " id: " + messageId);
+                        + " " + SmsController.formatCrossStackMessageId(messageId));
             }
         }
         notifyIfOutgoingEmergencySms(destAddr);

@@ -263,6 +263,8 @@ public class ImsPhone extends ImsPhoneBase {
 
     private boolean mIsInImsEcm = false;
 
+    private boolean mIsOutgoingImsVoiceAllowed = false;
+
     // List of Registrants to send supplementary service notifications to.
     private RegistrantList mSsnRegistrants = new RegistrantList();
 
@@ -1793,7 +1795,7 @@ public class ImsPhone extends ImsPhoneBase {
         AsyncResult ar = (AsyncResult) msg.obj;
         Message onComplete;
         SS ss = null;
-        if (ar.userObj instanceof SS) {
+        if (ar != null && ar.userObj instanceof SS) {
             ss = (SS) ar.userObj;
         }
 
@@ -2008,11 +2010,6 @@ public class ImsPhone extends ImsPhoneBase {
                         RegistrationManager.REGISTRATION_STATE_NOT_REGISTERED);
     }
 
-    public void setImsRegistrationState(@RegistrationManager.ImsRegistrationState int value) {
-        if (DBG) logd("setImsRegistrationState: " + value);
-        mImsMmTelRegistrationHelper.updateRegistrationState(value);
-    }
-
     @Override
     public void callEndCleanupHandOverCallIfAny() {
         mCT.callEndCleanupHandOverCallIfAny();
@@ -2182,6 +2179,11 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    @Override
+    public boolean isOutgoingImsVoiceAllowed() {
+        return mIsOutgoingImsVoiceAllowed;
+    }
+
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public boolean isUtEnabled() {
@@ -2300,12 +2302,13 @@ public class ImsPhone extends ImsPhoneBase {
         @Override
         public void handleImsRegistered(int imsRadioTech) {
             if (DBG) {
-                logd("onImsMmTelConnected imsRadioTech="
+                logd("handleImsRegistered: onImsMmTelConnected imsRadioTech="
                         + AccessNetworkConstants.transportTypeToString(imsRadioTech));
             }
-            mRegLocalLog.log("onImsMmTelConnected imsRadioTech="
+            mRegLocalLog.log("handleImsRegistered: onImsMmTelConnected imsRadioTech="
                     + AccessNetworkConstants.transportTypeToString(imsRadioTech));
             setServiceState(ServiceState.STATE_IN_SERVICE);
+            getDefaultPhone().setImsRegistrationState(true);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.CONNECTED, null);
             mImsStats.onImsRegistered(imsRadioTech);
         }
@@ -2313,12 +2316,13 @@ public class ImsPhone extends ImsPhoneBase {
         @Override
         public void handleImsRegistering(int imsRadioTech) {
             if (DBG) {
-                logd("onImsMmTelProgressing imsRadioTech="
+                logd("handleImsRegistering: onImsMmTelProgressing imsRadioTech="
                         + AccessNetworkConstants.transportTypeToString(imsRadioTech));
             }
-            mRegLocalLog.log("onImsMmTelProgressing imsRadioTech="
+            mRegLocalLog.log("handleImsRegistering: onImsMmTelProgressing imsRadioTech="
                     + AccessNetworkConstants.transportTypeToString(imsRadioTech));
             setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
+            getDefaultPhone().setImsRegistrationState(false);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.PROGRESSING,
                     null);
             mImsStats.onImsRegistering(imsRadioTech);
@@ -2326,10 +2330,17 @@ public class ImsPhone extends ImsPhoneBase {
 
         @Override
         public void handleImsUnregistered(ImsReasonInfo imsReasonInfo) {
-            if (DBG) logd("onImsMmTelDisconnected imsReasonInfo=" + imsReasonInfo);
-            mRegLocalLog.log("onImsMmTelDisconnected imsRadioTech=" + imsReasonInfo);
+            if (DBG) {
+                logd("handleImsUnregistered: onImsMmTelDisconnected imsReasonInfo="
+                        + imsReasonInfo);
+            }
+            mRegLocalLog.log("handleImsUnregistered: onImsMmTelDisconnected imsRadioTech="
+                    + imsReasonInfo);
             setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
+            mIsOutgoingImsVoiceAllowed =
+                    imsReasonInfo.getExtraCode() == QtiImsUtils.CODE_IS_PS_ONLY_ATTACHED;
             processDisconnectReason(imsReasonInfo);
+            getDefaultPhone().setImsRegistrationState(false);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.DISCONNECTED,
                     imsReasonInfo);
             mImsStats.onImsUnregistered(imsReasonInfo);

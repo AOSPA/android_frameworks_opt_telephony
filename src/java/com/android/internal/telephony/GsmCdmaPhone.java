@@ -1214,13 +1214,12 @@ public class GsmCdmaPhone extends Phone {
             return false;
         }
 
-        Phone imsPhone = mImsPhone;
-        if (imsPhone != null
-                && imsPhone.getServiceState().getState() == ServiceState.STATE_IN_SERVICE) {
-            return imsPhone.handleInCallMmiCommands(dialString);
-        }
-
         if (!isInCall()) {
+            Phone imsPhone = mImsPhone;
+            if (imsPhone != null
+                    && imsPhone.getServiceState().getState() == ServiceState.STATE_IN_SERVICE) {
+                return imsPhone.handleInCallMmiCommands(dialString);
+            }
             return false;
         }
 
@@ -1284,6 +1283,16 @@ public class GsmCdmaPhone extends Phone {
                 && alwaysTryImsForEmergencyCarrierConfig
                 && ImsManager.getInstance(mContext, mPhoneId).isNonTtyOrTtyOnVolteEnabled()
                 && mImsPhone.isImsAvailable();
+    }
+
+    private boolean useImsForPsOnlyCall() {
+        return isImsUseEnabled()
+                && mImsPhone != null
+                && isOutgoingImsVoiceAllowed()
+                && Settings.Global.getInt(mContext.getContentResolver(),
+                        "enable_allow_PS_only_dial", 1) == 1
+                && (mImsPhone.getServiceState().getState() == ServiceState.STATE_OUT_OF_SERVICE)
+                && (mSST.mSS.getState() == ServiceState.STATE_OUT_OF_SERVICE);
     }
 
     @Override
@@ -1361,9 +1370,11 @@ public class GsmCdmaPhone extends Phone {
         boolean useImsForCall = useImsForCall(dialArgs)
                 && !shallDialOnCircuitSwitch(dialArgs.intentExtras)
                 && (isWpsCall ? allowWpsOverIms : true);
+        boolean useImsForPsOnlyCall = useImsForPsOnlyCall();
 
         if (DBG) {
             logd("useImsForCall=" + useImsForCall
+                    + ", useImsForPsOnlyCall=" + useImsForPsOnlyCall
                     + ", isEmergency=" + isEmergency
                     + ", useImsForEmergency=" + useImsForEmergency
                     + ", useImsForUt=" + useImsForUt
@@ -1393,7 +1404,9 @@ public class GsmCdmaPhone extends Phone {
 
         if ((useImsForCall && (!isMmiCode || isPotentialUssdCode))
                 || (isMmiCode && useImsForUt)
-                || useImsForEmergency) {
+                || useImsForEmergency
+                || (useImsForPsOnlyCall && !isMmiCode && !isPotentialUssdCode
+                           && !VideoProfile.isVideo(dialArgs.videoState))) {
             try {
                 if (DBG) logd("Trying IMS PS call");
                 return imsPhone.dial(dialString, dialArgs);
@@ -3952,8 +3965,20 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void setSignalStrengthReportingCriteria(
             int signalStrengthMeasure, int[] thresholds, int ran, boolean isEnabled) {
-        mCi.setSignalStrengthReportingCriteria(new SignalThresholdInfo(signalStrengthMeasure,
-                REPORTING_HYSTERESIS_MILLIS, REPORTING_HYSTERESIS_DB, thresholds, isEnabled),
+        int[] consolidatedThresholds = mSST.getConsolidatedSignalThresholds(
+                ran,
+                signalStrengthMeasure,
+                mSST.shouldHonorSystemThresholds() ? thresholds : new int[]{},
+                REPORTING_HYSTERESIS_DB);
+        mCi.setSignalStrengthReportingCriteria(
+                new SignalThresholdInfo.Builder()
+                        .setRadioAccessNetworkType(ran)
+                        .setSignalMeasurementType(signalStrengthMeasure)
+                        .setHysteresisMs(REPORTING_HYSTERESIS_MILLIS)
+                        .setHysteresisDb(REPORTING_HYSTERESIS_DB)
+                        .setThresholdsUnlimited(consolidatedThresholds)
+                        .setIsEnabled(isEnabled)
+                        .build(),
                 ran, null);
     }
 
