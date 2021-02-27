@@ -1490,4 +1490,8 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     @Override
     public void releasePduSessionId(Message result, int pduSessionId) {
     }
+
+    @Override
+    public void getEnhancedRadioCapability(Message result) {
+    }
 }

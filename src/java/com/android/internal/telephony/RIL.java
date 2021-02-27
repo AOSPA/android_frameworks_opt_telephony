@@ -6892,6 +6892,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 return "RIL_REQUEST_SET_ALLOWED_NETWORK_TYPE_BITMAP";
             case RIL_REQUEST_GET_ALLOWED_NETWORK_TYPES_BITMAP:
                 return "RIL_REQUEST_GET_ALLOWED_NETWORK_TYPE_BITMAP";
+            case RIL_REQUEST_GET_ENHANCED_RADIO_CAPABILITY:
+                return "RIL_REQUEST_GET_ENHANCED_RADIO_CAPABILITY";
+
             default: return "<unknown request>";
         }
     }

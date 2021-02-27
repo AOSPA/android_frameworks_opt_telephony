@@ -2626,4 +2626,11 @@ public interface CommandsInterface {
      */
     default void setDataThrottling(Message result, WorkSource workSource,
             int dataThrottlingAction, long completionWindowMillis) {};
+
+    /**
+     *  Get phone radio capability
+     *
+     *  @param result Callback message.
+     */
+    public void getEnhancedRadioCapability(Message result);
 }
