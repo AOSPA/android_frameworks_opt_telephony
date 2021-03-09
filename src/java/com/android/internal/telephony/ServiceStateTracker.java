@@ -642,7 +642,7 @@ public class ServiceStateTracker extends Handler {
     private String mCurrentCarrier = null;
 
     private final TransportManager mTransportManager;
-    private final SparseArray<NetworkRegistrationManager> mRegStateManagers = new SparseArray<>();
+    protected final SparseArray<NetworkRegistrationManager> mRegStateManagers = new SparseArray<>();
 
     /* list of LTE EARFCNs (E-UTRA Absolute Radio Frequency Channel Number,
      * Reference: 3GPP TS 36.104 5.4.3)
