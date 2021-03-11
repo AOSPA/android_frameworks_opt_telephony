@@ -229,6 +229,17 @@ public class GsmCdmaPhone extends Phone {
         }
     }
 
+    /**
+     * Used to create ImsManager instances, which may be injected during testing.
+     */
+    @VisibleForTesting
+    public interface ImsManagerFactory {
+        /**
+         * Create a new instance of ImsManager for the specified phoneId.
+         */
+        ImsManager create(Context context, int phoneId);
+    }
+
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private IccSmsInterfaceManager mIccSmsInterfaceManager;
 
@@ -243,6 +254,8 @@ public class GsmCdmaPhone extends Phone {
     private final SettingsObserver mSettingsObserver;
     private CarrierBandwidth mCarrierBandwidth = new CarrierBandwidth();
 
+    private final ImsManagerFactory mImsManagerFactory;
+
     // Constructors
 
     public GsmCdmaPhone(Context context, CommandsInterface ci, PhoneNotifier notifier, int phoneId,
@@ -253,12 +266,23 @@ public class GsmCdmaPhone extends Phone {
     public GsmCdmaPhone(Context context, CommandsInterface ci, PhoneNotifier notifier,
                         boolean unitTestMode, int phoneId, int precisePhoneType,
                         TelephonyComponentFactory telephonyComponentFactory) {
+        this(context, ci, notifier,
+                unitTestMode, phoneId, precisePhoneType,
+                telephonyComponentFactory,
+                ImsManager::getInstance);
+    }
+
+    public GsmCdmaPhone(Context context, CommandsInterface ci, PhoneNotifier notifier,
+            boolean unitTestMode, int phoneId, int precisePhoneType,
+            TelephonyComponentFactory telephonyComponentFactory,
+            ImsManagerFactory imsManagerFactory) {
         super(precisePhoneType == PhoneConstants.PHONE_TYPE_GSM ? "GSM" : "CDMA",
                 notifier, context, ci, unitTestMode, phoneId, telephonyComponentFactory);
 
         // phone type needs to be set before other initialization as other objects rely on it
         mPrecisePhoneType = precisePhoneType;
         mVoiceCallSessionStats = new VoiceCallSessionStats(mPhoneId, this);
+        mImsManagerFactory = imsManagerFactory;
         initOnce(ci);
         initRatSpecific(precisePhoneType);
         // CarrierSignalAgent uses CarrierActionAgent in construction so it needs to be created
@@ -273,7 +297,7 @@ public class GsmCdmaPhone extends Phone {
                 .makeServiceStateTracker(this, this.mCi);
         mEmergencyNumberTracker = mTelephonyComponentFactory
                 .inject(EmergencyNumberTracker.class.getName()).makeEmergencyNumberTracker(
-                this, this.mCi);
+                        this, this.mCi);
         mDataEnabledSettings = mTelephonyComponentFactory
                 .inject(DataEnabledSettings.class.getName()).makeDataEnabledSettings(this);
         mDeviceStateMonitor = mTelephonyComponentFactory.inject(DeviceStateMonitor.class.getName())
@@ -692,7 +716,7 @@ public class GsmCdmaPhone extends Phone {
             ret = PhoneConstants.DataState.DISCONNECTED;
         } else if (mSST.getCurrentDataConnectionState() != ServiceState.STATE_IN_SERVICE
                 && (isPhoneTypeCdma() || isPhoneTypeCdmaLte() ||
-                (isPhoneTypeGsm() && !apnType.equals(PhoneConstants.APN_TYPE_EMERGENCY)))) {
+                (isPhoneTypeGsm() && !apnType.equals(ApnSetting.TYPE_EMERGENCY_STRING)))) {
             // If we're out of service, open TCP sockets may still work
             // but no data will flow
 
@@ -1348,9 +1372,15 @@ public class GsmCdmaPhone extends Phone {
         }
         TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
         boolean isEmergency = tm.isEmergencyNumber(dialString);
+        /** Check if the call is Wireless Priority Service call */
+        boolean isWpsCall = dialString != null ? (dialString.startsWith(PREFIX_WPS)
+                || dialString.startsWith(PREFIX_WPS_CLIR_ACTIVATE)
+                || dialString.startsWith(PREFIX_WPS_CLIR_DEACTIVATE)) : false;
+
         ImsPhone.ImsDialArgs.Builder imsDialArgsBuilder;
         imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder.from(dialArgs)
-                                                 .setIsEmergency(isEmergency);
+                                                 .setIsEmergency(isEmergency)
+                                                 .setIsWpsCall(isWpsCall);
         mDialArgs = dialArgs = imsDialArgsBuilder.build();
 
         Phone imsPhone = mImsPhone;
@@ -1358,10 +1388,6 @@ public class GsmCdmaPhone extends Phone {
         CarrierConfigManager configManager =
                 (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
 
-        /** Check if the call is Wireless Priority Service call */
-        boolean isWpsCall = dialString != null ? (dialString.startsWith(PREFIX_WPS)
-                || dialString.startsWith(PREFIX_WPS_CLIR_ACTIVATE)
-                || dialString.startsWith(PREFIX_WPS_CLIR_DEACTIVATE)) : false;
         boolean allowWpsOverIms = configManager.getConfigForSubId(getSubId())
                 .getBoolean(CarrierConfigManager.KEY_SUPPORT_WPS_OVER_IMS_BOOL);
 
@@ -4548,5 +4574,19 @@ public class GsmCdmaPhone extends Phone {
             default:
                 loge("Invalid cdma_roaming_mode settings: " + config_cdma_roaming_mode);
         }
+    }
+
+    /**
+     * Determines if IMS is enabled for call.
+     *
+     * @return {@code true} if IMS calling is enabled.
+     */
+    public boolean isImsUseEnabled() {
+        ImsManager imsManager = mImsManagerFactory.create(mContext, mPhoneId);
+        boolean imsUseEnabled = ((imsManager.isVolteEnabledByPlatform()
+                && imsManager.isEnhanced4gLteModeSettingEnabledByUser())
+                || (imsManager.isWfcEnabledByPlatform() && imsManager.isWfcEnabledByUser())
+                && imsManager.isNonTtyOrTtyOnVolteEnabled());
+        return imsUseEnabled;
     }
 }
