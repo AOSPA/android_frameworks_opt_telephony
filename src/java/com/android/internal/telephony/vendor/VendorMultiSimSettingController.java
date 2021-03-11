@@ -101,12 +101,6 @@ public class VendorMultiSimSettingController extends MultiSimSettingController {
         }
    }
 
-   @Override
-   protected void updateDefaults() {
-        log("updateDefaults");
-
-   }
-
     protected void log(String msg) {
         Log.d(LOG_TAG, msg);
     }
