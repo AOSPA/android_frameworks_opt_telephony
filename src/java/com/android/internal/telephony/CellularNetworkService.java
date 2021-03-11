@@ -62,13 +62,19 @@ public class CellularNetworkService extends NetworkService {
     // From 24.008 6.1.3.0 and 10.5.6.2 the maximum number of PDP Contexts is 16.
     private static final int MAX_DATA_CALLS = 16;
 
-    private class CellularNetworkServiceProvider extends NetworkServiceProvider {
+    protected class CellularNetworkServiceProvider extends NetworkServiceProvider {
 
         private final Map<Message, NetworkServiceCallback> mCallbackMap = new HashMap<>();
 
         private final Handler mHandler;
 
         private final Phone mPhone;
+
+        protected CellularNetworkServiceProvider() {
+            super(SubscriptionManager.DEFAULT_SIM_SLOT_INDEX);
+            mHandler = null;
+            mPhone = null;
+        }
 
         CellularNetworkServiceProvider(int slotId) {
             super(slotId);
@@ -188,7 +194,8 @@ public class CellularNetworkService extends NetworkService {
             return availableServices;
         }
 
-        private NetworkRegistrationInfo getRegistrationStateFromResult(Object result, int domain) {
+        protected NetworkRegistrationInfo getRegistrationStateFromResult(Object result,
+                                                                         int domain) {
             if (result == null) {
                 return null;
             }

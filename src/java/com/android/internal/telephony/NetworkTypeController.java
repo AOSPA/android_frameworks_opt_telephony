@@ -171,6 +171,14 @@ public class NetworkTypeController extends StateMachine {
         return mOverrideNetworkType;
     }
 
+    /**
+     * @return True if either the primary or secondary 5G hysteresis timer is active,
+     * and false if neither are.
+     */
+    public boolean is5GHysteresisActive() {
+        return mIsPrimaryTimerActive || mIsSecondaryTimerActive;
+    }
+
     private void registerForAllEvents() {
         mPhone.registerForRadioOffOrNotAvailable(getHandler(),
                 EVENT_RADIO_OFF_OR_UNAVAILABLE, null);
@@ -267,7 +275,7 @@ public class NetworkTypeController extends StateMachine {
                 if (kv[1].equals(ICON_5G)) {
                     icon = TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA;
                 } else if (kv[1].equals(ICON_5G_PLUS)) {
-                    icon = TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE;
+                    icon = TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED;
                 } else {
                     if (DBG) loge("Invalid 5G icon = " + kv[1]);
                 }
@@ -351,10 +359,7 @@ public class NetworkTypeController extends StateMachine {
 
     private @Annotation.OverrideNetworkType int getCurrentOverrideNetworkType() {
         int displayNetworkType = TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE;
-        NetworkRegistrationInfo nri =  mPhone.getServiceState().getNetworkRegistrationInfo(
-                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
-        int dataNetworkType = nri == null ? TelephonyManager.NETWORK_TYPE_UNKNOWN
-                : nri.getAccessNetworkTechnology();
+        int dataNetworkType = getDataNetworkType();
         boolean nrNsa = isLte(dataNetworkType)
                 && mPhone.getServiceState().getNrState() != NetworkRegistrationInfo.NR_STATE_NONE;
         boolean nrSa = dataNetworkType == TelephonyManager.NETWORK_TYPE_NR;
@@ -362,7 +367,7 @@ public class NetworkTypeController extends StateMachine {
         // NR display is not accurate when physical channel config notifications are off
         if (mIsPhysicalChannelConfigOn && (nrNsa || nrSa)) {
             // Process NR display network type
-            displayNetworkType = getNrDisplayType();
+            displayNetworkType = getNrDisplayType(nrSa);
             if (displayNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE) {
                 // Use LTE values if 5G values aren't defined
                 displayNetworkType = getLteDisplayType();
@@ -374,7 +379,7 @@ public class NetworkTypeController extends StateMachine {
         return displayNetworkType;
     }
 
-    private @Annotation.OverrideNetworkType int getNrDisplayType() {
+    private @Annotation.OverrideNetworkType int getNrDisplayType(boolean isNrSa) {
         // Don't show 5G icon if preferred network type does not include 5G
         if ((mPhone.getCachedAllowedNetworkTypesBitmask()
                 & TelephonyManager.NETWORK_TYPE_BITMASK_NR) == 0) {
@@ -382,21 +387,24 @@ public class NetworkTypeController extends StateMachine {
         }
         // Icon display keys in order of priority
         List<String> keys = new ArrayList<>();
-        // TODO: Update for NR SA
-        switch (mPhone.getServiceState().getNrState()) {
-            case NetworkRegistrationInfo.NR_STATE_CONNECTED:
-                if (isNrMmwave()) {
-                    keys.add(STATE_CONNECTED_MMWAVE);
-                }
-                keys.add(STATE_CONNECTED);
-                break;
-            case NetworkRegistrationInfo.NR_STATE_NOT_RESTRICTED:
-                keys.add(isPhysicalLinkActive() ? STATE_NOT_RESTRICTED_RRC_CON
-                        : STATE_NOT_RESTRICTED_RRC_IDLE);
-                break;
-            case NetworkRegistrationInfo.NR_STATE_RESTRICTED:
-                keys.add(STATE_RESTRICTED);
-                break;
+        if (isNrSa && isNrMmwave()) {
+            keys.add(STATE_CONNECTED_MMWAVE);
+        } else {
+            switch (mPhone.getServiceState().getNrState()) {
+                case NetworkRegistrationInfo.NR_STATE_CONNECTED:
+                    if (isNrMmwave()) {
+                        keys.add(STATE_CONNECTED_MMWAVE);
+                    }
+                    keys.add(STATE_CONNECTED);
+                    break;
+                case NetworkRegistrationInfo.NR_STATE_NOT_RESTRICTED:
+                    keys.add(isPhysicalLinkActive() ? STATE_NOT_RESTRICTED_RRC_CON
+                            : STATE_NOT_RESTRICTED_RRC_IDLE);
+                    break;
+                case NetworkRegistrationInfo.NR_STATE_RESTRICTED:
+                    keys.add(STATE_RESTRICTED);
+                    break;
+            }
         }
 
         for (String key : keys) {
@@ -411,7 +419,7 @@ public class NetworkTypeController extends StateMachine {
 
     private @Annotation.OverrideNetworkType int getLteDisplayType() {
         int value = TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE;
-        if ((mPhone.getServiceState().getDataNetworkType() == TelephonyManager.NETWORK_TYPE_LTE_CA
+        if ((getDataNetworkType() == TelephonyManager.NETWORK_TYPE_LTE_CA
                 || mPhone.getServiceState().isUsingCarrierAggregation())
                 && (IntStream.of(mPhone.getServiceState().getCellBandwidths()).sum()
                         > mLtePlusThresholdBandwidth)) {
@@ -549,7 +557,7 @@ public class NetworkTypeController extends StateMachine {
         public boolean processMessage(Message msg) {
             if (DBG) log("LegacyState: process " + getEventName(msg.what));
             updateTimers();
-            int rat = mPhone.getServiceState().getDataNetworkType();
+            int rat = getDataNetworkType();
             switch (msg.what) {
                 case EVENT_DATA_RAT_CHANGED:
                     if (rat == TelephonyManager.NETWORK_TYPE_NR || isLte(rat) && isNrConnected()) {
@@ -625,7 +633,7 @@ public class NetworkTypeController extends StateMachine {
             updateTimers();
             switch (msg.what) {
                 case EVENT_DATA_RAT_CHANGED:
-                    int rat = mPhone.getServiceState().getDataNetworkType();
+                    int rat = getDataNetworkType();
                     if (rat == TelephonyManager.NETWORK_TYPE_NR) {
                         transitionTo(mNrConnectedState);
                     } else if (!isLte(rat) || !isNrNotRestricted()) {
@@ -692,7 +700,7 @@ public class NetworkTypeController extends StateMachine {
             updateTimers();
             switch (msg.what) {
                 case EVENT_DATA_RAT_CHANGED:
-                    int rat = mPhone.getServiceState().getDataNetworkType();
+                    int rat = getDataNetworkType();
                     if (rat == TelephonyManager.NETWORK_TYPE_NR) {
                         transitionTo(mNrConnectedState);
                     } else if (!isLte(rat) || !isNrNotRestricted()) {
@@ -760,7 +768,7 @@ public class NetworkTypeController extends StateMachine {
         public boolean processMessage(Message msg) {
             if (DBG) log("NrConnectedState: process " + getEventName(msg.what));
             updateTimers();
-            int rat = mPhone.getServiceState().getDataNetworkType();
+            int rat = getDataNetworkType();
             switch (msg.what) {
                 case EVENT_DATA_RAT_CHANGED:
                     if (rat == TelephonyManager.NETWORK_TYPE_NR || isLte(rat) && isNrConnected()) {
@@ -850,7 +858,7 @@ public class NetworkTypeController extends StateMachine {
     }
 
     private void transitionToCurrentState() {
-        int dataRat = mPhone.getServiceState().getDataNetworkType();
+        int dataRat = getDataNetworkType();
         IState transitionState;
         if (dataRat == TelephonyManager.NETWORK_TYPE_NR || isNrConnected()) {
             transitionState = mNrConnectedState;
@@ -903,7 +911,7 @@ public class NetworkTypeController extends StateMachine {
             resetAllTimers();
         }
 
-        int rat = mPhone.getServiceState().getDataNetworkType();
+        int rat = getDataNetworkType();
         if (!isLte(rat) && rat != TelephonyManager.NETWORK_TYPE_NR) {
             // Rat is 3G or 2G, and it doesn't need NR timer.
             resetAllTimers();
@@ -1030,6 +1038,13 @@ public class NetworkTypeController extends StateMachine {
 
     private boolean isPhysicalLinkActive() {
         return mPhysicalLinkState == DcController.PHYSICAL_LINK_ACTIVE;
+    }
+
+    private int getDataNetworkType() {
+        NetworkRegistrationInfo nri =  mPhone.getServiceState().getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        return nri == null ? TelephonyManager.NETWORK_TYPE_UNKNOWN
+                : nri.getAccessNetworkTechnology();
     }
 
     private String getEventName(int event) {
