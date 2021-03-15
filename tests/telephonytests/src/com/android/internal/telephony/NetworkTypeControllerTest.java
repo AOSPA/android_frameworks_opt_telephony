@@ -17,6 +17,7 @@
 package com.android.internal.telephony;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doReturn;
 
 import android.content.Intent;
@@ -26,6 +27,7 @@ import android.os.Looper;
 import android.os.PersistableBundle;
 import android.telephony.CarrierConfigManager;
 import android.telephony.NetworkRegistrationInfo;
+import android.telephony.RadioAccessFamily;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
@@ -92,8 +94,9 @@ public class NetworkTypeControllerTest extends TelephonyTest {
         broadcastCarrierConfigs();
 
         replaceInstance(Handler.class, "mLooper", mDisplayInfoController, Looper.myLooper());
-        doReturn(TelephonyManager.NETWORK_MODE_NR_LTE_CDMA_EVDO_GSM_WCDMA).when(mPhone)
-                .getCachedPreferredNetworkType();
+        doReturn(RadioAccessFamily.getRafFromNetworkType(
+                TelephonyManager.NETWORK_MODE_NR_LTE_CDMA_EVDO_GSM_WCDMA)).when(
+                mPhone).getCachedAllowedNetworkTypesBitmask();
         mNetworkTypeController = new NetworkTypeController(mPhone, mDisplayInfoController);
         processAllMessages();
     }
@@ -107,8 +110,6 @@ public class NetworkTypeControllerTest extends TelephonyTest {
 
     @Test
     public void testUpdateOverrideNetworkTypeNrNsa() throws Exception {
-        doReturn(TelephonyManager.NETWORK_TYPE_LTE).when(mServiceState).getDataNetworkType();
-
         // not NR
         doReturn(NetworkRegistrationInfo.NR_STATE_NONE).when(mServiceState).getNrState();
         updateOverrideNetworkType();
@@ -143,8 +144,6 @@ public class NetworkTypeControllerTest extends TelephonyTest {
 
     @Test
     public void testUpdateOverrideNetworkTypeLte() throws Exception {
-        doReturn(TelephonyManager.NETWORK_TYPE_LTE).when(mServiceState).getDataNetworkType();
-
         // normal LTE
         updateOverrideNetworkType();
         assertEquals(TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE,
@@ -170,6 +169,22 @@ public class NetworkTypeControllerTest extends TelephonyTest {
         broadcastCarrierConfigs();
         updateOverrideNetworkType();
         assertEquals(TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_LTE_ADVANCED_PRO,
+                mNetworkTypeController.getOverrideNetworkType());
+    }
+
+    @Test
+    public void testUpdateOverrideNetworkType() throws Exception {
+        doReturn(NetworkRegistrationInfo.NR_STATE_CONNECTED).when(mServiceState).getNrState();
+        doReturn(ServiceState.FREQUENCY_RANGE_LOW).when(mServiceState).getNrFrequencyRange();
+        NetworkRegistrationInfo nri = new NetworkRegistrationInfo.Builder()
+                .setAccessNetworkTechnology(TelephonyManager.NETWORK_TYPE_HSPAP)
+                .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME)
+                .build();
+        doReturn(nri).when(mServiceState).getNetworkRegistrationInfo(anyInt(), anyInt());
+        updateOverrideNetworkType();
+
+        // override shouldn't be NR if not on LTE despite NR_STATE_CONNECTED
+        assertEquals(TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE,
                 mNetworkTypeController.getOverrideNetworkType());
     }
 
@@ -345,8 +360,9 @@ public class NetworkTypeControllerTest extends TelephonyTest {
                 mNetworkTypeController.getOverrideNetworkType());
 
         // remove NR from preferred network types
-        doReturn(TelephonyManager.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA).when(mPhone)
-                .getCachedPreferredNetworkType();
+        doReturn(RadioAccessFamily.getRafFromNetworkType(
+                TelephonyManager.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA)).when(
+                mPhone).getCachedAllowedNetworkTypesBitmask();
 
         mNetworkTypeController.sendMessage(EVENT_PREFERRED_NETWORK_MODE_CHANGED);
         processAllMessages();

@@ -472,7 +472,7 @@ public abstract class SMSDispatcher extends Handler {
             checkCallerIsPhoneOrCarrierApp();
             final long identity = Binder.clearCallingIdentity();
             try {
-                mSmsSender.mCarrierMessagingServiceWrapper.disposeConnection(mContext);
+                mSmsSender.mCarrierMessagingServiceWrapper.disconnect();
                 processSendSmsResponse(mSmsSender.mTracker, result, messageRef);
             } finally {
                 Binder.restoreCallingIdentity(identity);
@@ -622,7 +622,7 @@ public abstract class SMSDispatcher extends Handler {
          */
         @Override
         public void onSendMultipartSmsComplete(int result, int[] messageRefs) {
-            mSmsSender.mCarrierMessagingServiceWrapper.disposeConnection(mContext);
+            mSmsSender.mCarrierMessagingServiceWrapper.disconnect();
 
             if (mSmsSender.mTrackers == null) {
                 Rlog.e(TAG, "Unexpected onSendMultipartSmsComplete call with null trackers.");

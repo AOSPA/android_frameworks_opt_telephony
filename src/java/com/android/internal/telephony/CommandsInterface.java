@@ -1567,15 +1567,15 @@ public interface CommandsInterface {
      * @param networkTypeBitmask {@link TelephonyManager.NetworkTypeBitMask}
      * @param response is callback message
      */
-    void setAllowedNetworkTypeBitmask(
+    void setAllowedNetworkTypesBitmap(
             @TelephonyManager.NetworkTypeBitMask int networkTypeBitmask, Message response);
 
      /**
      *  Query the allowed network types setting.
      *
-     * @param response is callback message to report one of  NT_*_TYPE
+     * @param response is callback message to report allowed network types bitmask
      */
-    void getAllowedNetworkTypeBitmask(Message response);
+    void getAllowedNetworkTypesBitmap(Message response);
 
     /**
      * Enable/Disable E-UTRA-NR Dual Connectivity
@@ -2626,4 +2626,11 @@ public interface CommandsInterface {
      */
     default void setDataThrottling(Message result, WorkSource workSource,
             int dataThrottlingAction, long completionWindowMillis) {};
+
+    /**
+     *  Get phone radio capability
+     *
+     *  @param result Callback message.
+     */
+    public void getEnhancedRadioCapability(Message result);
 }

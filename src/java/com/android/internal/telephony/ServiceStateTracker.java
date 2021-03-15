@@ -76,6 +76,7 @@ import android.telephony.CellSignalStrengthNr;
 import android.telephony.DataSpecificRegistrationInfo;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.PhysicalChannelConfig;
+import android.telephony.RadioAccessFamily;
 import android.telephony.ServiceState;
 import android.telephony.ServiceState.RilRadioTechnology;
 import android.telephony.SignalStrength;
@@ -155,7 +156,7 @@ public class ServiceStateTracker extends Handler {
             TimeUnit.SECONDS.toMillis(10);
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    private CommandsInterface mCi;
+    protected CommandsInterface mCi;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private UiccController mUiccController = null;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -267,9 +268,9 @@ public class ServiceStateTracker extends Handler {
     protected static final int EVENT_SIM_RECORDS_LOADED                     = 16;
     protected static final int EVENT_SIM_READY                              = 17;
     protected static final int EVENT_LOCATION_UPDATES_ENABLED               = 18;
-    protected static final int EVENT_GET_PREFERRED_NETWORK_TYPE             = 19;
-    protected static final int EVENT_SET_PREFERRED_NETWORK_TYPE             = 20;
-    protected static final int EVENT_RESET_PREFERRED_NETWORK_TYPE           = 21;
+    protected static final int EVENT_GET_ALLOWED_NETWORK_TYPES              = 19;
+    protected static final int EVENT_SET_ALLOWED_NETWORK_TYPES              = 20;
+    protected static final int EVENT_RESET_ALLOWED_NETWORK_TYPES            = 21;
     protected static final int EVENT_CHECK_REPORT_GPRS                      = 22;
     protected static final int EVENT_RESTRICTED_STATE_CHANGED               = 23;
 
@@ -508,7 +509,7 @@ public class ServiceStateTracker extends Handler {
 
     //GSM
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    private int mPreferredNetworkType;
+    private int mAllowedNetworkTypes;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mMaxDataCalls = 1;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -1082,8 +1083,8 @@ public class ServiceStateTracker extends Handler {
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void reRegisterNetwork(Message onComplete) {
-        mCi.getPreferredNetworkType(
-                obtainMessage(EVENT_GET_PREFERRED_NETWORK_TYPE, onComplete));
+        mCi.getAllowedNetworkTypesBitmap(
+                obtainMessage(EVENT_GET_ALLOWED_NETWORK_TYPES, onComplete));
     }
 
     /**
@@ -1482,14 +1483,14 @@ public class ServiceStateTracker extends Handler {
                 }
                 break;
 
-            case EVENT_SET_PREFERRED_NETWORK_TYPE:
+            case EVENT_SET_ALLOWED_NETWORK_TYPES:
                 ar = (AsyncResult) msg.obj;
                 // Don't care the result, only use for dereg network (COPS=2)
-                message = obtainMessage(EVENT_RESET_PREFERRED_NETWORK_TYPE, ar.userObj);
-                mCi.setPreferredNetworkType(mPreferredNetworkType, message);
+                message = obtainMessage(EVENT_RESET_ALLOWED_NETWORK_TYPES, ar.userObj);
+                mCi.setAllowedNetworkTypesBitmap(mAllowedNetworkTypes, message);
                 break;
 
-            case EVENT_RESET_PREFERRED_NETWORK_TYPE:
+            case EVENT_RESET_ALLOWED_NETWORK_TYPES:
                 ar = (AsyncResult) msg.obj;
                 if (ar.userObj != null) {
                     AsyncResult.forMessage(((Message) ar.userObj)).exception
@@ -1498,19 +1499,21 @@ public class ServiceStateTracker extends Handler {
                 }
                 break;
 
-            case EVENT_GET_PREFERRED_NETWORK_TYPE:
+            case EVENT_GET_ALLOWED_NETWORK_TYPES:
                 ar = (AsyncResult) msg.obj;
 
                 if (ar.exception == null) {
-                    mPreferredNetworkType = ((int[])ar.result)[0];
+                    mAllowedNetworkTypes = ((int[]) ar.result)[0];
                 } else {
-                    mPreferredNetworkType = RILConstants.NETWORK_MODE_GLOBAL;
+                    mAllowedNetworkTypes = RadioAccessFamily.getRafFromNetworkType(
+                            RILConstants.NETWORK_MODE_GLOBAL);
                 }
 
-                message = obtainMessage(EVENT_SET_PREFERRED_NETWORK_TYPE, ar.userObj);
-                int toggledNetworkType = RILConstants.NETWORK_MODE_GLOBAL;
+                message = obtainMessage(EVENT_SET_ALLOWED_NETWORK_TYPES, ar.userObj);
+                int toggledNetworkType = RadioAccessFamily.getRafFromNetworkType(
+                        RILConstants.NETWORK_MODE_GLOBAL);
 
-                mCi.setPreferredNetworkType(toggledNetworkType, message);
+                mCi.setAllowedNetworkTypesBitmap(toggledNetworkType, message);
                 break;
 
             case EVENT_CHECK_REPORT_GPRS:
@@ -3342,36 +3345,40 @@ public class ServiceStateTracker extends Handler {
                 }
 
             default:
-                // Issue all poll-related commands at once then count down the responses, which
-                // are allowed to arrive out-of-order
-                mPollingContext[0]++;
-                mCi.getOperator(obtainMessage(EVENT_POLL_STATE_OPERATOR, mPollingContext));
+                issuePollCommands();
+                break;
+        }
+    }
 
-                mPollingContext[0]++;
-                mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
-                        .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
-                                obtainMessage(EVENT_POLL_STATE_PS_CELLULAR_REGISTRATION,
-                                        mPollingContext));
+    protected void issuePollCommands() {
+        log("issuePollCommands");
+        // Issue all poll-related commands at once then count down the responses, which
+        // are allowed to arrive out-of-order
+        mPollingContext[0]++;
+        mCi.getOperator(obtainMessage(EVENT_POLL_STATE_OPERATOR, mPollingContext));
 
-                mPollingContext[0]++;
-                mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
-                        .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_CS,
+        mPollingContext[0]++;
+        mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
+                        obtainMessage(EVENT_POLL_STATE_PS_CELLULAR_REGISTRATION, mPollingContext));
+
+        mPollingContext[0]++;
+        mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_CS,
                         obtainMessage(EVENT_POLL_STATE_CS_CELLULAR_REGISTRATION, mPollingContext));
 
-                if (mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN) != null) {
-                    mPollingContext[0]++;
-                    mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
-                            .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
-                                    obtainMessage(EVENT_POLL_STATE_PS_IWLAN_REGISTRATION,
-                                            mPollingContext));
-                }
+        if (mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN) != null) {
+            mPollingContext[0]++;
+            mRegStateManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
+                    .requestNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
+                            obtainMessage(EVENT_POLL_STATE_PS_IWLAN_REGISTRATION,
+                                    mPollingContext));
+        }
 
-                if (mPhone.isPhoneTypeGsm()) {
-                    mPollingContext[0]++;
-                    mCi.getNetworkSelectionMode(obtainMessage(
-                            EVENT_POLL_STATE_NETWORK_SELECTION_MODE, mPollingContext));
-                }
-                break;
+        if (mPhone.isPhoneTypeGsm()) {
+            mPollingContext[0]++;
+            mCi.getNetworkSelectionMode(obtainMessage(
+                    EVENT_POLL_STATE_NETWORK_SELECTION_MODE, mPollingContext));
         }
     }
 
@@ -5436,7 +5443,7 @@ public class ServiceStateTracker extends Handler {
         pw.println(" mLastCellInfoReqTime=" + mLastCellInfoReqTime);
         dumpCellInfoList(pw);
         pw.flush();
-        pw.println(" mPreferredNetworkType=" + mPreferredNetworkType);
+        pw.println(" mAllowedNetworkTypes=" + mAllowedNetworkTypes);
         pw.println(" mMaxDataCalls=" + mMaxDataCalls);
         pw.println(" mNewMaxDataCalls=" + mNewMaxDataCalls);
         pw.println(" mReasonDataDenied=" + mReasonDataDenied);

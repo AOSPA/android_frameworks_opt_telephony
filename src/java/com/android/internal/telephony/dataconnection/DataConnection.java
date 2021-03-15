@@ -1674,15 +1674,20 @@ public class DataConnection extends StateMachine {
     // NET_CAPABILITY_TEMPORARILY_NOT_METERED incorrectly set on devices that are not supposed
     // to use 5G unmetered network. Currently TEMPORARILY_NOT_METERED can only happen on few devices
     // and carriers.
-    private boolean isCampedOn5GNsa() {
+    private boolean isCampedOn5G() {
         TelephonyDisplayInfo displayInfo = mPhone.getDisplayInfoController()
                 .getTelephonyDisplayInfo();
         int overrideNetworkType = displayInfo.getOverrideNetworkType();
-        int networkType = mPhone.getServiceState().getDataNetworkType();
-        return (networkType == TelephonyManager.NETWORK_TYPE_LTE
+        NetworkRegistrationInfo nri =  mPhone.getServiceState().getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        int networkType = nri == null ? TelephonyManager.NETWORK_TYPE_UNKNOWN
+                : nri.getAccessNetworkTechnology();
+        return networkType == TelephonyManager.NETWORK_TYPE_NR
+                || ((networkType == TelephonyManager.NETWORK_TYPE_LTE
                 || networkType == TelephonyManager.NETWORK_TYPE_LTE_CA)
                 && (overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA
-                || overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE);
+                || overrideNetworkType
+                == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE));
     }
 
     // TODO: Remove this after b/176119724 is fixed. This is just a workaround to prevent
@@ -1690,7 +1695,7 @@ public class DataConnection extends StateMachine {
     // to use 5G unmetered network. Currently TEMPORARILY_NOT_METERED can only happen on few devices
     // and carriers.
     private boolean tempNotMeteredPossible() {
-        return isDevice5GCapable() && isTempNotMeteredSupportedByCarrier() && isCampedOn5GNsa();
+        return isDevice5GCapable() && isTempNotMeteredSupportedByCarrier() && isCampedOn5G();
     }
 
     /**
@@ -1822,14 +1827,15 @@ public class DataConnection extends StateMachine {
                     + isTempNotMeteredSupportedByCarrier() + ", device 5G capable="
                     + isDevice5GCapable() + ", display info="
                     + mPhone.getDisplayInfoController().getTelephonyDisplayInfo()
-                    + ", subscription plans=" + subscriptionManager.getSubscriptionPlans(mSubId);
+                    + ", subscription plans=" + subscriptionManager.getSubscriptionPlans(mSubId)
+                    + ", Service state=" + mPhone.getServiceState();
             loge(message);
-            loge("Service state=" + mPhone.getServiceState());
             AnomalyReporter.reportAnomaly(
-                    UUID.fromString("9151f0fc-01df-4afb-b744-9c4529055248"), message);
+                    UUID.fromString("9151f0fc-01df-4afb-b744-9c4529055249"), message);
         }
 
         result.setCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED, !mIsSuspended);
+        result.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED);
 
         result.setAdministratorUids(mAdministratorUids);
 
