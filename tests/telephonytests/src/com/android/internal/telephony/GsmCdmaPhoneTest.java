@@ -65,12 +65,14 @@ import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.telephony.data.ApnSetting;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.testing.AndroidTestingRunner;
 import android.testing.TestableLooper;
 
 import androidx.test.filters.FlakyTest;
 
+import com.android.ims.ImsManager;
 import com.android.internal.telephony.test.SimulatedCommands;
 import com.android.internal.telephony.test.SimulatedCommandsVerifier;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus;
@@ -131,9 +133,10 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         super.setUp(getClass().getSimpleName());
 
         doReturn(false).when(mSST).isDeviceShuttingDown();
+        doReturn(true).when(mImsManager).isVolteEnabledByPlatform();
 
         mPhoneUT = new GsmCdmaPhone(mContext, mSimulatedCommands, mNotifier, true, 0,
-            PhoneConstants.PHONE_TYPE_GSM, mTelephonyComponentFactory);
+            PhoneConstants.PHONE_TYPE_GSM, mTelephonyComponentFactory, (c, p) -> mImsManager);
         mPhoneUT.setVoiceCallSessionStats(mVoiceCallSessionStats);
         ArgumentCaptor<Integer> integerArgumentCaptor = ArgumentCaptor.forClass(Integer.class);
         verify(mUiccController).registerForIccChanged(eq(mPhoneUT), integerArgumentCaptor.capture(),
@@ -416,29 +419,29 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         // 1. GSM, getCurrentDataConnectionState != STATE_IN_SERVICE, apn != APN_TYPE_EMERGENCY
         doReturn(ServiceState.STATE_OUT_OF_SERVICE).when(mSST).getCurrentDataConnectionState();
         assertEquals(PhoneConstants.DataState.DISCONNECTED, mPhoneUT.getDataConnectionState(
-                PhoneConstants.APN_TYPE_ALL));
+                ApnSetting.TYPE_ALL_STRING));
 
         // 2. GSM, getCurrentDataConnectionState != STATE_IN_SERVICE, apn = APN_TYPE_EMERGENCY, apn
         // not connected
         doReturn(DctConstants.State.IDLE).when(mDcTracker).getState(
-                PhoneConstants.APN_TYPE_EMERGENCY);
+                ApnSetting.TYPE_EMERGENCY_STRING);
         assertEquals(PhoneConstants.DataState.DISCONNECTED, mPhoneUT.getDataConnectionState(
-                PhoneConstants.APN_TYPE_EMERGENCY));
+                ApnSetting.TYPE_EMERGENCY_STRING));
 
         // 3. GSM, getCurrentDataConnectionState != STATE_IN_SERVICE, apn = APN_TYPE_EMERGENCY,
         // APN is connected, callTracker state = idle
         doReturn(DctConstants.State.CONNECTED).when(mDcTracker).getState(
-                PhoneConstants.APN_TYPE_EMERGENCY);
+                ApnSetting.TYPE_EMERGENCY_STRING);
         mCT.mState = PhoneConstants.State.IDLE;
         assertEquals(PhoneConstants.DataState.CONNECTED, mPhoneUT.getDataConnectionState(
-                PhoneConstants.APN_TYPE_EMERGENCY));
+                ApnSetting.TYPE_EMERGENCY_STRING));
 
         // 3. GSM, getCurrentDataConnectionState != STATE_IN_SERVICE, apn = APN_TYPE_EMERGENCY,
         // APN enabled and CONNECTED, callTracker state != idle, !isConcurrentVoiceAndDataAllowed
         mCT.mState = PhoneConstants.State.RINGING;
         doReturn(false).when(mSST).isConcurrentVoiceAndDataAllowed();
         assertEquals(PhoneConstants.DataState.SUSPENDED, mPhoneUT.getDataConnectionState(
-                PhoneConstants.APN_TYPE_EMERGENCY));
+                ApnSetting.TYPE_EMERGENCY_STRING));
     }
 
     @Test
@@ -1007,7 +1010,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         };
 
         Phone phone = new GsmCdmaPhone(mContext, sc, mNotifier, true, 0,
-                PhoneConstants.PHONE_TYPE_GSM, mTelephonyComponentFactory);
+                PhoneConstants.PHONE_TYPE_GSM, mTelephonyComponentFactory, (c, p) -> mImsManager);
         phone.setVoiceCallSessionStats(mVoiceCallSessionStats);
         ArgumentCaptor<Integer> integerArgumentCaptor = ArgumentCaptor.forClass(Integer.class);
         verify(mUiccController).registerForIccChanged(eq(phone), integerArgumentCaptor.capture(),
