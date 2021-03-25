@@ -193,7 +193,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected static final int EVENT_RUIM_RECORDS_LOADED            = 22;
     protected static final int EVENT_NV_READY                       = 23;
     private static final int EVENT_SET_ENHANCED_VP                  = 24;
-    protected static final int EVENT_EMERGENCY_CALLBACK_MODE_ENTER  = 25;
+    @VisibleForTesting
+    public static final int EVENT_EMERGENCY_CALLBACK_MODE_ENTER  = 25;
     protected static final int EVENT_EXIT_EMERGENCY_CALLBACK_RESPONSE = 26;
     protected static final int EVENT_CDMA_SUBSCRIPTION_SOURCE_CHANGED = 27;
     // other
@@ -2866,7 +2867,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     /** Notify the data enabled changes. */
     public void notifyDataEnabled(boolean enabled,
             @TelephonyManager.DataEnabledReason int reason) {
-        mNotifier.notifyDataEnabled(enabled, reason);
+        mNotifier.notifyDataEnabled(this, enabled, reason);
     }
 
     /**
@@ -3867,7 +3868,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public PhoneConstants.DataState getDataConnectionState() {
-        return getDataConnectionState(PhoneConstants.APN_TYPE_DEFAULT);
+        return getDataConnectionState(ApnSetting.TYPE_DEFAULT_STRING);
     }
 
     public void notifyCallForwardingIndicator() {
@@ -4401,20 +4402,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public void unregisterForRadioCapabilityChanged(Handler h) {
         mCi.unregisterForRadioCapabilityChanged(this);
-    }
-
-    /**
-     * Determines if  IMS is enabled for call.
-     *
-     * @return {@code true} if IMS calling is enabled.
-     */
-    public boolean isImsUseEnabled() {
-        ImsManager imsManager = ImsManager.getInstance(mContext, mPhoneId);
-        boolean imsUseEnabled = ((imsManager.isVolteEnabledByPlatform()
-                && imsManager.isEnhanced4gLteModeSettingEnabledByUser())
-                || (imsManager.isWfcEnabledByPlatform() && imsManager.isWfcEnabledByUser())
-                && imsManager.isNonTtyOrTtyOnVolteEnabled());
-        return imsUseEnabled;
     }
 
     /**

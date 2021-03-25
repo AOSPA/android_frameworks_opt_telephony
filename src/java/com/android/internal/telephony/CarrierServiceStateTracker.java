@@ -37,11 +37,11 @@ import android.net.Uri;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.telephony.CarrierConfigManager;
-import android.telephony.PhoneStateListener;
 import android.telephony.RadioAccessFamily;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.SubscriptionManager.OnSubscriptionsChangedListener;
+import android.telephony.TelephonyCallback;
 import android.telephony.TelephonyManager;
 import android.telephony.TelephonyManager.NetworkTypeBitMask;
 import android.telephony.ims.ImsMmTelManager;
@@ -90,15 +90,15 @@ public class CarrierServiceStateTracker extends Handler {
     private SharedPreferences mPreferences;
 
     private long mAllowedNetworkType = -1;
-    private AllowedNetworkTypesChangedListener mAllowedNetworkTypesChangedListenerListener;
+    private AllowedNetworkTypesListener mAllowedNetworkTypesListener;
     private TelephonyManager mTelephonyManager;
 
     /**
      * The listener for allowed network types changed
      */
     @VisibleForTesting
-    public class AllowedNetworkTypesChangedListener extends PhoneStateListener
-            implements PhoneStateListener.AllowedNetworkTypesChangedListener {
+    public class AllowedNetworkTypesListener extends TelephonyCallback
+            implements TelephonyCallback.AllowedNetworkTypesListener {
         @Override
         public void onAllowedNetworkTypesChanged(Map<Integer, Long> allowedNetworkTypesList) {
             if (!allowedNetworkTypesList.containsKey(
@@ -147,7 +147,7 @@ public class CarrierServiceStateTracker extends Handler {
         mAllowedNetworkType = RadioAccessFamily.getNetworkTypeFromRaf(
                 (int) mPhone.getAllowedNetworkTypes(
                         TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER));
-        mAllowedNetworkTypesChangedListenerListener = new AllowedNetworkTypesChangedListener();
+        mAllowedNetworkTypesListener = new AllowedNetworkTypesListener();
         registerAllowedNetworkTypesListener();
         registerWfcSettingObserver();
     }
@@ -156,8 +156,8 @@ public class CarrierServiceStateTracker extends Handler {
      * Return preferred network mode listener
      */
     @VisibleForTesting
-    public AllowedNetworkTypesChangedListener getAllowedNetworkTypesChangedListener() {
-        return mAllowedNetworkTypesChangedListenerListener;
+    public AllowedNetworkTypesListener getAllowedNetworkTypesChangedListener() {
+        return mAllowedNetworkTypesListener;
     }
 
     private void registerAllowedNetworkTypesListener() {
@@ -165,14 +165,14 @@ public class CarrierServiceStateTracker extends Handler {
         unregisterAllowedNetworkTypesListener();
         if (SubscriptionManager.isValidSubscriptionId(subId)) {
             if (mTelephonyManager != null) {
-                mTelephonyManager.registerPhoneStateListener(new HandlerExecutor(this),
-                        mAllowedNetworkTypesChangedListenerListener);
+                mTelephonyManager.registerTelephonyCallback(new HandlerExecutor(this),
+                        mAllowedNetworkTypesListener);
             }
         }
     }
 
     private void unregisterAllowedNetworkTypesListener() {
-        mTelephonyManager.unregisterPhoneStateListener(mAllowedNetworkTypesChangedListenerListener);
+        mTelephonyManager.unregisterTelephonyCallback(mAllowedNetworkTypesListener);
     }
 
     /**
