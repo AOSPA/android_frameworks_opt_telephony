@@ -47,6 +47,8 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.GsmCdmaPhone;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCallTracker;
+
+import static java.util.Arrays.copyOf;
 public class EcbmHandler extends Handler {
 
     private static final String LOG_TAG = "EcbmHandler";
@@ -120,6 +122,14 @@ public class EcbmHandler extends Handler {
             mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, LOG_TAG);
             mWakeLock.setReferenceCounted(false);
 
+        }
+
+        mNumPhones = TelephonyManager.getDefault().getActiveModemCount();
+        int prevModemCount = trackers.length;
+        trackers = copyOf(trackers, mNumPhones);
+        // in the case of SS to DSDS, increase the size of trackers
+        for (int i = prevModemCount; i < mNumPhones; ++i) {
+            trackers[i] = new ECBMTracker();
         }
 
         if ( phoneId >= 0 && phoneId < mNumPhones) {

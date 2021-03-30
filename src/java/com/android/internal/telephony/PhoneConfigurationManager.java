@@ -50,7 +50,7 @@ public class PhoneConfigurationManager {
     public static final String DSDA = "dsda";
     public static final String DSDS = "dsds";
     public static final String TSTS = "tsts";
-    public static final String SSSS = "";
+    public static final String SSSS = "ssss";
     private static final String LOG_TAG = "PhoneCfgMgr";
     private static final int EVENT_SWITCH_DSDS_CONFIG_DONE = 100;
     private static final int EVENT_GET_MODEM_STATUS = 101;
