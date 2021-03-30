@@ -24,6 +24,7 @@ import android.telephony.BarringInfo;
 import android.telephony.CallQuality;
 import android.telephony.CellIdentity;
 import android.telephony.CellInfo;
+import android.telephony.LinkCapacityEstimate;
 import android.telephony.PhoneCapability;
 import android.telephony.PhysicalChannelConfig;
 import android.telephony.PreciseCallState;
@@ -40,7 +41,6 @@ import com.android.internal.telephony.PhoneInternalInterface.DataActivityState;
 import com.android.telephony.Rlog;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * broadcast intents
@@ -252,10 +252,17 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     @Override
-    public void notifyAllowedNetworkTypesChanged(Phone sender,
-            Map<Integer, Long> allowedNetworkTypeList) {
+    public void notifyAllowedNetworkTypesChanged(Phone sender, int reason,
+            long allowedNetworkType) {
         mTelephonyRegistryMgr.notifyAllowedNetworkTypesChanged(sender.getPhoneId(),
-                sender.getSubId(), allowedNetworkTypeList);
+                sender.getSubId(), reason, allowedNetworkType);
+    }
+
+    @Override
+    public void notifyLinkCapacityEstimateChanged(Phone sender,
+            List<LinkCapacityEstimate> linkCapacityEstimateList) {
+        mTelephonyRegistryMgr.notifyLinkCapacityEstimateChanged(sender.getPhoneId(),
+                sender.getSubId(), linkCapacityEstimateList);
     }
 
     /**

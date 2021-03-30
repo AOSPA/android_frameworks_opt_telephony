@@ -432,7 +432,6 @@ public class ServiceStateTracker extends Handler {
             Context context = mPhone.getContext();
 
             mPhone.notifyPhoneStateChanged();
-            mPhone.notifyCallForwardingIndicator();
 
             if (!SubscriptionManager.isValidSubscriptionId(mPrevSubId)) {
                 // just went from invalid to valid subId, so notify with current service
@@ -1796,6 +1795,10 @@ public class ServiceStateTracker extends Handler {
                 updateReportingCriteria(getCarrierConfig());
 
                 onCompleted.sendToTarget();
+
+                // Always poll signal strength after setting the update request which has waken up
+                // modem if it was idle. An additional signal strength polling is almost cost free.
+                obtainMessage(EVENT_POLL_SIGNAL_STRENGTH).sendToTarget();
                 break;
             }
 
@@ -5094,6 +5097,7 @@ public class ServiceStateTracker extends Handler {
         updateReportingCriteria(config);
         updateOperatorNamePattern(config);
         mCdnr.updateEfFromCarrierConfig(config);
+        mPhone.notifyCallForwardingIndicator();
 
         // Sometimes the network registration information comes before carrier config is ready.
         // For some cases like roaming/non-roaming overriding, we need carrier config. So it's

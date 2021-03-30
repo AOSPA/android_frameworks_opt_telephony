@@ -15,6 +15,8 @@
  */
 package com.android.internal.telephony;
 
+import static android.telephony.PhysicalChannelConfig.PHYSICAL_CELL_ID_UNKNOWN;
+import static android.telephony.ServiceState.FREQUENCY_RANGE_LOW;
 import static android.telephony.SubscriptionManager.ACTION_DEFAULT_SUBSCRIPTION_CHANGED;
 import static android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID;
 import static android.telephony.TelephonyManager.ACTION_MULTI_SIM_CONFIG_CHANGED;
@@ -23,6 +25,7 @@ import static android.telephony.TelephonyManager.RADIO_POWER_ON;
 import static android.telephony.TelephonyManager.RADIO_POWER_UNAVAILABLE;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doReturn;
@@ -34,7 +37,9 @@ import android.net.LinkProperties;
 import android.os.ServiceManager;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.Annotation;
+import android.telephony.LinkCapacityEstimate;
 import android.telephony.PhoneCapability;
+import android.telephony.PhysicalChannelConfig;
 import android.telephony.PreciseDataConnectionState;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
@@ -46,6 +51,8 @@ import android.test.suitebuilder.annotation.SmallTest;
 import android.testing.AndroidTestingRunner;
 import android.testing.TestableLooper;
 
+import androidx.annotation.NonNull;
+
 import com.android.server.TelephonyRegistry;
 
 import org.junit.After;
@@ -54,7 +61,9 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,12 +74,14 @@ public class TelephonyRegistryTest extends TelephonyTest {
     @Mock
     private SubscriptionInfo mMockSubInfo;
     private TelephonyCallbackWrapper mTelephonyCallback;
+    private List<LinkCapacityEstimate> mLinkCapacityEstimateList;
     private TelephonyRegistry mTelephonyRegistry;
     private PhoneCapability mPhoneCapability;
     private int mActiveSubId;
     private TelephonyDisplayInfo mTelephonyDisplayInfo;
     private int mSrvccState = -1;
     private int mRadioPowerState = RADIO_POWER_UNAVAILABLE;
+    private List<PhysicalChannelConfig> mPhysicalChannelConfigs;
 
     // All events contribute to TelephonyRegistry#isPhoneStatePermissionRequired
     private static final Set<Integer> READ_PHONE_STATE_EVENTS;
@@ -135,7 +146,9 @@ public class TelephonyRegistryTest extends TelephonyTest {
             TelephonyCallback.ActiveDataSubscriptionIdListener,
             TelephonyCallback.RadioPowerStateListener,
             TelephonyCallback.PreciseDataConnectionStateListener,
-            TelephonyCallback.DisplayInfoListener{
+            TelephonyCallback.DisplayInfoListener,
+            TelephonyCallback.LinkCapacityEstimateChangedListener,
+            TelephonyCallback.PhysicalChannelConfigListener {
         // This class isn't mockable to get invocation counts because the IBinder is null and
         // crashes the TelephonyRegistry. Make a cheesy verify(times()) alternative.
         public AtomicInteger invocationCount = new AtomicInteger(0);
@@ -168,6 +181,17 @@ public class TelephonyRegistryTest extends TelephonyTest {
         @Override
         public void onDisplayInfoChanged(TelephonyDisplayInfo displayInfo) {
             mTelephonyDisplayInfo = displayInfo;
+        }
+
+        @Override
+        public void onLinkCapacityEstimateChanged(
+                List<LinkCapacityEstimate> linkCapacityEstimateList) {
+            mLinkCapacityEstimateList =  linkCapacityEstimateList;
+        }
+
+        @Override
+        public void onPhysicalChannelConfigChanged(@NonNull List<PhysicalChannelConfig> configs) {
+            mPhysicalChannelConfigs = configs;
         }
     }
 
@@ -211,8 +235,7 @@ public class TelephonyRegistryTest extends TelephonyTest {
         doReturn(mMockSubInfo).when(mSubscriptionManager).getActiveSubscriptionInfo(anyInt());
         doReturn(0/*slotIndex*/).when(mMockSubInfo).getSimSlotIndex();
         // mTelephonyRegistry.listen with notifyNow = true should trigger callback immediately.
-        PhoneCapability phoneCapability = new PhoneCapability(1, 2, null, false,
-                PhoneCapability.DEVICE_NR_CAPABILITY_NONE);
+        PhoneCapability phoneCapability = new PhoneCapability(1, 2, null, false, new int[0]);
         int[] events = {TelephonyCallback.EVENT_PHONE_CAPABILITY_CHANGED};
         mTelephonyRegistry.notifyPhoneCapabilityChanged(phoneCapability);
         mTelephonyRegistry.listenWithEventList(0, mContext.getOpPackageName(),
@@ -221,8 +244,7 @@ public class TelephonyRegistryTest extends TelephonyTest {
         assertEquals(phoneCapability, mPhoneCapability);
 
         // notifyPhoneCapabilityChanged with a new capability. Callback should be triggered.
-        phoneCapability = new PhoneCapability(3, 2, null, false,
-                PhoneCapability.DEVICE_NR_CAPABILITY_NONE);
+        phoneCapability = new PhoneCapability(3, 2, null, false, new int[0]);
         mTelephonyRegistry.notifyPhoneCapabilityChanged(phoneCapability);
         processAllMessages();
         assertEquals(phoneCapability, mPhoneCapability);
@@ -411,6 +433,33 @@ public class TelephonyRegistryTest extends TelephonyTest {
         assertEquals(4, mTelephonyCallback.invocationCount.get());
     }
 
+    @Test
+    public void testPhysicalChannelConfigChanged() {
+        // Return a slotIndex / phoneId of 0 for all sub ids given.
+        doReturn(mMockSubInfo).when(mSubscriptionManager).getActiveSubscriptionInfo(anyInt());
+        doReturn(0/*slotIndex*/).when(mMockSubInfo).getSimSlotIndex();
+
+        final int subId = 1;
+        int[] events = {TelephonyCallback.EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED};
+        // Construct PhysicalChannelConfig with minimum fields set (The default value for
+        // frequencyRange and band fields throw IAE)
+        PhysicalChannelConfig config = new PhysicalChannelConfig.Builder()
+                .setFrequencyRange(FREQUENCY_RANGE_LOW)
+                .setBand(1)
+                .setPhysicalCellId(2)
+                .build();
+        List<PhysicalChannelConfig> configs = new ArrayList<>(1);
+        configs.add(config);
+
+        mTelephonyRegistry.notifyPhysicalChannelConfigForSubscriber(subId, configs);
+        mTelephonyRegistry.listenWithEventList(subId, mContext.getOpPackageName(),
+                mContext.getAttributionTag(), mTelephonyCallback.callback, events, true);
+        processAllMessages();
+
+        assertNotNull(mPhysicalChannelConfigs);
+        assertEquals(PHYSICAL_CELL_ID_UNKNOWN, mPhysicalChannelConfigs.get(0).getPhysicalCellId());
+    }
+
     /**
      * Test listen to events that require READ_PHONE_STATE permission.
      */
@@ -549,5 +598,35 @@ public class TelephonyRegistryTest extends TelephonyTest {
         } catch (SecurityException unexpected) {
             fail("SecurityException thrown with permission");
         }
+    }
+
+    @Test
+    public void testNotifyLinkCapacityEstimateChanged() {
+        mContext.sendBroadcast(new Intent(ACTION_DEFAULT_SUBSCRIPTION_CHANGED)
+                .putExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, 2)
+                .putExtra(SubscriptionManager.EXTRA_SLOT_INDEX, 0));
+        processAllMessages();
+        int[] events = {TelephonyCallback.EVENT_LINK_CAPACITY_ESTIMATE_CHANGED};
+        mTelephonyRegistry.listenWithEventList(2, mContext.getOpPackageName(),
+                mContext.getAttributionTag(), mTelephonyCallback.callback,
+                events, false);
+
+        // Notify with invalid subId / phoneId on default phone. Should NOT trigger callback.
+        List<LinkCapacityEstimate> lceList = new ArrayList<>();
+        lceList.add(new LinkCapacityEstimate(LinkCapacityEstimate.LCE_TYPE_COMBINED, 4000,
+                LinkCapacityEstimate.INVALID));
+        mTelephonyRegistry.notifyLinkCapacityEstimateChanged(1, INVALID_SUBSCRIPTION_ID, lceList);
+        processAllMessages();
+        assertEquals(null, mLinkCapacityEstimateList);
+
+        // Notify with invalid phoneId. Should NOT trigger callback.
+        mTelephonyRegistry.notifyLinkCapacityEstimateChanged(2, 2, lceList);
+        processAllMessages();
+        assertEquals(null, mLinkCapacityEstimateList);
+
+        // Notify with the matching subId on default phone. Should trigger callback.
+        mTelephonyRegistry.notifyLinkCapacityEstimateChanged(0, 2, lceList);
+        processAllMessages();
+        assertEquals(lceList, mLinkCapacityEstimateList);
     }
 }

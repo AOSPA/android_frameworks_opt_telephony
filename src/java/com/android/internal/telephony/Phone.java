@@ -44,13 +44,13 @@ import android.sysprop.TelephonyProperties;
 import android.telecom.VideoProfile;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.Annotation.ApnType;
-import android.telephony.CarrierBandwidth;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CarrierRestrictionRules;
 import android.telephony.CellIdentity;
 import android.telephony.CellInfo;
 import android.telephony.ClientRequestStats;
 import android.telephony.ImsiEncryptionInfo;
+import android.telephony.LinkCapacityEstimate;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.PhoneStateListener;
 import android.telephony.PhysicalChannelConfig;
@@ -457,6 +457,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     private static final String ALLOWED_NETWORK_TYPES_TEXT_CARRIER = "carrier";
     private static final String ALLOWED_NETWORK_TYPES_TEXT_ENABLE_2G = "enable_2g";
     private static final int INVALID_ALLOWED_NETWORK_TYPES = -1;
+    protected boolean mIsCarrierNrSupported = false;
 
     private boolean mUnitTestMode;
     private final CarrierPrivilegesTracker mCarrierPrivilegesTracker;
@@ -2264,25 +2265,23 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                 allowedNetworkTypes = allowedNetworkTypes & networkTypes;
             }
         }
-        Rlog.d(LOG_TAG, "getEffectiveAllowedNetworkTypes: " + allowedNetworkTypes);
+        if (!mIsCarrierNrSupported) {
+            allowedNetworkTypes &= ~TelephonyManager.NETWORK_TYPE_BITMASK_NR;
+        }
+        logd("SubId" + getSubId() + ",getEffectiveAllowedNetworkTypes: "
+                + TelephonyManager.convertNetworkTypeBitmaskToString(allowedNetworkTypes));
         return allowedNetworkTypes;
     }
 
     /**
-     * Notify the allowed network types changed.
+     * Notify the latest allowed network types changed.
      */
-    public void notifyAllowedNetworkTypesChanged() {
-        List<Integer> listOfAllowedNetworkTypesForReasons = new ArrayList<>(
-                Arrays.asList(TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER,
-                        TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_POWER,
-                        TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER,
-                        TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_ENABLE_2G));
-        Map<Integer, Long> allowedNetworkTypeList = new HashMap<>();
-        for (Integer reasonItem : listOfAllowedNetworkTypesForReasons) {
-            allowedNetworkTypeList.put(reasonItem, getAllowedNetworkTypes(reasonItem));
-        }
-        Rlog.d(LOG_TAG, "notifyAllowedNetworkTypesChanged: " + allowedNetworkTypeList.toString());
-        mNotifier.notifyAllowedNetworkTypesChanged(this, allowedNetworkTypeList);
+    public void notifyAllowedNetworkTypesChanged(
+            @TelephonyManager.AllowedNetworkTypesReason int reason) {
+        logd("SubId" + getSubId() + ",notifyAllowedNetworkTypesChanged: reason: " + reason
+                + " value:" + TelephonyManager.convertNetworkTypeBitmaskToString(
+                getAllowedNetworkTypes(reason)));
+        mNotifier.notifyAllowedNetworkTypesChanged(this, reason, getAllowedNetworkTypes(reason));
     }
 
     /**
@@ -2290,14 +2289,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public void isNrDualConnectivityEnabled(Message message, WorkSource workSource) {
         mCi.isNrDualConnectivityEnabled(message, workSource);
-    }
-
-    /**
-     * get carrier bandwidth per primary and secondary carrier
-     * @return CarrierBandwidth with bandwidth of both primary and secondary carrier.
-     */
-    public CarrierBandwidth getCarrierBandwidth() {
-        return new CarrierBandwidth();
     }
 
     /**
@@ -2324,7 +2315,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public @TelephonyManager.NetworkTypeBitMask long getAllowedNetworkTypes(
             @TelephonyManager.AllowedNetworkTypesReason int reason) {
-        long allowedNetworkTypes = INVALID_ALLOWED_NETWORK_TYPES;
+        long allowedNetworkTypes;
         long defaultAllowedNetworkTypes = RadioAccessFamily.getRafFromNetworkType(
                 RILConstants.PREFERRED_NETWORK_MODE);
 
@@ -2333,55 +2324,70 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         }
 
         synchronized (mAllowedNetworkTypesForReasons) {
-            // Try to load ALLOWED_NETWORK_TYPES from SIMINFO.
-            if (SubscriptionController.getInstance() != null
-                    && !mAllowedNetworkTypesForReasons.containsKey(reason)) {
-                String result = SubscriptionController.getInstance().getSubscriptionProperty(
-                        getSubId(),
-                        SubscriptionManager.ALLOWED_NETWORK_TYPES);
-                if (result != null) {
-                    try {
-                        filterAllowedNetworkTypesFromDb(result);
-                    } catch (NumberFormatException err) {
-                        Rlog.e(LOG_TAG, "allowedNetworkTypes NumberFormat exception");
-                    }
-                }
-            }
-
             allowedNetworkTypes = mAllowedNetworkTypesForReasons.getOrDefault(
                     reason,
                     defaultAllowedNetworkTypes);
         }
-
-        if (reason == TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER) {
-            allowedNetworkTypes = updateAllowedNetworkTypeForCarrierWithCarrierConfig(reason,
-                    allowedNetworkTypes);
+        if (!mIsCarrierNrSupported
+                && reason == TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER) {
+            allowedNetworkTypes = updateAllowedNetworkTypeForCarrierWithCarrierConfig();
         }
-        Rlog.d(LOG_TAG,
-                "get allowed network types " + convertAllowedNetworkTypeMapIndexToDbName(reason)
-                        + ": value = " + allowedNetworkTypes);
-
+        logd("SubId" + getSubId() + ",get allowed network types "
+                + convertAllowedNetworkTypeMapIndexToDbName(reason)
+                + ": value = " + TelephonyManager.convertNetworkTypeBitmaskToString(
+                allowedNetworkTypes));
         return allowedNetworkTypes;
     }
 
-    private void filterAllowedNetworkTypesFromDb(String result) {
-        if (TextUtils.isEmpty(result)) {
+    /**
+     * Loads the allowed network type from subscription database.
+     */
+    public void loadAllowedNetworksFromSubscriptionDatabase() {
+        // Try to load ALLOWED_NETWORK_TYPES from SIMINFO.
+        if (SubscriptionController.getInstance() == null) {
             return;
         }
-        // Format: "REASON=VALUE,REASON2=VALUE2"
-        for (String pair : result.trim().split(",")) {
-            String[] networkTypesValues = (pair.trim().toLowerCase()).split("=");
-            if (networkTypesValues.length != 2) {
-                Rlog.e(LOG_TAG, "Invalid ALLOWED_NETWORK_TYPES from DB, value = " + pair);
-                continue;
-            }
-            int key = convertAllowedNetworkTypeDbNameToMapIndex(networkTypesValues[0]);
-            long value = Long.parseLong(networkTypesValues[1]);
-            if (key != INVALID_ALLOWED_NETWORK_TYPES && value != INVALID_ALLOWED_NETWORK_TYPES) {
-                synchronized (mAllowedNetworkTypesForReasons) {
-                    mAllowedNetworkTypesForReasons.put(key, value);
+
+        String result = SubscriptionController.getInstance().getSubscriptionProperty(
+                getSubId(),
+                SubscriptionManager.ALLOWED_NETWORK_TYPES);
+        if (result == null) {
+            return;
+        }
+
+        logd("SubId" + getSubId() + ",load allowed network types : value = " + result);
+        Map<Integer, Long> oldAllowedNetworkTypes = new HashMap<>(mAllowedNetworkTypesForReasons);
+        mAllowedNetworkTypesForReasons.clear();
+        try {
+            // Format: "REASON=VALUE,REASON2=VALUE2"
+            for (String pair : result.trim().split(",")) {
+                String[] networkTypesValues = (pair.trim().toLowerCase()).split("=");
+                if (networkTypesValues.length != 2) {
+                    Rlog.e(LOG_TAG, "Invalid ALLOWED_NETWORK_TYPES from DB, value = " + pair);
+                    continue;
+                }
+                int key = convertAllowedNetworkTypeDbNameToMapIndex(networkTypesValues[0]);
+                long value = Long.parseLong(networkTypesValues[1]);
+                if (key != INVALID_ALLOWED_NETWORK_TYPES
+                        && value != INVALID_ALLOWED_NETWORK_TYPES) {
+                    synchronized (mAllowedNetworkTypesForReasons) {
+                        mAllowedNetworkTypesForReasons.put(key, value);
+                    }
+                    if (!oldAllowedNetworkTypes.containsKey(key)
+                            || oldAllowedNetworkTypes.get(key) != value) {
+                        if (oldAllowedNetworkTypes.containsKey(key)) {
+                            oldAllowedNetworkTypes.remove(key);
+                        }
+                        notifyAllowedNetworkTypesChanged(key);
+                    }
                 }
             }
+        } catch (NumberFormatException e) {
+            Rlog.e(LOG_TAG, "allowedNetworkTypes NumberFormat exception" + e);
+        }
+
+        for (int key : oldAllowedNetworkTypes.keySet()) {
+            notifyAllowedNetworkTypesChanged(key);
         }
     }
 
@@ -2415,24 +2421,23 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         }
     }
 
-    private long updateAllowedNetworkTypeForCarrierWithCarrierConfig(
-            @TelephonyManager.AllowedNetworkTypesReason int reason,
-            @TelephonyManager.NetworkTypeBitMask long allowedNetworkTypes) {
-        CarrierConfigManager configMgr = (CarrierConfigManager)
-                getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        PersistableBundle config = configMgr.getConfigForSubId(getSubId());
-        if (config == null) {
+    private @TelephonyManager.NetworkTypeBitMask long
+            updateAllowedNetworkTypeForCarrierWithCarrierConfig() {
+        long defaultAllowedNetworkTypes = RadioAccessFamily.getRafFromNetworkType(
+                RILConstants.PREFERRED_NETWORK_MODE);
+        long allowedNetworkTypes;
+        synchronized (mAllowedNetworkTypesForReasons) {
+            allowedNetworkTypes = mAllowedNetworkTypesForReasons.getOrDefault(
+                    TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER,
+                    defaultAllowedNetworkTypes);
+        }
+        if (mIsCarrierNrSupported) {
             return allowedNetworkTypes;
         }
-        boolean isNrSupported = config.getInt(
-                CarrierConfigManager.KEY_CARRIER_NR_AVAILABILITY_INT,
-                CarrierConfigManager.CARRIER_NR_AVAILABILITY_NSA)
-                != CarrierConfigManager.CARRIER_NR_AVAILABILITY_NONE;
-        if (!isNrSupported) {
-            allowedNetworkTypes =
-                    allowedNetworkTypes & ~TelephonyManager.NETWORK_TYPE_BITMASK_NR;
-            Rlog.d(LOG_TAG, reason + " with carrier config value = " + allowedNetworkTypes);
-        }
+        allowedNetworkTypes = allowedNetworkTypes & ~TelephonyManager.NETWORK_TYPE_BITMASK_NR;
+
+        logd("Allowed network types for 'carrier' reason is changed by carrier config = "
+                + TelephonyManager.convertNetworkTypeBitmaskToString(allowedNetworkTypes));
         return allowedNetworkTypes;
     }
 
@@ -2459,10 +2464,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         SubscriptionManager.setSubscriptionProperty(getSubId(),
                 SubscriptionManager.ALLOWED_NETWORK_TYPES,
                 mapAsString);
-        Rlog.d(LOG_TAG, "setAllowedNetworkTypes " + mapAsString);
-        notifyAllowedNetworkTypesChanged();
+        logd("SubId" + getSubId() + ",setAllowedNetworkTypes " + mapAsString);
 
         updateAllowedNetworkTypes(response);
+        notifyAllowedNetworkTypesChanged(reason);
     }
 
     public void updateAllowedNetworkTypes(Message response) {
@@ -2481,8 +2486,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
         int filteredRaf = (int) (modemRaf & getEffectiveAllowedNetworkTypes());
 
-        Rlog.d(LOG_TAG, "setAllowedNetworkTypes: modemRaf = " + modemRaf
-                + " filteredRaf = " + filteredRaf);
+        logd("setAllowedNetworkTypes: modemRafBitMask = " + modemRaf
+                + " ,modemRaf = " + TelephonyManager.convertNetworkTypeBitmaskToString(modemRaf)
+                + " ,filteredRafBitMask = " + filteredRaf
+                + " ,filteredRaf = " + TelephonyManager.convertNetworkTypeBitmaskToString(
+                filteredRaf));
         mCi.setAllowedNetworkTypesBitmap(filteredRaf, response);
         mPreferredNetworkTypeRegistrants.notifyRegistrants();
     }
@@ -2493,8 +2501,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * @param response is callback message to report network types bitmask
      */
     public void getAllowedNetworkTypesBitmask(Message response) {
-        //TODO: Change to getAllowedNetworkTypesBitmap after 1.6 HAL ready.
-        mCi.getPreferredNetworkType(response);
+        mCi.getAllowedNetworkTypesBitmap(response);
     }
 
     /**
@@ -2736,6 +2743,18 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         mCi.nvResetConfig(2 /* erase NV */, response);
     }
 
+    /**
+     * Erase data saved in the SharedPreference. Used for network reset
+     *
+     */
+    public boolean eraseDataInSharedPreferences() {
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
+        SharedPreferences.Editor editor = sp.edit();
+        Rlog.d(LOG_TAG, "Erase all data saved in SharedPreferences");
+        editor.clear();
+        return editor.commit();
+    }
+
     public void setSystemSelectionChannels(List<RadioAccessSpecifier> specifiers,
             Message response) {
         mCi.setSystemSelectionChannels(specifiers, response);
@@ -2868,6 +2887,12 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public void notifyDataEnabled(boolean enabled,
             @TelephonyManager.DataEnabledReason int reason) {
         mNotifier.notifyDataEnabled(this, enabled, reason);
+    }
+
+    /** Notify link capacity estimate has changed. */
+    public void notifyLinkCapacityEstimateChanged(
+            List<LinkCapacityEstimate> linkCapacityEstimateList) {
+        mNotifier.notifyLinkCapacityEstimateChanged(this, linkCapacityEstimateList);
     }
 
     /**
@@ -4814,6 +4839,14 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return mLinkBandwidthEstimator;
     }
 
+    /**
+     * Request to get the current slicing configuration including URSP rules and
+     * NSSAIs (configured, allowed and rejected).
+     */
+    public void getSlicingConfig(Message response) {
+        mCi.getSlicingConfig(response);
+    }
+
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("Phone: subId=" + getSubId());
         pw.println(" mPhoneId=" + mPhoneId);
@@ -5006,6 +5039,22 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             pw.flush();
             pw.println("++++++++++++++++++++++++++++++++");
         }
+    }
+
+    private void logd(String s) {
+        Rlog.d(LOG_TAG, "[" + mPhoneId + "] " + s);
+    }
+
+    private void logi(String s) {
+        Rlog.i(LOG_TAG, "[" + mPhoneId + "] " + s);
+    }
+
+    private void loge(String s) {
+        Rlog.e(LOG_TAG, "[" + mPhoneId + "] " + s);
+    }
+
+    private static String pii(String s) {
+        return Rlog.pii(LOG_TAG, s);
     }
 
     public boolean isEmergencyNumber(String address) {
