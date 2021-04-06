@@ -3495,6 +3495,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         @Override
         public void onCallResumeFailed(ImsCall imsCall, ImsReasonInfo reasonInfo) {
+            log("onCallResumeFailed : mHoldSwitchingState = " + mHoldSwitchingState
+                    + " fg state = " + mForegroundCall.getState() + " bg state = "
+                    + mBackgroundCall.getState());
             if (mHoldSwitchingState == HoldSwapState.SWAPPING_ACTIVE_AND_HELD
                     || mHoldSwitchingState
                     == HoldSwapState.PENDING_RESUME_FOREGROUND_AFTER_FAILURE) {
@@ -3530,6 +3533,14 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     Rlog.w(LOG_TAG, "onCallResumeFailed: got a resume failed for a different call"
                             + " in the single call unhold case");
                 }
+            } else if (mHoldSwitchingState == HoldSwapState.INACTIVE &&
+                    mForegroundCall.getState() == ImsPhoneCall.State.HOLDING &&
+                    mBackgroundCall.getState() == ImsPhoneCall.State.IDLE) {
+                // When resume request fails, make sure the holding call is moved to background
+                if (DBG) {
+                    log("onCallResumeFailed: resume failed. switch fg and bg calls");
+                }
+                mForegroundCall.switchWith(mBackgroundCall);
             }
             mPhone.notifySuppServiceFailed(Phone.SuppService.RESUME);
             mMetrics.writeOnImsCallResumeFailed(mPhone.getPhoneId(), imsCall.getCallSession(),
