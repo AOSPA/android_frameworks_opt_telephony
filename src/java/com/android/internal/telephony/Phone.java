@@ -235,8 +235,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected static final int EVENT_REGISTRATION_FAILED = 57;
     protected static final int EVENT_BARRING_INFO_CHANGED = 58;
     protected static final int EVENT_LINK_CAPACITY_CHANGED = 59;
+    protected static final int EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION = 60;
 
-    protected static final int EVENT_LAST = EVENT_LINK_CAPACITY_CHANGED;
+    protected static final int EVENT_LAST = EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION;
 
     // For shared prefs.
     private static final String GSM_ROAMING_LIST_OVERRIDE_PREFIX = "gsm_roaming_list_";
@@ -453,6 +454,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     private static final String ALLOWED_NETWORK_TYPES_TEXT_USER = "user";
     private static final String ALLOWED_NETWORK_TYPES_TEXT_POWER = "power";
     private static final String ALLOWED_NETWORK_TYPES_TEXT_CARRIER = "carrier";
+    private static final String ALLOWED_NETWORK_TYPES_TEXT_ENABLE_2G = "enable_2g";
     private static final int INVALID_ALLOWED_NETWORK_TYPES = -1;
 
     private boolean mUnitTestMode;
@@ -2272,7 +2274,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         List<Integer> listOfAllowedNetworkTypesForReasons = new ArrayList<>(
                 Arrays.asList(TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER,
                         TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_POWER,
-                        TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER));
+                        TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER,
+                        TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_ENABLE_2G));
         Map<Integer, Long> allowedNetworkTypeList = new HashMap<>();
         for (Integer reasonItem : listOfAllowedNetworkTypesForReasons) {
             allowedNetworkTypeList.put(reasonItem, getAllowedNetworkTypes(reasonItem));
@@ -2389,6 +2392,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                 return TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_POWER;
             case ALLOWED_NETWORK_TYPES_TEXT_CARRIER:
                 return TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER;
+            case ALLOWED_NETWORK_TYPES_TEXT_ENABLE_2G:
+                return TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_ENABLE_2G;
             default:
                 return INVALID_ALLOWED_NETWORK_TYPES;
         }
@@ -2402,6 +2407,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                 return ALLOWED_NETWORK_TYPES_TEXT_POWER;
             case TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER:
                 return ALLOWED_NETWORK_TYPES_TEXT_CARRIER;
+            case TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_ENABLE_2G:
+                return ALLOWED_NETWORK_TYPES_TEXT_ENABLE_2G;
             default:
                 return Integer.toString(INVALID_ALLOWED_NETWORK_TYPES);
         }
@@ -4813,6 +4820,13 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return Collections.emptyList();
     }
 
+    /**
+     * Return link bandwidth estimator
+     */
+    public LinkBandwidthEstimator getLinkBandwidthEstimator() {
+        return mLinkBandwidthEstimator;
+    }
+
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("Phone: subId=" + getSubId());
         pw.println(" mPhoneId=" + mPhoneId);
@@ -4986,6 +5000,12 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         if (getCarrierPrivilegesTracker() != null) {
             pw.println("CarrierPrivilegesTracker:");
             getCarrierPrivilegesTracker().dump(fd, pw, args);
+            pw.println("++++++++++++++++++++++++++++++++");
+        }
+
+        if (getLinkBandwidthEstimator() != null) {
+            pw.println("LinkBandwidthEstimator:");
+            getLinkBandwidthEstimator().dump(fd, pw, args);
             pw.println("++++++++++++++++++++++++++++++++");
         }
 
