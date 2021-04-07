@@ -541,6 +541,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     private boolean mAlwaysPlayRemoteHoldTone = false;
     private boolean mAutoRetryFailedWifiEmergencyCall = false;
     private boolean mSupportCepOnPeer = true;
+    private boolean mSupportD2DUsingRtp = false;
+    private boolean mSupportSdpForRtpHeaderExtensions = false;
     private boolean mIgnoreResetUtCapability = false;
     // Tracks the state of our background/foreground calls while a call hold/swap operation is
     // in progress. Values listed above.
@@ -573,13 +575,11 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
      */
     private boolean mAllowAddCallDuringVideoCall = true;
 
-
     /**
      * Carrier configuration option which determines whether holding a video call
      * should be allowed.
      */
     private boolean mAllowHoldingVideoCall = true;
-
 
     /**
      * Carrier configuration option which determines whether to notify the connection if a handover
@@ -1050,22 +1050,39 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     null);
         }
 
-        // Where device to device communication is available, ensure that the
-        // supported RTP header extension types defined in {@link RtpTransport} are
-        // set as the offered RTP header extensions for this device.
-        if (mConfig != null && mConfig.isD2DCommunicationSupported) {
-            ArraySet<RtpHeaderExtensionType> types = new ArraySet<>();
-            types.add(RtpTransport.CALL_STATE_RTP_HEADER_EXTENSION_TYPE);
-            types.add(RtpTransport.DEVICE_STATE_RTP_HEADER_EXTENSION_TYPE);
-            logi("connectionReady: set offered RTP header extension types");
-            mImsManager.setOfferedRtpHeaderExtensionTypes(types);
-        }
+        maybeConfigureRtpHeaderExtensions();
 
         if (mCarrierConfigLoaded) {
             mImsManager.updateImsServiceConfig();
         }
         // For compatibility with apps that still use deprecated intent
         sendImsServiceStateIntent(ImsManager.ACTION_IMS_SERVICE_UP);
+    }
+
+    /**
+     * Configures RTP header extension types used during SDP negotiation.
+     */
+    private void maybeConfigureRtpHeaderExtensions() {
+        // Where device to device communication is available, ensure that the
+        // supported RTP header extension types defined in {@link RtpTransport} are
+        // set as the offered RTP header extensions for this device.
+        if (mConfig != null && mConfig.isD2DCommunicationSupported && mSupportD2DUsingRtp) {
+            ArraySet<RtpHeaderExtensionType> types = new ArraySet<>();
+            if (mSupportSdpForRtpHeaderExtensions) {
+                types.add(RtpTransport.CALL_STATE_RTP_HEADER_EXTENSION_TYPE);
+                types.add(RtpTransport.DEVICE_STATE_RTP_HEADER_EXTENSION_TYPE);
+                logi("maybeConfigureRtpHeaderExtensions: set offered RTP header extension types");
+
+            } else {
+                logi("maybeConfigureRtpHeaderExtensions: SDP negotiation not supported; not "
+                        + "setting offered RTP header extension types");
+            }
+            try {
+                mImsManager.setOfferedRtpHeaderExtensionTypes(types);
+            } catch (ImsException e) {
+                loge("maybeConfigureRtpHeaderExtensions: failed to set extensions; " + e);
+            }
+        }
     }
 
     private void stopListeningForCalls() {
@@ -1479,6 +1496,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         if (mImsManager != null) {
             mImsManager.updateImsServiceConfig();
         }
+        // Check for changes due to carrier config.
+        maybeConfigureRtpHeaderExtensions();
     }
 
     /**
@@ -1522,6 +1541,11 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 CarrierConfigManager.KEY_AUTO_RETRY_FAILED_WIFI_EMERGENCY_CALL);
         mSupportCepOnPeer = carrierConfig.getBoolean(
                 CarrierConfigManager.KEY_SUPPORT_IMS_CONFERENCE_EVENT_PACKAGE_ON_PEER_BOOL);
+        mSupportD2DUsingRtp = carrierConfig.getBoolean(
+                CarrierConfigManager.KEY_SUPPORTS_DEVICE_TO_DEVICE_COMMUNICATION_USING_RTP_BOOL);
+        mSupportSdpForRtpHeaderExtensions = carrierConfig.getBoolean(
+                CarrierConfigManager
+                        .KEY_SUPPORTS_SDP_NEGOTIATION_OF_D2D_RTP_HEADER_EXTENSIONS_BOOL);
         mIgnoreResetUtCapability =  carrierConfig.getBoolean(
                 CarrierConfigManager.KEY_IGNORE_RESET_UT_CAPABILITY_BOOL);
         mAllowHoldingCall = carrierConfig.getBoolean(
@@ -2482,6 +2506,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         }
     }
 
+
     public void sendUSSD (String ussdString, Message response) {
         if (DBG) log("sendUSSD");
 
@@ -3190,6 +3215,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
             if (conn != null) {
                 conn.setPreciseDisconnectCause(getPreciseDisconnectCauseFromReasonInfo(reasonInfo));
+                conn.setImsReasonInfo(reasonInfo);
             }
 
             boolean isEmergencySrvCategoryPresent = !TextUtils.isEmpty(imsCall.getCallProfile()
@@ -3936,6 +3962,15 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
             cqm.saveCallQuality(callQuality);
             mCallQualityMetrics.put(callId, cqm);
+
+            ImsPhoneConnection conn = findConnection(imsCall);
+            if (conn != null) {
+                Bundle report = new Bundle();
+                report.putParcelable(android.telecom.Connection.EXTRA_CALL_QUALITY_REPORT,
+                        callQuality);
+                conn.onConnectionEvent(android.telecom.Connection.EVENT_CALL_QUALITY_REPORT,
+                        report);
+            }
         }
 
         /**
@@ -4599,6 +4634,11 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         pw.println(" mSupportCepOnPeer=" + mSupportCepOnPeer);
         if (mConfig != null) {
             pw.println(" isDeviceToDeviceCommsSupported= " + mConfig.isD2DCommunicationSupported);
+            if (mConfig.isD2DCommunicationSupported) {
+                pw.println(" mSupportD2DUsingRtp= " + mSupportD2DUsingRtp);
+                pw.println(" mSupportSdpForRtpHeaderExtensions= "
+                        + mSupportSdpForRtpHeaderExtensions);
+            }
         }
         pw.println(" Event Log:");
         pw.increaseIndent();

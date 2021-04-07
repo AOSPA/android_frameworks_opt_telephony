@@ -1377,8 +1377,6 @@ public class SubscriptionController extends ISub.Stub {
                         setDisplayName = true;
                         Uri uri = insertEmptySubInfoRecord(uniqueId, slotIndex);
                         if (DBG) logdl("[addSubInfoRecord] New record created: " + uri);
-                        SubscriptionManager subManager = SubscriptionManager.from(mContext);
-                        subManager.restoreSimSpecificSettingsForIccIdFromBackup(uniqueId);
                     } else { // there are matching records in the database for the given ICC_ID
                         int subId = cursor.getInt(0);
                         int oldSimInfoId = cursor.getInt(1);
@@ -1723,6 +1721,9 @@ public class SubscriptionController extends ISub.Stub {
                 }
             }
         }
+        value.put(SubscriptionManager.ALLOWED_NETWORK_TYPES,
+                "user=" + RadioAccessFamily.getRafFromNetworkType(
+                        RILConstants.PREFERRED_NETWORK_MODE));
 
         Uri uri = resolver.insert(SubscriptionManager.CONTENT_URI, value);
 
@@ -2110,6 +2111,82 @@ public class SubscriptionController extends ISub.Stub {
             if (DBG) logd("[setDataRoaming]- roaming:" + roaming + " set");
 
             int result = updateDatabase(value, subId, true);
+
+            // Refresh the Cache of Active Subscription Info List
+            refreshCachedActiveSubscriptionInfoList();
+
+            notifySubscriptionInfoChanged();
+
+            return result;
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    /**
+     * Set device to device status sharing preference
+     * @param sharing the sharing preference to set
+     * @param subId
+     * @return the number of records updated
+     */
+    @Override
+    public int setDeviceToDeviceStatusSharing(int sharing, int subId) {
+        if (DBG) logd("[setDeviceToDeviceStatusSharing]- sharing:" + sharing + " subId:" + subId);
+
+        enforceModifyPhoneState("setDeviceToDeviceStatusSharing");
+
+        // Now that all security checks passes, perform the operation as ourselves.
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            validateSubId(subId);
+            if (sharing < 0) {
+                if (DBG) logd("[setDeviceToDeviceStatusSharing]- fail");
+                return -1;
+            }
+            ContentValues value = new ContentValues(1);
+            value.put(SubscriptionManager.D2D_STATUS_SHARING, sharing);
+            if (DBG) logd("[setDeviceToDeviceStatusSharing]- sharing:" + sharing + " set");
+
+            int result = updateDatabase(value, subId, true);
+
+            // Refresh the Cache of Active Subscription Info List
+            refreshCachedActiveSubscriptionInfoList();
+
+            notifySubscriptionInfoChanged();
+
+            return result;
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    /**
+     * Set contacts that allow device to device status sharing.
+     * @param contacts contacts to set
+     * @param subscriptionId
+     * @return the number of records updated
+     */
+    @Override
+    public int setDeviceToDeviceStatusSharingContacts(String contacts, int subscriptionId) {
+        if (DBG) {
+            logd("[setDeviceToDeviceStatusSharingContacts]- contacts:" + contacts
+                    + " subId:" + subscriptionId);
+        }
+
+        enforceModifyPhoneState("setDeviceToDeviceStatusSharingContacts");
+
+        // Now that all security checks passes, perform the operation as ourselves.
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            validateSubId(subscriptionId);
+            ContentValues value = new ContentValues(1);
+            value.put(SubscriptionManager.D2D_STATUS_SHARING_SELECTED_CONTACTS, contacts);
+            if (DBG) {
+                logd("[setDeviceToDeviceStatusSharingContacts]- contacts:" + contacts
+                        + " set");
+            }
+
+            int result = updateDatabase(value, subscriptionId, true);
 
             // Refresh the Cache of Active Subscription Info List
             refreshCachedActiveSubscriptionInfoList();
@@ -3162,6 +3239,8 @@ public class SubscriptionController extends ISub.Stub {
                         case SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES:
                         case SubscriptionManager.ALLOWED_NETWORK_TYPES:
                         case SubscriptionManager.VOIMS_OPT_IN_STATUS:
+                        case SubscriptionManager.D2D_STATUS_SHARING:
+                        case SubscriptionManager.D2D_STATUS_SHARING_SELECTED_CONTACTS:
                             resultValue = cursor.getString(0);
                             break;
                         default:

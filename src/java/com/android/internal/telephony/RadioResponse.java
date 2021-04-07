@@ -46,6 +46,7 @@ import android.telephony.AnomalyReporter;
 import android.telephony.BarringInfo;
 import android.telephony.CarrierRestrictionRules;
 import android.telephony.CellInfo;
+import android.telephony.LinkCapacityEstimate;
 import android.telephony.ModemActivityInfo;
 import android.telephony.NeighboringCellInfo;
 import android.telephony.NetworkScanRequest;
@@ -55,6 +56,7 @@ import android.telephony.SignalStrength;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.data.DataCallResponse;
+import android.telephony.data.SlicingConfig;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.dataconnection.KeepaliveStatus;
@@ -1997,6 +1999,31 @@ public class RadioResponse extends IRadioResponse.Stub {
         return iccCardStatus;
     }
 
+    /**
+     * @param info Response info struct containing response type, serial no. and error.
+     */
+    public void getSimPhonebookRecordsResponse(
+            android.hardware.radio.V1_6.RadioResponseInfo responseInfo) {
+    }
+
+    /**
+     * @param info Response info struct containing response type, serial no. and error.
+     * @param pbCapacity Contains the adn, email, anr capacities in the sim card.
+     */
+    public void getSimPhonebookCapacityResponse(
+            android.hardware.radio.V1_6.RadioResponseInfo responseInfo,
+            android.hardware.radio.V1_6.PhonebookCapacity pbCapacity) {
+    }
+
+    /**
+     * @param info Response info struct containing response type, serial no. and error.
+     * @param updatedRecordIndex The index of the updated record.
+     */
+    public void updateSimPhonebookRecordsResponse(
+            android.hardware.radio.V1_6.RadioResponseInfo responseInfo,
+            int updatedRecordIndex) {
+    }
+
     private void responseIccCardStatus(RadioResponseInfo responseInfo, CardStatus cardStatus) {
         RILRequest rr = mRil.processResponse(responseInfo);
 
@@ -2839,7 +2866,7 @@ public class RadioResponse extends IRadioResponse.Stub {
         RILRequest rr = mRil.processResponse(responseInfo);
 
         if (rr != null) {
-            LinkCapacityEstimate ret = RIL.convertHalLceData(lceInfo, mRil);
+            List<LinkCapacityEstimate> ret = RIL.convertHalLceData(lceInfo, mRil);
             if (responseInfo.error == RadioError.NONE) {
                 sendMessageResponse(rr.mResult, ret);
             }
@@ -3076,10 +3103,11 @@ public class RadioResponse extends IRadioResponse.Stub {
         RILRequest rr = mRil.processResponse_1_6(info);
 
         if (rr != null) {
+            SlicingConfig ret = new SlicingConfig(slicingConfig);
             if (info.error == RadioError.NONE) {
-                sendMessageResponse(rr.mResult, slicingConfig);
+                sendMessageResponse(rr.mResult, ret);
             }
-            mRil.processResponseDone_1_6(rr, info, slicingConfig);
+            mRil.processResponseDone_1_6(rr, info, ret);
         }
     }
 }
