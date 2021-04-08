@@ -634,7 +634,8 @@ public class CarrierServiceStateTracker extends Handler {
                     | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             // Create the PendingIntent
             PendingIntent emergencyIntent = PendingIntent.getActivity(
-                    mContext, mPhone.getPhoneId(), notifyIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+                    mContext, mPhone.getPhoneId(), notifyIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             CharSequence title = mContext.getText(
                     com.android.internal.R.string.EmergencyCallWarningTitle);
             CharSequence details = mContext.getText(
