@@ -41,10 +41,11 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.location.LocationManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.net.vcn.VcnManager;
-import android.net.vcn.VcnUnderlyingNetworkPolicy;
+import android.net.vcn.VcnNetworkPolicyResult;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
@@ -326,6 +327,8 @@ public abstract class TelephonyTest {
     protected LinkBandwidthEstimator mLinkBandwidthEstimator;
     @Mock
     protected PinStorage mPinStorage;
+    @Mock
+    protected LocationManager mLocationManager;
 
     protected ActivityManager mActivityManager;
     protected ImsCallProfile mImsCallProfile;
@@ -449,7 +452,9 @@ public abstract class TelephonyTest {
         MockitoAnnotations.initMocks(this);
         TelephonyManager.disableServiceHandleCaching();
         SubscriptionController.disableCaching();
-
+        // For testing do not allow Log.WTF as it can cause test process to crash
+        Log.setWtfHandler((tagString, what, system) -> logd("WTF captured, ignoring. Tag: "
+                + tagString + ", exception: " + what));
 
         mPhones = new Phone[] {mPhone};
         mImsCallProfile = new ImsCallProfile();
@@ -482,6 +487,7 @@ public abstract class TelephonyTest {
         mUserManager = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
         mKeyguardManager = (KeyguardManager) mContext.getSystemService(Context.KEYGUARD_SERVICE);
         mVcnManager = mContext.getSystemService(VcnManager.class);
+        mLocationManager = (LocationManager) mContext.getSystemService(Context.LOCATION_SERVICE);
 
         //mTelephonyComponentFactory
         doReturn(mTelephonyComponentFactory).when(mTelephonyComponentFactory).inject(anyString());
@@ -666,9 +672,9 @@ public abstract class TelephonyTest {
 
         doAnswer(invocation -> {
             NetworkCapabilities nc = invocation.getArgument(0);
-            return new VcnUnderlyingNetworkPolicy(
+            return new VcnNetworkPolicyResult(
                     false /* isTearDownRequested */, nc);
-        }).when(mVcnManager).getUnderlyingNetworkPolicy(any(), any());
+        }).when(mVcnManager).applyVcnNetworkPolicy(any(), any());
 
         //SIM
         doReturn(1).when(mTelephonyManager).getSimCount();

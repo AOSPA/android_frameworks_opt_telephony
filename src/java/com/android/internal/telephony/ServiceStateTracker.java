@@ -241,6 +241,7 @@ public class ServiceStateTracker extends Handler {
     private RegistrantList mNrStateChangedRegistrants = new RegistrantList();
     private RegistrantList mNrFrequencyChangedRegistrants = new RegistrantList();
     private RegistrantList mCssIndicatorChangedRegistrants = new RegistrantList();
+    private final RegistrantList mAirplaneModeChangedRegistrants = new RegistrantList();
 
     /* Radio power off pending flag and tag counter */
     private boolean mPendingRadioPowerOffAfterDataOff = false;
@@ -431,7 +432,6 @@ public class ServiceStateTracker extends Handler {
             Context context = mPhone.getContext();
 
             mPhone.notifyPhoneStateChanged();
-            mPhone.notifyCallForwardingIndicator();
 
             if (!SubscriptionManager.isValidSubscriptionId(mPrevSubId)) {
                 // just went from invalid to valid subId, so notify with current service
@@ -583,12 +583,6 @@ public class ServiceStateTracker extends Handler {
                 if (phoneId == mPhone.getPhoneId()) {
                     sendEmptyMessage(EVENT_CARRIER_CONFIG_CHANGED);
                 }
-                return;
-            }
-
-            // TODO: Remove this weird check left over from CDMA/GSM service state tracker merge.
-            if (!mPhone.isPhoneTypeGsm()) {
-                loge("Ignoring intent " + intent + " received on CDMA phone");
                 return;
             }
 
@@ -1801,6 +1795,10 @@ public class ServiceStateTracker extends Handler {
                 updateReportingCriteria(getCarrierConfig());
 
                 onCompleted.sendToTarget();
+
+                // Always poll signal strength after setting the update request which has waken up
+                // modem if it was idle. An additional signal strength polling is almost cost free.
+                obtainMessage(EVENT_POLL_SIGNAL_STRENGTH).sendToTarget();
                 break;
             }
 
@@ -2013,6 +2011,7 @@ public class ServiceStateTracker extends Handler {
     public void onAirplaneModeChanged(boolean isAirplaneModeOn) {
         mLastNitzData = null;
         mNitzState.handleAirplaneModeChanged(isAirplaneModeOn);
+        mAirplaneModeChangedRegistrants.notifyResult(isAirplaneModeOn);
     }
 
     protected Phone getPhone() {
@@ -3441,6 +3440,9 @@ public class ServiceStateTracker extends Handler {
         boolean hasAirplaneModeOnChanged =
                 mSS.getState() != ServiceState.STATE_POWER_OFF
                         && mNewSS.getState() == ServiceState.STATE_POWER_OFF;
+        boolean hasAirplaneModeOffChanged =
+                mSS.getState() == ServiceState.STATE_POWER_OFF
+                        && mNewSS.getState() != ServiceState.STATE_POWER_OFF;
 
         SparseBooleanArray hasDataAttached = new SparseBooleanArray(
                 mTransportManager.getAvailableTransports().length);
@@ -3796,6 +3798,14 @@ public class ServiceStateTracker extends Handler {
                     mDetachedRegistrants.get(transport).notifyRegistrants();
                 }
             }
+        }
+
+        // Before starting to poll network state, the signal strength will be
+        // reset under radio power off, so here expects to query it again
+        // because the signal strength might come earlier RAT and radio state
+        // changed.
+        if (hasAirplaneModeOffChanged) {
+            mCi.getSignalStrength(obtainMessage(EVENT_GET_SIGNAL_STRENGTH));
         }
 
         if (shouldLogAttachedChange) {
@@ -4808,6 +4818,27 @@ public class ServiceStateTracker extends Handler {
     }
 
     /**
+     * Registration for Airplane Mode changing.  The state of Airplane Mode will be returned
+     * {@link AsyncResult#result} as a {@link Boolean} Object.
+     * The {@link AsyncResult} will be in the notification {@link Message#obj}.
+     * @param h handler to notify
+     * @param what what code of message when delivered
+     * @param obj placed in {@link AsyncResult#userObj}
+     */
+    public void registerForAirplaneModeChanged(Handler h, int what, Object obj) {
+        mAirplaneModeChangedRegistrants.add(h, what, obj);
+    }
+
+    /**
+     * Unregister for Airplane Mode changed event.
+     *
+     * @param h The handler
+     */
+    public void unregisterForAirplaneModeChanged(Handler h) {
+        mAirplaneModeChangedRegistrants.remove(h);
+    }
+
+    /**
      * Registration point for transition into network attached.
      * @param h handler to notify
      * @param what what code of message when delivered
@@ -5066,6 +5097,7 @@ public class ServiceStateTracker extends Handler {
         updateReportingCriteria(config);
         updateOperatorNamePattern(config);
         mCdnr.updateEfFromCarrierConfig(config);
+        mPhone.notifyCallForwardingIndicator();
 
         // Sometimes the network registration information comes before carrier config is ready.
         // For some cases like roaming/non-roaming overriding, we need carrier config. So it's
@@ -5150,8 +5182,10 @@ public class ServiceStateTracker extends Handler {
 
         // This signal is used for both voice and data radio signal so parse
         // all fields
-
-        if ((ar.exception == null) && (ar.result != null)) {
+        // Under power off, let's suppress valid signal strength report, which is
+        // beneficial to avoid icon flickering.
+        if ((ar.exception == null) && (ar.result != null)
+                && mSS.getState() != ServiceState.STATE_POWER_OFF) {
             mSignalStrength = (SignalStrength) ar.result;
 
             PersistableBundle config = getCarrierConfig();

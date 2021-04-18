@@ -56,15 +56,16 @@ import android.os.WorkSource;
 import android.preference.PreferenceManager;
 import android.telecom.VideoProfile;
 import android.telephony.AccessNetworkConstants;
-import android.telephony.CarrierBandwidth;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CellIdentity;
 import android.telephony.CellIdentityCdma;
 import android.telephony.CellIdentityGsm;
+import android.telephony.LinkCapacityEstimate;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.telephony.data.ApnSetting;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.testing.AndroidTestingRunner;
 import android.testing.TestableLooper;
@@ -91,6 +92,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @RunWith(AndroidTestingRunner.class)
@@ -131,9 +133,10 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         super.setUp(getClass().getSimpleName());
 
         doReturn(false).when(mSST).isDeviceShuttingDown();
+        doReturn(true).when(mImsManager).isVolteEnabledByPlatform();
 
         mPhoneUT = new GsmCdmaPhone(mContext, mSimulatedCommands, mNotifier, true, 0,
-            PhoneConstants.PHONE_TYPE_GSM, mTelephonyComponentFactory);
+            PhoneConstants.PHONE_TYPE_GSM, mTelephonyComponentFactory, (c, p) -> mImsManager);
         mPhoneUT.setVoiceCallSessionStats(mVoiceCallSessionStats);
         ArgumentCaptor<Integer> integerArgumentCaptor = ArgumentCaptor.forClass(Integer.class);
         verify(mUiccController).registerForIccChanged(eq(mPhoneUT), integerArgumentCaptor.capture(),
@@ -416,29 +419,29 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         // 1. GSM, getCurrentDataConnectionState != STATE_IN_SERVICE, apn != APN_TYPE_EMERGENCY
         doReturn(ServiceState.STATE_OUT_OF_SERVICE).when(mSST).getCurrentDataConnectionState();
         assertEquals(PhoneConstants.DataState.DISCONNECTED, mPhoneUT.getDataConnectionState(
-                PhoneConstants.APN_TYPE_ALL));
+                ApnSetting.TYPE_ALL_STRING));
 
         // 2. GSM, getCurrentDataConnectionState != STATE_IN_SERVICE, apn = APN_TYPE_EMERGENCY, apn
         // not connected
         doReturn(DctConstants.State.IDLE).when(mDcTracker).getState(
-                PhoneConstants.APN_TYPE_EMERGENCY);
+                ApnSetting.TYPE_EMERGENCY_STRING);
         assertEquals(PhoneConstants.DataState.DISCONNECTED, mPhoneUT.getDataConnectionState(
-                PhoneConstants.APN_TYPE_EMERGENCY));
+                ApnSetting.TYPE_EMERGENCY_STRING));
 
         // 3. GSM, getCurrentDataConnectionState != STATE_IN_SERVICE, apn = APN_TYPE_EMERGENCY,
         // APN is connected, callTracker state = idle
         doReturn(DctConstants.State.CONNECTED).when(mDcTracker).getState(
-                PhoneConstants.APN_TYPE_EMERGENCY);
+                ApnSetting.TYPE_EMERGENCY_STRING);
         mCT.mState = PhoneConstants.State.IDLE;
         assertEquals(PhoneConstants.DataState.CONNECTED, mPhoneUT.getDataConnectionState(
-                PhoneConstants.APN_TYPE_EMERGENCY));
+                ApnSetting.TYPE_EMERGENCY_STRING));
 
         // 3. GSM, getCurrentDataConnectionState != STATE_IN_SERVICE, apn = APN_TYPE_EMERGENCY,
         // APN enabled and CONNECTED, callTracker state != idle, !isConcurrentVoiceAndDataAllowed
         mCT.mState = PhoneConstants.State.RINGING;
         doReturn(false).when(mSST).isConcurrentVoiceAndDataAllowed();
         assertEquals(PhoneConstants.DataState.SUSPENDED, mPhoneUT.getDataConnectionState(
-                PhoneConstants.APN_TYPE_EMERGENCY));
+                ApnSetting.TYPE_EMERGENCY_STRING));
     }
 
     @Test
@@ -1007,7 +1010,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         };
 
         Phone phone = new GsmCdmaPhone(mContext, sc, mNotifier, true, 0,
-                PhoneConstants.PHONE_TYPE_GSM, mTelephonyComponentFactory);
+                PhoneConstants.PHONE_TYPE_GSM, mTelephonyComponentFactory, (c, p) -> mImsManager);
         phone.setVoiceCallSessionStats(mVoiceCallSessionStats);
         ArgumentCaptor<Integer> integerArgumentCaptor = ArgumentCaptor.forClass(Integer.class);
         verify(mUiccController).registerForIccChanged(eq(phone), integerArgumentCaptor.capture(),
@@ -1562,15 +1565,45 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     }
 
     @Test
-    public void testEventLCEUpdate() {
+    public void testEventLceUpdate() {
         mPhoneUT.mCi = mMockCi;
+
+        ArgumentCaptor<List<LinkCapacityEstimate>> captor = ArgumentCaptor.forClass(List.class);
+        List<LinkCapacityEstimate> lceList1 = new ArrayList<>();
+        lceList1.add(new LinkCapacityEstimate(LinkCapacityEstimate.LCE_TYPE_PRIMARY, 2000, 5000));
+        lceList1.add(new LinkCapacityEstimate(LinkCapacityEstimate.LCE_TYPE_SECONDARY, 1000, 1500));
+
+        List<LinkCapacityEstimate> lceList2 = new ArrayList<>();
+        lceList2.add(new LinkCapacityEstimate(LinkCapacityEstimate.LCE_TYPE_COMBINED, 2000, 5000));
+
+        List<LinkCapacityEstimate> lceList3 = new ArrayList<>();
+        lceList3.add(new LinkCapacityEstimate(LinkCapacityEstimate.LCE_TYPE_COMBINED, 2000,
+                LinkCapacityEstimate.INVALID));
+
         mPhoneUT.sendMessage(mPhoneUT.obtainMessage(GsmCdmaPhone.EVENT_LINK_CAPACITY_CHANGED,
-                new AsyncResult(null, new LinkCapacityEstimate(1000, 500, 100, 50), null)));
+                new AsyncResult(null, lceList1, null)));
         processAllMessages();
-        CarrierBandwidth bandwidth = mPhoneUT.getCarrierBandwidth();
-        assertEquals(bandwidth.getPrimaryDownlinkCapacityKbps(), 900);
-        assertEquals(bandwidth.getPrimaryUplinkCapacityKbps(), 450);
-        assertEquals(bandwidth.getSecondaryDownlinkCapacityKbps(), 100);
-        assertEquals(bandwidth.getSecondaryUplinkCapacityKbps(), 50);
+        verify(mNotifier, times(1))
+                .notifyLinkCapacityEstimateChanged(any(), captor.capture());
+        assertEquals(2, captor.getValue().size());
+        LinkCapacityEstimate lce1 = captor.getValue().get(1);
+        assertEquals(1000, lce1.getDownlinkCapacityKbps());
+        assertEquals(LinkCapacityEstimate.LCE_TYPE_SECONDARY, lce1.getType());
+
+        mPhoneUT.sendMessage(mPhoneUT.obtainMessage(GsmCdmaPhone.EVENT_LINK_CAPACITY_CHANGED,
+                new AsyncResult(null, lceList2, null)));
+        processAllMessages();
+        verify(mNotifier, times(2))
+                .notifyLinkCapacityEstimateChanged(any(), captor.capture());
+        assertEquals(1, captor.getValue().size());
+
+        mPhoneUT.sendMessage(mPhoneUT.obtainMessage(GsmCdmaPhone.EVENT_LINK_CAPACITY_CHANGED,
+                new AsyncResult(null, lceList3, null)));
+        processAllMessages();
+        verify(mNotifier, times(3))
+                .notifyLinkCapacityEstimateChanged(any(), captor.capture());
+        LinkCapacityEstimate lce3 = captor.getValue().get(0);
+        assertEquals(LinkCapacityEstimate.INVALID, lce3.getUplinkCapacityKbps());
+        assertEquals(LinkCapacityEstimate.LCE_TYPE_COMBINED, lce3.getType());
     }
 }

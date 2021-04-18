@@ -19,7 +19,6 @@ package com.android.internal.telephony.vendor;
 import static android.telephony.SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
 import static android.telephony.SubscriptionManager.INVALID_PHONE_INDEX;
 import static android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID;
-import static android.telephony.TelephonyManager.RADIO_POWER_UNAVAILABLE;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -30,39 +29,26 @@ import android.net.NetworkRequest;
 import android.os.AsyncResult;
 import android.os.Looper;
 import android.os.Message;
-import android.os.Registrant;
 import android.os.SystemProperties;
-import android.telephony.data.ApnSetting;
-import android.telephony.Rlog;
 import android.telephony.SubscriptionManager;
-
-import android.text.TextUtils;
+import android.telephony.data.ApnSetting;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CallManager;
-import com.android.internal.telephony.Call;
-import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.dataconnection.DcRequest;
-import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.GsmCdmaCall;
-import com.android.internal.telephony.imsphone.ImsPhone;
-import com.android.internal.telephony.imsphone.ImsPhoneCall;
-import com.android.internal.telephony.ITelephonyRegistry;
 import com.android.internal.telephony.IccCardConstants;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.PhoneSwitcher;
-import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.TelephonyIntents;
+import com.android.internal.telephony.dataconnection.DataEnabledSettings;
+import com.android.internal.telephony.dataconnection.DcRequest;
+import com.android.internal.telephony.imsphone.ImsPhone;
+import com.android.internal.telephony.imsphone.ImsPhoneCall;
 
-import java.lang.Integer;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
-import android.net.StringNetworkSpecifier;
-import android.net.NetworkSpecifier;
 
 public class VendorPhoneSwitcher extends PhoneSwitcher {
 
@@ -392,8 +378,7 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
     /* Determine the phone id on which PS attach needs to be done
      */
     protected int phoneIdForRequest(NetworkRequest netRequest, int apnType) {
-        int subId = getSubIdFromNetworkSpecifier(netRequest.networkCapabilities
-                .getNetworkSpecifier());
+        int subId = getSubIdFromNetworkSpecifier(netRequest.getNetworkSpecifier());
 
         if (subId == DEFAULT_SUBSCRIPTION_ID) return mPreferredDataPhoneId;
         if (subId == INVALID_SUBSCRIPTION_ID) return INVALID_PHONE_INDEX;

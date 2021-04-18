@@ -26,6 +26,7 @@ import android.net.NetworkAgentConfig;
 import android.net.NetworkCapabilities;
 import android.net.NetworkProvider;
 import android.net.QosFilter;
+import android.net.QosSessionAttributes;
 import android.net.SocketKeepalive;
 import android.net.Uri;
 import android.os.Message;
@@ -36,7 +37,7 @@ import android.telephony.AnomalyReporter;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
-import android.telephony.data.EpsBearerQosSessionAttributes;
+import android.telephony.data.NrQosSessionAttributes;
 import android.telephony.data.QosBearerSession;
 import android.util.ArrayMap;
 import android.util.LocalLog;
@@ -100,15 +101,12 @@ public class DcNetworkAgent extends NetworkAgent {
                 dc.getNetworkCapabilities(), dc.getLinkProperties(), score, config,
                 networkProvider);
         register();
-        mId = getNetwork().netId;
+        mId = getNetwork().getNetId();
         mTag = "DcNetworkAgent" + "-" + mId;
         mPhone = phone;
         mNetworkCapabilities = dc.getNetworkCapabilities();
         mTransportType = transportType;
         mDataConnection = dc;
-        int networkType = getNetworkType();
-        setLegacySubtype(networkType, TelephonyManager.getNetworkTypeName(networkType));
-        setLegacyExtraInfo(dc.getApnSetting().getApnName());
         if (dc.getLinkProperties() != null) {
             checkDuplicateInterface(mId, dc.getLinkProperties().getInterfaceName());
             logd("created for data connection " + dc.getName() + ", "
@@ -378,12 +376,13 @@ public class DcNetworkAgent extends NetworkAgent {
     }
 
     public void notifyQosSessionAvailable(final int qosCallbackId, final int sessionId,
-            @NonNull final EpsBearerQosSessionAttributes attributes) {
+            @NonNull final QosSessionAttributes attributes) {
         super.sendQosSessionAvailable(qosCallbackId, sessionId, attributes);
     }
 
-    public void notifyQosSessionLost(final int qosCallbackId, final int sessionId) {
-        super.sendQosSessionLost(qosCallbackId, sessionId);
+    public void notifyQosSessionLost(final int qosCallbackId,
+            final int sessionId, final int qosSessionType) {
+        super.sendQosSessionLost(qosCallbackId, sessionId, qosSessionType);
     }
 
     @Override

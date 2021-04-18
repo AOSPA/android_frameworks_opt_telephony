@@ -17,6 +17,7 @@
 package com.android.internal.telephony.imsphone;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.net.Uri;
@@ -39,6 +40,7 @@ import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
 import android.telephony.ims.AudioCodecAttributes;
 import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsStreamMediaProfile;
 import android.telephony.ims.RtpHeaderExtension;
 import android.telephony.ims.RtpHeaderExtensionType;
@@ -108,6 +110,8 @@ public class ImsPhoneConnection extends Connection implements
 
     private boolean mIsEmergency = false;
 
+    private boolean mIsWpsCall = false;
+
     /**
      * Used to indicate that video state changes detected by
      * {@link #updateMediaCapabilities(ImsCall)} should be ignored.  When a video state change from
@@ -138,6 +142,12 @@ public class ImsPhoneConnection extends Connection implements
      * calls.
      */
     private boolean mIsLocalVideoCapable = true;
+
+    /**
+     * When the call is in a disconnected, state, will be set to the {@link ImsReasonInfo}
+     * associated with the disconnection, if known.
+     */
+    private ImsReasonInfo mImsReasonInfo;
 
     //***** Event Constants
     private static final int EVENT_DTMF_DONE = 1;
@@ -231,7 +241,7 @@ public class ImsPhoneConnection extends Connection implements
 
     /** This is an MO call, created when dialing */
     public ImsPhoneConnection(Phone phone, String dialString, ImsPhoneCallTracker ct,
-            ImsPhoneCall parent, boolean isEmergency) {
+            ImsPhoneCall parent, boolean isEmergency, boolean isWpsCall) {
         super(PhoneConstants.PHONE_TYPE_IMS);
         createWakeLock(phone.getContext());
         acquireWakeLock();
@@ -260,6 +270,8 @@ public class ImsPhoneConnection extends Connection implements
         if (isEmergency) {
             setEmergencyCallInfo(mOwner);
         }
+
+        mIsWpsCall = isWpsCall;
 
         fetchDtmfToneDelay(phone);
 
@@ -1423,6 +1435,10 @@ public class ImsPhoneConnection extends Connection implements
         return mIsEmergency;
     }
 
+    protected boolean isWpsCall() {
+        return mIsWpsCall;
+    }
+
     /**
      * Indicates whether current phone connection is cross sim calling or not
      * @return boolean: true if cross sim calling, false otherwise
@@ -1580,6 +1596,23 @@ public class ImsPhoneConnection extends Connection implements
     }
 
     /**
+     * For a connection being disconnected, sets the {@link ImsReasonInfo} which describes the
+     * reason for the disconnection.
+     * @param imsReasonInfo The IMS reason info.
+     */
+    public void setImsReasonInfo(@Nullable ImsReasonInfo imsReasonInfo) {
+        mImsReasonInfo = imsReasonInfo;
+    }
+
+    /**
+     * @return the {@link ImsReasonInfo} describing why this connection disconnected, or
+     * {@code null} otherwise.
+     */
+    public @Nullable ImsReasonInfo getImsReasonInfo() {
+        return mImsReasonInfo;
+    }
+
+    /**
      * Converts an {@link ImsCallProfile} verification status to a
      * {@link android.telecom.Connection} verification status.
      * @param verificationStatus The {@link ImsCallProfile} verification status.
@@ -1597,5 +1630,17 @@ public class ImsPhoneConnection extends Connection implements
             default:
                 return android.telecom.Connection.VERIFICATION_STATUS_NOT_VERIFIED;
         }
+    }
+
+    /**
+     * The priority of the call to the user. A higher number means higher priority.
+     */
+    protected int getCallPriority() {
+        if (isEmergency()) {
+            return 2;
+        } else if (isWpsCall()) {
+            return 1;
+        }
+        return 0;
     }
 }

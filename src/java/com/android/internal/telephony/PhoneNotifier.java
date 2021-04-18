@@ -24,6 +24,7 @@ import android.telephony.BarringInfo;
 import android.telephony.CallQuality;
 import android.telephony.CellIdentity;
 import android.telephony.CellInfo;
+import android.telephony.LinkCapacityEstimate;
 import android.telephony.PhoneCapability;
 import android.telephony.PhysicalChannelConfig;
 import android.telephony.PreciseDataConnectionState;
@@ -34,7 +35,6 @@ import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsReasonInfo;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * {@hide}
@@ -124,8 +124,12 @@ public interface PhoneNotifier {
     void notifyPhysicalChannelConfig(Phone sender, List<PhysicalChannelConfig> configs);
 
     /** Notify DataEnabled has changed. */
-    void notifyDataEnabled(boolean enabled, @DataEnabledReason int reason);
+    void notifyDataEnabled(Phone sender, boolean enabled, @DataEnabledReason int reason);
 
     /** Notify Allowed Network Type has changed. */
-    void notifyAllowedNetworkTypesChanged(Phone sender, Map<Integer, Long> allowedNetworkType);
+    void notifyAllowedNetworkTypesChanged(Phone sender, int reason, long allowedNetworkType);
+
+    /** Notify link capacity estimate has changed. */
+    void notifyLinkCapacityEstimateChanged(Phone sender,
+            List<LinkCapacityEstimate> linkCapacityEstimateList);
 }

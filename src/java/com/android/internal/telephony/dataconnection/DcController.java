@@ -26,6 +26,7 @@ import android.os.Message;
 import android.os.RegistrantList;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.DataFailCause;
+import android.telephony.data.ApnSetting;
 import android.telephony.data.DataCallResponse;
 
 import com.android.internal.telephony.DctConstants;
@@ -161,6 +162,14 @@ public class DcController extends Handler {
         }
     }
 
+    boolean isDefaultDataActive() {
+        synchronized (mDcListAll) {
+            return mDcListActiveByCid.values().stream()
+                    .anyMatch(dc -> dc.getApnContexts().stream()
+                            .anyMatch(apn -> apn.getApnTypeBitmask() == ApnSetting.TYPE_DEFAULT));
+        }
+    }
+
     @Override
     public void handleMessage(Message msg) {
         AsyncResult ar;
@@ -275,8 +284,7 @@ public class DcController extends Handler {
 
                     // Its active so update the DataConnections link properties
                     UpdateLinkPropertyResult result = dc.updateLinkProperty(newState);
-                    dc.updateQosParameters(newState);
-                    dc.updateSliceInfo(newState);
+                    dc.updateResponseFields(newState);
                     if (result.oldLp.equals(result.newLp)) {
                         if (DBG) log("onDataStateChanged: no change");
                     } else {

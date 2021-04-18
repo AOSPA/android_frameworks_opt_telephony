@@ -30,7 +30,9 @@ import static com.android.internal.telephony.dataconnection.DcTrackerTest.FAKE_P
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.argThat;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyBoolean;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doReturn;
@@ -40,6 +42,7 @@ import static org.mockito.Mockito.verify;
 
 import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
+import android.hardware.radio.V1_0.SetupDataCallResult;
 import android.net.InetAddresses;
 import android.net.KeepalivePacketData;
 import android.net.LinkAddress;
@@ -54,17 +57,15 @@ import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
 import android.telephony.CarrierConfigManager;
 import android.telephony.ServiceState;
-import android.telephony.TelephonyDisplayInfo;
-import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
 import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataProfile;
 import android.telephony.data.DataService;
+import android.telephony.data.TrafficDescriptor;
 import android.test.suitebuilder.annotation.MediumTest;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import com.android.internal.R;
-import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RetryManager;
 import com.android.internal.telephony.TelephonyTest;
 import com.android.internal.telephony.dataconnection.DataConnection.ConnectionParams;
@@ -83,8 +84,10 @@ import org.mockito.Mock;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.Collections;
 
 public class DataConnectionTest extends TelephonyTest {
+    private static final int DEFAULT_DC_CID = 10;
 
     @Mock
     DcTesterFailBringUpAll mDcTesterFailBringUpAll;
@@ -95,9 +98,13 @@ public class DataConnectionTest extends TelephonyTest {
     @Mock
     ApnContext mApnContext;
     @Mock
+    ApnContext mEnterpriseApnContext;
+    @Mock
     DcFailBringUp mDcFailBringUp;
     @Mock
     DataCallSessionStats mDataCallSessionStats;
+    @Mock
+    DataConnection mDefaultDc;
 
     private DataConnection mDc;
     private DataConnectionTestHandler mDataConnectionTestHandler;
@@ -109,17 +116,17 @@ public class DataConnectionTest extends TelephonyTest {
             "44010",                // numeric
             "sp-mode",              // name
             "spmode.ne.jp",         // apn
-            null,                     // proxy
+            null,                   // proxy
             -1,                     // port
-            null,                     // mmsc
-            null,                     // mmsproxy
+            null,                   // mmsc
+            null,                   // mmsproxy
             -1,                     // mmsport
             "",                     // user
             "",                     // password
             -1,                     // authtype
-            ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_SUPL,     // types
-            ApnSetting.PROTOCOL_IP,                   // protocol
-            ApnSetting.PROTOCOL_IP,                   // roaming_protocol
+            ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_SUPL, // types
+            ApnSetting.PROTOCOL_IP, // protocol
+            ApnSetting.PROTOCOL_IP, // roaming_protocol
             true,                   // carrier_enabled
             0,                      // networktype_bitmask
             0,                      // profile_id
@@ -136,17 +143,17 @@ public class DataConnectionTest extends TelephonyTest {
             "44010",                // numeric
             "sp-mode",              // name
             "spmode.ne.jp",         // apn
-            null,                     // proxy
+            null,                   // proxy
             -1,                     // port
-            null,                     // mmsc
-            null,                     // mmsproxy
+            null,                   // mmsc
+            null,                   // mmsproxy
             -1,                     // mmsport
             "",                     // user
             "",                     // password
             -1,                     // authtype
-            ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_DUN,     // types
-            ApnSetting.PROTOCOL_IP,                   // protocol
-            ApnSetting.PROTOCOL_IP,                   // roaming_protocol
+            ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_DUN, // types
+            ApnSetting.PROTOCOL_IP, // protocol
+            ApnSetting.PROTOCOL_IP, // roaming_protocol
             true,                   // carrier_enabled
             0,                      // networktype_bitmask
             0,                      // profile_id
@@ -288,7 +295,8 @@ public class DataConnectionTest extends TelephonyTest {
         replaceInstance(ConnectionParams.class, "mRilRat", mCp,
                 ServiceState.RIL_RADIO_TECHNOLOGY_UMTS);
         doReturn(mApn1).when(mApnContext).getApnSetting();
-        doReturn(PhoneConstants.APN_TYPE_DEFAULT).when(mApnContext).getApnType();
+        doReturn(ApnSetting.TYPE_DEFAULT_STRING).when(mApnContext).getApnType();
+        doReturn(ApnSetting.TYPE_DEFAULT).when(mApnContext).getApnTypeBitmask();
 
         mDcFailBringUp.saveParameters(0, 0, -2);
         doReturn(mDcFailBringUp).when(mDcTesterFailBringUpAll).getDcFailBringUp();
@@ -352,8 +360,13 @@ public class DataConnectionTest extends TelephonyTest {
         return (boolean) method.invoke(mDc);
     }
 
-    private SetupResult setLinkProperties(DataCallResponse response,
-                                                         LinkProperties linkProperties)
+    private boolean isEnterpriseUse() throws Exception {
+        Method method = DataConnection.class.getDeclaredMethod("isEnterpriseUse");
+        method.setAccessible(true);
+        return (boolean) method.invoke(mDc);
+    }
+
+    private SetupResult setLinkProperties(DataCallResponse response, LinkProperties linkProperties)
             throws Exception {
         Class[] cArgs = new Class[2];
         cArgs[0] = DataCallResponse.class;
@@ -373,9 +386,7 @@ public class DataConnectionTest extends TelephonyTest {
     @SmallTest
     public void testConnectEvent() throws Exception {
         testSanity();
-
-        mDc.sendMessage(DataConnection.EVENT_CONNECT, mCp);
-        waitForMs(200);
+        connectEvent(true);
 
         verify(mCT, times(1)).registerForVoiceCallStarted(any(Handler.class),
                 eq(DataConnection.EVENT_DATA_CONNECTION_VOICE_CALL_STARTED), eq(null));
@@ -387,20 +398,36 @@ public class DataConnectionTest extends TelephonyTest {
         verify(mSimulatedCommandsVerifier, times(1))
                 .registerForLceInfo(any(Handler.class),
                         eq(DataConnection.EVENT_LINK_CAPACITY_CHANGED), eq(null));
-        verify(mVcnManager, atLeastOnce()).getUnderlyingNetworkPolicy(any(), any());
+        verify(mVcnManager, atLeastOnce())
+                .applyVcnNetworkPolicy(
+                        argThat(caps ->
+                                caps.hasCapability(
+                                        NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED)),
+                        any());
 
         ArgumentCaptor<DataProfile> dpCaptor = ArgumentCaptor.forClass(DataProfile.class);
+        ArgumentCaptor<TrafficDescriptor> tdCaptor =
+                ArgumentCaptor.forClass(TrafficDescriptor.class);
         verify(mSimulatedCommandsVerifier, times(1)).setupDataCall(
                 eq(AccessNetworkType.UTRAN), dpCaptor.capture(), eq(false),
                 eq(false), eq(DataService.REQUEST_REASON_NORMAL), any(),
-                anyInt(), any(), any(Message.class));
+                anyInt(), any(), tdCaptor.capture(), anyBoolean(), any(Message.class));
 
         verify(mSimulatedCommandsVerifier, times(1))
                 .allocatePduSessionId(any());
 
         assertEquals("spmode.ne.jp", dpCaptor.getValue().getApn());
-
-        assertEquals("DcActiveState", getCurrentState().getName());
+        if (tdCaptor.getValue() != null) {
+            if (mApnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE) {
+                assertEquals(null, tdCaptor.getValue().getDataNetworkName());
+                assertTrue(tdCaptor.getValue().getOsAppId()
+                        .contains(ApnSetting.TYPE_ENTERPRISE_STRING));
+            } else {
+                assertEquals("spmode.ne.jp", tdCaptor.getValue().getDataNetworkName());
+                assertEquals(null, tdCaptor.getValue().getOsAppId());
+            }
+        }
+        assertTrue(mDc.isActive());
 
         assertEquals(mDc.getPduSessionId(), 1);
         assertEquals(3, mDc.getPcscfAddresses().length);
@@ -410,13 +437,85 @@ public class DataConnectionTest extends TelephonyTest {
     }
 
     @Test
+    public void testConnectEventDuplicateContextIds() throws Exception {
+        setUpDefaultData();
+
+        // Create successful result with the same CID as default
+        SetupDataCallResult result = new SetupDataCallResult();
+        result.status = 0;
+        result.suggestedRetryTime = -1;
+        result.cid = DEFAULT_DC_CID;
+        result.active = 2;
+        result.type = "IP";
+        result.ifname = FAKE_IFNAME;
+        result.addresses = FAKE_ADDRESS;
+        result.dnses = FAKE_DNS;
+        result.gateways = FAKE_GATEWAY;
+        result.pcscf = FAKE_PCSCF_ADDRESS;
+        result.mtu = 1440;
+        mSimulatedCommands.setDataCallResult(true, result);
+
+        // Try to connect ENTERPRISE with the same CID as default
+        replaceInstance(ConnectionParams.class, "mApnContext", mCp, mEnterpriseApnContext);
+        doReturn(mApn1).when(mEnterpriseApnContext).getApnSetting();
+        doReturn(ApnSetting.TYPE_ENTERPRISE_STRING).when(mEnterpriseApnContext).getApnType();
+        doReturn(ApnSetting.TYPE_ENTERPRISE).when(mEnterpriseApnContext).getApnTypeBitmask();
+
+        // Verify that ENTERPRISE wasn't set up
+        connectEvent(false);
+        assertEquals("DcInactiveState", getCurrentState().getName());
+
+        // Change the CID
+        result.cid = DEFAULT_DC_CID + 1;
+        mSimulatedCommands.setDataCallResult(true, result);
+
+        // Verify that ENTERPRISE was set up
+        connectEvent(true);
+        assertTrue(mDc.getNetworkCapabilities().hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_ENTERPRISE));
+    }
+
+    @Test
+    public void testConnectEventNoDefaultData() throws Exception {
+        assertFalse(mDefaultDc.isActive());
+
+        // Try to connect ENTERPRISE when default data doesn't exist
+        replaceInstance(ConnectionParams.class, "mApnContext", mCp, mEnterpriseApnContext);
+        doReturn(mApn1).when(mEnterpriseApnContext).getApnSetting();
+        doReturn(ApnSetting.TYPE_ENTERPRISE_STRING).when(mEnterpriseApnContext).getApnType();
+        doReturn(ApnSetting.TYPE_ENTERPRISE).when(mEnterpriseApnContext).getApnTypeBitmask();
+
+        // Verify that ENTERPRISE wasn't set up
+        connectEvent(false);
+        assertEquals("DcInactiveState", getCurrentState().getName());
+
+        // Set up default data
+        replaceInstance(ConnectionParams.class, "mApnContext", mCp, mApnContext);
+        setUpDefaultData();
+
+        // Verify that ENTERPRISE was set up
+        replaceInstance(ConnectionParams.class, "mApnContext", mCp, mEnterpriseApnContext);
+        connectEvent(true);
+        assertTrue(mDc.getNetworkCapabilities().hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_ENTERPRISE));
+    }
+
+    private void setUpDefaultData() throws Exception {
+        replaceInstance(DataConnection.class, "mCid", mDefaultDc, DEFAULT_DC_CID);
+        doReturn(true).when(mDefaultDc).isActive();
+        doReturn(Arrays.asList(mApnContext)).when(mDefaultDc).getApnContexts();
+        mDcc.addActiveDcByCid(mDefaultDc);
+        assertTrue(mDefaultDc.getApnContexts().stream()
+                .anyMatch(apn -> apn.getApnTypeBitmask() == ApnSetting.TYPE_DEFAULT));
+    }
+
+    @Test
     @SmallTest
     public void testDisconnectEvent() throws Exception {
         testConnectEvent();
 
         mDc.setPduSessionId(5);
-        mDc.sendMessage(DataConnection.EVENT_DISCONNECT, mDcp);
-        waitForMs(100);
+        disconnectEvent();
 
         verify(mSimulatedCommandsVerifier, times(1)).unregisterForLceInfo(any(Handler.class));
         verify(mSimulatedCommandsVerifier, times(1))
@@ -594,16 +693,16 @@ public class DataConnectionTest extends TelephonyTest {
                 .hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
         assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
                 .hasCapability(NetworkCapabilities.NET_CAPABILITY_MMS));
+        assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE));
 
         mContextFixture.getCarrierConfigBundle().putStringArray(
                 CarrierConfigManager.KEY_CARRIER_WWAN_DISALLOWED_APN_TYPES_STRING_ARRAY,
                 new String[] {"supl"});
 
-        mDc.sendMessage(DataConnection.EVENT_DISCONNECT, mDcp);
-        waitForMs(100);
+        disconnectEvent();
         doReturn(mApn1).when(mApnContext).getApnSetting();
-        mDc.sendMessage(DataConnection.EVENT_CONNECT, mCp);
-        waitForMs(200);
+        connectEvent(true);
 
         assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
                 .hasCapability(NetworkCapabilities.NET_CAPABILITY_DUN));
@@ -611,6 +710,44 @@ public class DataConnectionTest extends TelephonyTest {
                 .hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
         assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
                 .hasCapability(NetworkCapabilities.NET_CAPABILITY_SUPL));
+        assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE));
+    }
+
+    @Test
+    @SmallTest
+    public void testEnterpriseNetworkCapability() throws Exception {
+        mContextFixture.getCarrierConfigBundle().putStringArray(
+                CarrierConfigManager.KEY_CARRIER_METERED_APN_TYPES_STRINGS,
+                new String[] { "default" });
+        doReturn(mApn2).when(mApnContext).getApnSetting();
+        testConnectEvent();
+
+        assertTrue("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_DUN));
+        assertTrue("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
+        assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_MMS));
+        assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE));
+
+        disconnectEvent();
+        setUpDefaultData();
+        replaceInstance(ConnectionParams.class, "mApnContext", mCp, mEnterpriseApnContext);
+        doReturn(mApn1).when(mEnterpriseApnContext).getApnSetting();
+        doReturn(ApnSetting.TYPE_ENTERPRISE_STRING).when(mEnterpriseApnContext).getApnType();
+        doReturn(ApnSetting.TYPE_ENTERPRISE).when(mEnterpriseApnContext).getApnTypeBitmask();
+        connectEvent(true);
+
+        assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_DUN));
+        assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
+        assertFalse("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_SUPL));
+        assertTrue("capabilities: " + getNetworkCapabilities(), getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE));
     }
 
     @Test
@@ -645,15 +782,6 @@ public class DataConnectionTest extends TelephonyTest {
         mContextFixture.getCarrierConfigBundle().putStringArray(
                 CarrierConfigManager.KEY_CARRIER_METERED_APN_TYPES_STRINGS,
                 new String[] { "default" });
-        // TODO: Remove these checks after b/176119724 is fixed.
-        doReturn((int) TelephonyManager.NETWORK_TYPE_BITMASK_NR)
-                .when(mPhone).getRadioAccessFamily();
-        mContextFixture.getCarrierConfigBundle().putBoolean(
-                CarrierConfigManager.KEY_NETWORK_TEMP_NOT_METERED_SUPPORTED_BOOL, true);
-        doReturn(new TelephonyDisplayInfo(TelephonyManager.NETWORK_TYPE_LTE,
-                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA))
-                .when(mDisplayInfoController).getTelephonyDisplayInfo();
-        doReturn(TelephonyManager.NETWORK_TYPE_LTE).when(mServiceState).getDataNetworkType();
         testConnectEvent();
 
         assertFalse(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_METERED));
@@ -661,12 +789,14 @@ public class DataConnectionTest extends TelephonyTest {
         assertTrue(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_CONGESTED));
 
         mDc.onMeterednessChanged(true);
+        waitForMs(100);
 
         assertFalse(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_METERED));
         assertTrue(getNetworkCapabilities().hasCapability(NET_CAPABILITY_TEMPORARILY_NOT_METERED));
         assertTrue(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_CONGESTED));
 
         mDc.onMeterednessChanged(false);
+        waitForMs(100);
 
         assertFalse(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_METERED));
         assertFalse(getNetworkCapabilities().hasCapability(NET_CAPABILITY_TEMPORARILY_NOT_METERED));
@@ -685,16 +815,28 @@ public class DataConnectionTest extends TelephonyTest {
         assertTrue(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_CONGESTED));
 
         mDc.onCongestednessChanged(true);
+        waitForMs(100);
 
         assertFalse(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_METERED));
         assertFalse(getNetworkCapabilities().hasCapability(NET_CAPABILITY_TEMPORARILY_NOT_METERED));
         assertFalse(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_CONGESTED));
 
         mDc.onCongestednessChanged(false);
+        waitForMs(100);
 
         assertFalse(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_METERED));
         assertFalse(getNetworkCapabilities().hasCapability(NET_CAPABILITY_TEMPORARILY_NOT_METERED));
         assertTrue(getNetworkCapabilities().hasCapability(NET_CAPABILITY_NOT_CONGESTED));
+    }
+
+    @Test
+    public void testSubIds() throws Exception {
+        mContextFixture.getCarrierConfigBundle().putStringArray(
+                CarrierConfigManager.KEY_CARRIER_METERED_APN_TYPES_STRINGS,
+                new String[] { "default" });
+        testConnectEvent();
+
+        assertEquals(Collections.singleton(0), getNetworkCapabilities().getSubIds());
     }
 
     @Test
@@ -717,16 +859,19 @@ public class DataConnectionTest extends TelephonyTest {
         method.setAccessible(true);
 
         doReturn(apn).when(mApnContext).getApnSetting();
-        connectEvent();
+        doReturn(apn.getApnTypeBitmask()).when(mApnContext).getApnTypeBitmask();
+        connectEvent(true);
         logd(getNetworkCapabilities().toString());
 
         return (Boolean) method.invoke(mDc);
     }
 
-    private void connectEvent() throws Exception {
+    private void connectEvent(boolean validate) {
         mDc.sendMessage(DataConnection.EVENT_CONNECT, mCp);
         waitForMs(200);
-        assertEquals("DcActiveState", getCurrentState().getName());
+        if (validate) {
+            assertTrue(mDc.isActive());
+        }
     }
 
     private void disconnectEvent() throws Exception {
@@ -737,7 +882,7 @@ public class DataConnectionTest extends TelephonyTest {
 
     @Test
     @SmallTest
-    public void testIsIpAddress() throws Exception {
+    public void testIsIpAddress() {
         // IPv4
         assertTrue(DataConnection.isIpAddress("1.2.3.4"));
         assertTrue(DataConnection.isIpAddress("127.0.0.1"));
@@ -1041,6 +1186,24 @@ public class DataConnectionTest extends TelephonyTest {
                 new String[] { "default" });
 
         assertTrue(isUnmeteredUseOnly());
+    }
+
+    @Test
+    public void testIsEnterpriseUse() throws Exception {
+        assertFalse(isEnterpriseUse());
+        assertFalse(mDc.getNetworkCapabilities().hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_ENTERPRISE));
+
+        setUpDefaultData();
+        replaceInstance(ConnectionParams.class, "mApnContext", mCp, mEnterpriseApnContext);
+        doReturn(mApn1).when(mEnterpriseApnContext).getApnSetting();
+        doReturn(ApnSetting.TYPE_ENTERPRISE_STRING).when(mEnterpriseApnContext).getApnType();
+        doReturn(ApnSetting.TYPE_ENTERPRISE).when(mEnterpriseApnContext).getApnTypeBitmask();
+        connectEvent(true);
+
+        assertTrue(isEnterpriseUse());
+        assertTrue(mDc.getNetworkCapabilities().hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_ENTERPRISE));
     }
 
     @Test
