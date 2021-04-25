@@ -301,7 +301,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     }
 
     private boolean isNetworkCapabilityEims(NetworkRequest networkRequest) {
-        return networkRequest.networkCapabilities.hasCapability(
+        return networkRequest.hasCapability(
             android.net.NetworkCapabilities.NET_CAPABILITY_EIMS);
     }
 

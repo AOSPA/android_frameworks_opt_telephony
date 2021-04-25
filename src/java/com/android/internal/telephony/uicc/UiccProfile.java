@@ -1717,6 +1717,15 @@ public class UiccProfile extends IccCard {
         return certs.isEmpty() ? null : certs;
     }
 
+    /** @return a list of {@link UiccAccessRule}s, or an empty list if none have been loaded yet. */
+    public List<UiccAccessRule> getCarrierPrivilegeAccessRules() {
+        UiccCarrierPrivilegeRules carrierPrivilegeRules = getCarrierPrivilegeRules();
+        if (carrierPrivilegeRules == null) {
+            return Collections.EMPTY_LIST;
+        }
+        return new ArrayList<>(carrierPrivilegeRules.getAccessRules());
+    }
+
     /**
      * Exposes {@link UiccCarrierPrivilegeRules#getCarrierPackageNamesForIntent}.
      */
