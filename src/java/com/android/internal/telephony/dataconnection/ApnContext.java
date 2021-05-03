@@ -408,15 +408,19 @@ public class ApnContext {
     public void requestNetwork(NetworkRequest networkRequest, @RequestNetworkType int type,
                                Message onCompleteMsg) {
         synchronized (mRefCountLock) {
-            mNetworkRequests.add(networkRequest);
-            logl("requestNetwork for " + networkRequest + ", type="
-                    + DcTracker.requestTypeToString(type));
-            mDcTracker.enableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type,
-                    onCompleteMsg);
-            if (mDataConnection != null) {
-                // New network request added. Should re-evaluate properties of
-                // the data connection. For example, the score may change.
-                mDataConnection.reevaluateDataConnectionProperties();
+            if (mNetworkRequests.contains(networkRequest) == true) {
+                logl("requestNetwork skip duplicate request (" + networkRequest + ")");
+            } else {
+                mNetworkRequests.add(networkRequest);
+                logl("requestNetwork for " + networkRequest + ", type="
+                        + DcTracker.requestTypeToString(type));
+                mDcTracker.enableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type,
+                        onCompleteMsg);
+                if (mDataConnection != null) {
+                    // New network request added. Should re-evaluate properties of
+                    // the data connection. For example, the score may change.
+                    mDataConnection.reevaluateDataConnectionProperties();
+                }
             }
         }
     }
