@@ -890,6 +890,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     private Pair<Boolean, Integer> mPendingSilentRedialInfo = null;
 
     /**
+     * Carrier config which determines whether RTT is allowed while roaming.
+     * See {@link CarrierConfigManager.KEY_RTT_SUPPORTED_WHILE_ROAMING_BOOL} for more information
+     */
+    private boolean mAllowRttWhileRoaming = false;
+
+    /**
      * Default implementation for retrieving shared preferences; uses the actual PreferencesManager.
      */
     private SharedPreferenceProxy mSharedPreferenceProxy = (Context context) -> {
@@ -1592,6 +1598,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 mImsReasonCodeMap.clear();
             }
         }
+
+        mAllowRttWhileRoaming = carrierConfig.getBoolean
+                (CarrierConfigManager.KEY_RTT_SUPPORTED_WHILE_ROAMING_BOOL);
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -1715,17 +1724,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 // being sent to the lower layers/to the network.
             }
 
-            int mode = QtiImsUtils.getRttOperatingMode(mPhone.getPhoneId(), mPhone.getContext());
-            if (DBG) log("RTT: setRttModeBasedOnOperator mode = " + mode);
-
             // Override RTT mode as per operator requirements not supported by AOSP
-            if (isRttSupported() && isRttOn()) {
-                if (DBG) log("dialInternal: RTT is ON and supported");
-                if (isStartRttCall &&
-                        (!profile.isVideoCall() || QtiImsUtils.isRttSupportedOnVtCalls(
-                        mPhone.getPhoneId(),mPhone.getContext()))) {
-                    profile.getMediaProfile().setRttMode(mode);
-                }
+            if (isStartRttCall && canMakeRttCall(profile)) {
+                int mode = QtiImsUtils.getRttOperatingMode(
+                        mPhone.getPhoneId(), mPhone.getContext());
+                if (DBG) log("dialInternal: set RTT operation mode: " + mode);
+                profile.getMediaProfile().setRttMode(mode);
             }
 
             mPhone.getVoiceCallSessionStats().onImsDial(conn);
@@ -5378,6 +5382,29 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     private boolean isRttOn() {
         return QtiImsUtils.isRttOn(mPhone.getPhoneId(), mPhone.getContext());
+    }
+
+    /**
+     * RTT call is allowed if RTT is supported by carrier and RTT setting is ON
+     * and call is not a video call or RTT is supported for video calls.
+     * If device is roaming, either carrier should allow RTT while roaming
+     * or device needs to be registered on WIFI.
+     */
+    private boolean canMakeRttCall(ImsCallProfile profile) {
+        if (!isRttSupported() || !isRttOn()) {
+            return false;
+        }
+        if (profile != null && profile.isVideoCall() && !QtiImsUtils.isRttSupportedOnVtCalls(
+                mPhone.getPhoneId(),mPhone.getContext())) {
+            return false;
+        }
+        if (!mPhone.getDefaultPhone().getServiceState().getRoaming()
+                || mAllowRttWhileRoaming
+                || (mPhone.getImsRegistrationTech()
+                == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN)) {
+            return true;
+        }
+        return false;
     }
 
     @Override
