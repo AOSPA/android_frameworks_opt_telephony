@@ -420,8 +420,8 @@ public class DataConnectionTest extends TelephonyTest {
         if (tdCaptor.getValue() != null) {
             if (mApnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE) {
                 assertEquals(null, tdCaptor.getValue().getDataNetworkName());
-                assertTrue(tdCaptor.getValue().getOsAppId()
-                        .contains(ApnSetting.TYPE_ENTERPRISE_STRING));
+                assertTrue(Arrays.equals(DataConnection.getEnterpriseOsAppId(),
+                        tdCaptor.getValue().getOsAppId()));
             } else {
                 assertEquals("spmode.ne.jp", tdCaptor.getValue().getDataNetworkName());
                 assertEquals(null, tdCaptor.getValue().getOsAppId());
@@ -830,13 +830,13 @@ public class DataConnectionTest extends TelephonyTest {
     }
 
     @Test
-    public void testSubIds() throws Exception {
+    public void testSubscriptionIds() throws Exception {
         mContextFixture.getCarrierConfigBundle().putStringArray(
                 CarrierConfigManager.KEY_CARRIER_METERED_APN_TYPES_STRINGS,
                 new String[] { "default" });
         testConnectEvent();
 
-        assertEquals(Collections.singleton(0), getNetworkCapabilities().getSubIds());
+        assertEquals(Collections.singleton(0), getNetworkCapabilities().getSubscriptionIds());
     }
 
     @Test

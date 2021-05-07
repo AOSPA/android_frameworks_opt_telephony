@@ -70,6 +70,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HwBinder;
 import android.os.Message;
+import android.os.PersistableBundle;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
 import android.os.RemoteException;
@@ -80,6 +81,7 @@ import android.provider.Settings;
 import android.service.carrier.CarrierIdentifier;
 import android.sysprop.TelephonyProperties;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
+import android.telephony.CarrierConfigManager;
 import android.telephony.CarrierRestrictionRules;
 import android.telephony.CellInfo;
 import android.telephony.CellSignalStrengthCdma;
@@ -130,6 +132,7 @@ import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
 import com.android.internal.telephony.uicc.IccUtils;
+import com.android.internal.telephony.util.ArrayUtils;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
 
@@ -1309,10 +1312,39 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
+    private String getEmergencyNumberAddressWithoutPrefix(String address) {
+        SubscriptionManager subscriptionManager = mContext.getSystemService(
+                SubscriptionManager.class);
+        int subId = subscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(
+                mPhoneId).getSubscriptionId();
+        CarrierConfigManager configMgr = mContext.getSystemService(CarrierConfigManager.class);
+        if (configMgr == null) {
+            return null;
+        }
+        PersistableBundle b = configMgr.getConfigForSubId(subId);
+        String[] prefixes = b == null ? null : b.getStringArray(
+                CarrierConfigManager.KEY_EMERGENCY_NUMBER_PREFIX_STRING_ARRAY);
+        if (ArrayUtils.isEmpty(prefixes)) {
+            return address;
+        }
+        for (String prefix : prefixes) {
+            // If emergencyNumber starts with this prefix, remove this prefix to retrieve the
+            // actual emergency number.
+            if (!TextUtils.isEmpty(prefix) && address.startsWith(prefix)) {
+                return address.substring(prefix.length());
+            }
+        }
+        return address;
+    }
+
     @Override
     public void dial(String address, boolean isEmergencyCall, EmergencyNumber emergencyNumberInfo,
                      boolean hasKnownUserIntentEmergency, int clirMode, UUSInfo uusInfo,
                      Message result) {
+        // Remove prefix while dialing emergency number with modem
+        if (isEmergencyCall) {
+            address = getEmergencyNumberAddressWithoutPrefix(address);
+        }
         if (isEmergencyCall && mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_1_4)
                 && emergencyNumberInfo != null) {
             emergencyDial(address, emergencyNumberInfo, hasKnownUserIntentEmergency, clirMode,
@@ -1834,7 +1866,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 try {
                     android.hardware.radio.V1_6.IRadio radioProxy16 =
                             (android.hardware.radio.V1_6.IRadio) radioProxy;
-                    radioProxy16.sendSMSExpectMore_1_6(rr.mSerial, msg);
+                    radioProxy16.sendSmsExpectMore_1_6(rr.mSerial, msg);
                     mMetrics.writeRilSendSms(mPhoneId, rr.mSerial, SmsSession.Event.Tech.SMS_GSM,
                             SmsSession.Event.Format.SMS_FORMAT_3GPP,
                             getOutgoingSmsMessageId(result));
@@ -1974,7 +2006,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         OptionalOsAppId optionalOsAppId = new OptionalOsAppId();
         if (trafficDescriptor.getOsAppId() != null) {
             android.hardware.radio.V1_6.OsAppId osAppId = new android.hardware.radio.V1_6.OsAppId();
-            osAppId.osAppId = primitiveArrayToArrayList(trafficDescriptor.getOsAppId().getBytes());
+            osAppId.osAppId = primitiveArrayToArrayList(trafficDescriptor.getOsAppId());
             optionalOsAppId.value(osAppId);
         }
         td.osAppId = optionalOsAppId;
@@ -3691,7 +3723,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
             }
 
             try {
-                radioProxy16.setNrDualConnectivityState(rr.mSerial, nrDualConnectivityState);
+                radioProxy16.setNrDualConnectivityState(rr.mSerial,
+                        (byte) nrDualConnectivityState);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(rr, "enableNRDualConnectivity", e);
             }
@@ -5073,7 +5106,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
             }
 
             try {
-                radioProxy16.setDataThrottling(rr.mSerial, dataThrottlingAction,
+                radioProxy16.setDataThrottling(rr.mSerial, (byte) dataThrottlingAction,
                         completionWindowMillis);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(rr, "setDataThrottling", e);
@@ -5578,7 +5611,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
                     for (byte b : imsiEncryptionInfo.getPublicKey().getEncoded()) {
                         halImsiInfo.base.carrierKey.add(new Byte(b));
                     }
-                    halImsiInfo.keyType = imsiEncryptionInfo.getKeyType();
+                    halImsiInfo.keyType = (byte) imsiEncryptionInfo.getKeyType();
 
                     radioProxy16.setCarrierInfoForImsiEncryption_1_6(
                             rr.mSerial, halImsiInfo);
@@ -7004,9 +7037,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
             case RIL_REQUEST_SET_DATA_THROTTLING:
                 return "RIL_REQUEST_SET_DATA_THROTTLING";
             case RIL_REQUEST_SET_ALLOWED_NETWORK_TYPES_BITMAP:
-                return "RIL_REQUEST_SET_ALLOWED_NETWORK_TYPE_BITMAP";
+                return "RIL_REQUEST_SET_ALLOWED_NETWORK_TYPES_BITMAP";
             case RIL_REQUEST_GET_ALLOWED_NETWORK_TYPES_BITMAP:
-                return "RIL_REQUEST_GET_ALLOWED_NETWORK_TYPE_BITMAP";
+                return "RIL_REQUEST_GET_ALLOWED_NETWORK_TYPES_BITMAP";
             case RIL_REQUEST_GET_SLICING_CONFIG:
                 return "RIL_REQUEST_GET_SLICING_CONFIG";
             case RIL_REQUEST_GET_ENHANCED_RADIO_CAPABILITY:
@@ -7737,8 +7770,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
             android.hardware.radio.V1_6.TrafficDescriptor td) {
         String dnn = td.dnn.getDiscriminator() == OptionalDnn.hidl_discriminator.noinit
                 ? null : td.dnn.value();
-        String osAppId = td.osAppId.getDiscriminator() == OptionalOsAppId.hidl_discriminator.noinit
-                ? null : new String(arrayListToPrimitiveArray(td.osAppId.value().osAppId));
+        byte[] osAppId = td.osAppId.getDiscriminator() == OptionalOsAppId.hidl_discriminator.noinit
+                ? null : arrayListToPrimitiveArray(td.osAppId.value().osAppId);
         TrafficDescriptor.Builder builder = new TrafficDescriptor.Builder();
         if (dnn != null) {
             builder.setDataNetworkName(dnn);

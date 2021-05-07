@@ -744,7 +744,7 @@ public class DcTracker extends Handler {
 
         mTransportType = transportType;
         mDataServiceManager = new DataServiceManager(phone, transportType, tagSuffix);
-        mDataThrottler = new DataThrottler(mPhone.getPhoneId(), transportType);
+        mDataThrottler = new DataThrottler(mPhone, transportType);
 
         mResolver = mPhone.getContext().getContentResolver();
         mAlarmManager =
@@ -827,8 +827,6 @@ public class DcTracker extends Handler {
                 DctConstants.EVENT_PS_RESTRICT_DISABLED, null);
         mPhone.getServiceStateTracker().registerForDataRegStateOrRatChanged(mTransportType, this,
                 DctConstants.EVENT_DATA_RAT_CHANGED, null);
-        mPhone.getServiceStateTracker().registerForAirplaneModeChanged(this,
-                DctConstants.EVENT_AIRPLANE_MODE_CHANGED, null);
     }
 
     public void unregisterServiceStateTrackerEvents() {
@@ -1428,6 +1426,19 @@ public class DcTracker extends Handler {
         }
 
         if (apnContext != null) {
+            if (mPhone.getTransportManager().getPreferredTransport(
+                    apnContext.getApnTypeBitmask())
+                    == AccessNetworkConstants.TRANSPORT_TYPE_INVALID) {
+                // If QNS explicitly specified this APN type is not allowed on either cellular or
+                // IWLAN, we should not allow data setup.
+                reasons.add(DataDisallowedReasonType.DISABLED_BY_QNS);
+            } else if (mTransportType != mPhone.getTransportManager().getPreferredTransport(
+                    apnContext.getApnTypeBitmask())) {
+                // If the latest preference has already switched to other transport, we should not
+                // allow data setup.
+                reasons.add(DataDisallowedReasonType.ON_OTHER_TRANSPORT);
+            }
+
             // If the transport has been already switched to the other transport, we should not
             // allow the data setup. The only exception is the handover case, where we setup
             // handover data connection before switching the transport.
@@ -1564,6 +1575,15 @@ public class DcTracker extends Handler {
         String logStr = "trySetupData for APN type " + apnContext.getApnType() + ", reason: "
                 + apnContext.getReason() + ", requestType=" + requestTypeToString(requestType)
                 + ". " + dataConnectionReasons.toString();
+        if (dataConnectionReasons.contains(DataDisallowedReasonType.DISABLED_BY_QNS)
+                || dataConnectionReasons.contains(DataDisallowedReasonType.ON_OTHER_TRANSPORT)) {
+            logStr += ", current transport=" + AccessNetworkConstants.transportTypeToString(
+                    mPhone.getTransportManager().getCurrentTransport(
+                            apnContext.getApnTypeBitmask()));
+            logStr += ", preferred transport=" + AccessNetworkConstants.transportTypeToString(
+                    mPhone.getTransportManager().getPreferredTransport(
+                            apnContext.getApnTypeBitmask()));
+        }
         if (DBG) log(logStr);
         apnContext.requestLog(logStr);
         if (isDataAllowed) {
@@ -3385,6 +3405,7 @@ public class DcTracker extends Handler {
     public boolean areAllDataDisconnected() {
         for (DataConnection dc : mDataConnections.values()) {
             if (!dc.isInactive()) {
+                if (DBG) log("areAllDataDisconnected false due to DC: " + dc);
                 return false;
             }
         }
@@ -4175,13 +4196,6 @@ public class DcTracker extends Handler {
                 String apn = (String) ar.result;
                 onApnUnthrottled(apn);
                 break;
-            case DctConstants.EVENT_AIRPLANE_MODE_CHANGED:
-                ar = (AsyncResult) msg.obj;
-                if (!(Boolean) ar.result) {
-                    log("Airplane Mode switched off, resetting data throttler");
-                    mDataThrottler.reset();
-                }
-                break;
             default:
                 Rlog.e("DcTracker", "Unhandled event=" + msg);
                 break;
@@ -4296,6 +4310,7 @@ public class DcTracker extends Handler {
     private void notifyAllDataDisconnected() {
         sEnableFailFastRefCounter = 0;
         mFailFast = false;
+        log("notify all data disconnected");
         mAllDataDisconnectedRegistrants.notifyRegistrants();
     }
 
@@ -4303,7 +4318,6 @@ public class DcTracker extends Handler {
         mAllDataDisconnectedRegistrants.addUnique(h, what, null);
 
         if (areAllDataDisconnected()) {
-            log("notify All Data Disconnected");
             notifyAllDataDisconnected();
         }
     }
