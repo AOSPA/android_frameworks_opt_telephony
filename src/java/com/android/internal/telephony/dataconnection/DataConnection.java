@@ -109,6 +109,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -116,6 +117,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -140,6 +142,12 @@ public class DataConnection extends StateMachine {
 
     private static final String RAT_NAME_5G = "nr";
     private static final String RAT_NAME_EVDO = "evdo";
+
+    /**
+     * OSId for "Android", using UUID version 5 with namespace ISO OSI.
+     * Prepended to the OsAppId in TrafficDescriptor to use for URSP matching.
+     */
+    private static final UUID OS_ID = UUID.fromString("97a498e3-fc92-5c94-8986-0333d06e4e47");
 
     private static final int MIN_V6_MTU = 1280;
 
@@ -845,6 +853,23 @@ public class DataConnection extends StateMachine {
     }
 
     /**
+     * API to generate the OsAppId for enterprise traffic category.
+     * @return byte[] representing OsId + length of OsAppId + OsAppId
+     */
+    @VisibleForTesting
+    public static byte[] getEnterpriseOsAppId() {
+        byte[] osAppId = NetworkCapabilities.getCapabilityCarrierName(
+                NetworkCapabilities.NET_CAPABILITY_ENTERPRISE).getBytes();
+        // 16 bytes for UUID, 1 byte for length of osAppId, and up to 255 bytes for osAppId
+        ByteBuffer bb = ByteBuffer.allocate(16 + 1 + osAppId.length);
+        bb.putLong(OS_ID.getMostSignificantBits());
+        bb.putLong(OS_ID.getLeastSignificantBits());
+        bb.put((byte) osAppId.length);
+        bb.put(osAppId);
+        return bb.array();
+    }
+
+    /**
      * Begin setting up a data connection, calls setupDataCall
      * and the ConnectionParams will be returned with the
      * EVENT_SETUP_DATA_CONNECTION_DONE
@@ -908,10 +933,9 @@ public class DataConnection extends StateMachine {
                 || isUnmeteredApnType));
 
         String dnn = null;
-        String osAppId = null;
+        byte[] osAppId = null;
         if (cp.mApnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE) {
-            osAppId = NetworkCapabilities.getCapabilityCarrierName(
-                    NetworkCapabilities.NET_CAPABILITY_ENTERPRISE);
+            osAppId = getEnterpriseOsAppId();
         } else {
             dnn = mApnSetting.getApnName();
         }
@@ -1380,6 +1404,9 @@ public class DataConnection extends StateMachine {
         } else if (resultCode == DataServiceCallback.RESULT_ERROR_ILLEGAL_STATE) {
             result = SetupResult.ERROR_RADIO_NOT_AVAILABLE;
             result.mFailCause = DataFailCause.RADIO_NOT_AVAILABLE;
+        } else if (resultCode == DataServiceCallback.RESULT_ERROR_INVALID_ARG) {
+            result = SetupResult.ERROR_INVALID_ARG;
+            result.mFailCause = DataFailCause.UNACCEPTABLE_NETWORK_PARAMETER;
         } else if (response.getCause() != 0) {
             if (response.getCause() == DataFailCause.RADIO_NOT_AVAILABLE) {
                 result = SetupResult.ERROR_RADIO_NOT_AVAILABLE;
@@ -1392,10 +1419,12 @@ public class DataConnection extends StateMachine {
                 && mDcController.getActiveDcByCid(response.getId()) != null) {
             if (DBG) log("DataConnection already exists for cid: " + response.getId());
             result = SetupResult.ERROR_DUPLICATE_CID;
+            result.mFailCause = DataFailCause.DUPLICATE_CID;
         } else if (cp.mApnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE
                 && !mDcController.isDefaultDataActive()) {
             if (DBG) log("No default data connection currently active");
             result = SetupResult.ERROR_NO_DEFAULT_CONNECTION;
+            result.mFailCause = DataFailCause.NO_DEFAULT_DATA;
         } else {
             if (DBG) log("onSetupConnectionCompleted received successful DataCallResponse");
             mCid = response.getId();
@@ -1789,9 +1818,8 @@ public class DataConnection extends StateMachine {
     private boolean isEnterpriseUse() {
         boolean enterpriseTrafficDescriptor = mTrafficDescriptors
                 .stream()
-                .anyMatch(td -> td.getOsAppId() != null && td.getOsAppId().equals(
-                        NetworkCapabilities.getCapabilityCarrierName(
-                                NetworkCapabilities.NET_CAPABILITY_ENTERPRISE)));
+                .anyMatch(td -> td.getOsAppId() != null && Arrays.equals(td.getOsAppId(),
+                        getEnterpriseOsAppId()));
         boolean enterpriseApnContext = mApnContexts.keySet()
                 .stream()
                 .anyMatch(ac -> ac.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE);
@@ -1916,7 +1944,7 @@ public class DataConnection extends StateMachine {
 
         builder.setNetworkSpecifier(new TelephonyNetworkSpecifier.Builder()
                 .setSubscriptionId(mSubId).build());
-        builder.setSubIds(Collections.singleton(mSubId));
+        builder.setSubscriptionIds(Collections.singleton(mSubId));
 
         if (!mPhone.getServiceState().getDataRoaming()) {
             builder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING);
@@ -2643,9 +2671,27 @@ public class DataConnection extends StateMachine {
                         case ERROR_DUPLICATE_CID:
                             // TODO (b/180988471): Properly handle the case when an existing cid is
                             // returned by tearing down the network agent if enterprise changed.
+                            long retry = RetryManager.NO_SUGGESTED_RETRY_DELAY;
+                            if (cp.mApnContext != null) {
+                                retry = RetryManager.NO_RETRY;
+                                mDct.getDataThrottler().setRetryTime(
+                                        cp.mApnContext.getApnTypeBitmask(),
+                                        retry, DcTracker.REQUEST_TYPE_NORMAL);
+                            }
+                            String logStr = "DcActivatingState: "
+                                    + DataFailCause.toString(result.mFailCause)
+                                    + " retry=" + retry;
+                            if (DBG) log(logStr);
+                            if (cp.mApnContext != null) cp.mApnContext.requestLog(logStr);
+                            mInactiveState.setEnterNotificationParams(cp, result.mFailCause,
+                                    DataCallResponse.HANDOVER_FAILURE_MODE_UNKNOWN);
+                            transitionTo(mInactiveState);
+                            break;
                         case ERROR_NO_DEFAULT_CONNECTION:
                             // TODO (b/180988471): Properly handle the case when a default data
-                            // connection doesn't exist.
+                            // connection doesn't exist (tear down connection and retry).
+                            // Currently, this just tears down the connection without retry.
+                            if (DBG) log("DcActivatingState: NO_DEFAULT_DATA");
                         case ERROR_INVALID_ARG:
                             // The addresses given from the RIL are bad
                             tearDownData(cp);
@@ -2765,7 +2811,7 @@ public class DataConnection extends StateMachine {
             if (carrierSignalAgent.hasRegisteredReceivers(TelephonyManager
                     .ACTION_CARRIER_SIGNAL_REDIRECTED)) {
                 // carrierSignal Receivers will place the carrier-specific provisioning notification
-                configBuilder.disableProvisioningNotification();
+                configBuilder.setProvisioningNotificationEnabled(false);
             }
 
             final String subscriberId = mPhone.getSubscriberId();
@@ -2775,7 +2821,7 @@ public class DataConnection extends StateMachine {
 
             // set skip464xlat if it is not default otherwise
             if (shouldSkip464Xlat()) {
-                configBuilder.disableNat64Detection();
+                configBuilder.setNat64DetectionEnabled(false);
             }
 
             mUnmeteredUseOnly = isUnmeteredUseOnly();
