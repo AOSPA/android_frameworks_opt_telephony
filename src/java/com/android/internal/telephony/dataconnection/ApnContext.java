@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.dataconnection;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
@@ -103,7 +104,7 @@ public class ApnContext {
      * @param priority Priority of APN type
      */
     public ApnContext(Phone phone, int typeId, String logTag, DcTracker tracker, int priority) {
-        this(phone, ApnSetting.getApnTypeStringInternal(typeId), logTag, tracker, priority);
+        this(phone, ApnSetting.getApnTypeString(typeId), logTag, tracker, priority);
     }
 
     /**
@@ -256,7 +257,7 @@ public class ApnContext {
      * Get the list of waiting APNs.
      * @return the list of waiting APNs
      */
-    public ArrayList<ApnSetting> getWaitingApns() {
+    public @NonNull ArrayList<ApnSetting> getWaitingApns() {
         return mRetryManager.getWaitingApns();
     }
 
@@ -289,10 +290,8 @@ public class ApnContext {
         }
 
         if (mState == DctConstants.State.FAILED) {
-            if (mRetryManager.getWaitingApns() != null) {
-                // when teardown the connection and set to IDLE
-                mRetryManager.getWaitingApns().clear();
-            }
+            // when teardown the connection and set to IDLE
+            mRetryManager.getWaitingApns().clear();
         }
     }
 
@@ -405,8 +404,16 @@ public class ApnContext {
         }
     }
 
+    /**
+     * Request a network
+     *
+     * @param networkRequest Network request from clients
+     * @param type The request type
+     * @param onHandoverCompleteMsg When request type is handover, this message will be sent when
+     * handover is completed. For normal request, this should be null.
+     */
     public void requestNetwork(NetworkRequest networkRequest, @RequestNetworkType int type,
-                               Message onCompleteMsg) {
+            Message onHandoverCompleteMsg) {
         synchronized (mRefCountLock) {
             if (mNetworkRequests.contains(networkRequest) == true) {
                 logl("requestNetwork skip duplicate request (" + networkRequest + ")");
@@ -415,7 +422,7 @@ public class ApnContext {
                 logl("requestNetwork for " + networkRequest + ", type="
                         + DcTracker.requestTypeToString(type));
                 mDcTracker.enableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type,
-                        onCompleteMsg);
+                        onHandoverCompleteMsg);
                 if (mDataConnection != null) {
                     // New network request added. Should re-evaluate properties of
                     // the data connection. For example, the score may change.

@@ -197,23 +197,20 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 }
                 case EVENT_DATA_HANDOVER_COMPLETED: {
                     Bundle bundle = msg.getData();
-                    int requestType = bundle.getInt(DcTracker.DATA_COMPLETE_MSG_EXTRA_REQUEST_TYPE);
-                    if (requestType == DcTracker.REQUEST_TYPE_HANDOVER) {
-                        NetworkRequest nr = bundle.getParcelable(
-                                DcTracker.DATA_COMPLETE_MSG_EXTRA_NETWORK_REQUEST);
-                        boolean success = bundle.getBoolean(
-                                DcTracker.DATA_COMPLETE_MSG_EXTRA_SUCCESS);
-                        int transport = bundle.getInt(
-                                DcTracker.DATA_COMPLETE_MSG_EXTRA_TRANSPORT_TYPE);
-                        boolean fallback = bundle.getBoolean(
-                                DcTracker.DATA_COMPLETE_MSG_EXTRA_HANDOVER_FAILURE_FALLBACK);
-                        HandoverParams handoverParams = mPendingHandovers.remove(msg);
-                        if (handoverParams != null) {
-                            onDataHandoverSetupCompleted(nr, success, transport, fallback,
-                                    handoverParams);
-                        } else {
-                            logl("Handover completed but cannot find handover entry!");
-                        }
+                    NetworkRequest nr = bundle.getParcelable(
+                            DcTracker.DATA_COMPLETE_MSG_EXTRA_NETWORK_REQUEST);
+                    boolean success = bundle.getBoolean(
+                            DcTracker.DATA_COMPLETE_MSG_EXTRA_SUCCESS);
+                    int transport = bundle.getInt(
+                            DcTracker.DATA_COMPLETE_MSG_EXTRA_TRANSPORT_TYPE);
+                    boolean fallback = bundle.getBoolean(
+                            DcTracker.DATA_COMPLETE_MSG_EXTRA_HANDOVER_FAILURE_FALLBACK);
+                    HandoverParams handoverParams = mPendingHandovers.remove(msg);
+                    if (handoverParams != null) {
+                        onDataHandoverSetupCompleted(nr, success, transport, fallback,
+                                handoverParams);
+                    } else {
+                        logl("Handover completed but cannot find handover entry!");
                     }
                     break;
                 }
@@ -226,12 +223,20 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         return mTransportManager.getCurrentTransport(apnType);
     }
 
+    /**
+     * Request network
+     *
+     * @param networkRequest Network request from clients
+     * @param requestType The request type
+     * @param transport Transport type
+     * @param onHandoverCompleteMsg When request type is handover, this message will be sent when
+     * handover is completed. For normal request, this should be null.
+     */
     private void requestNetworkInternal(NetworkRequest networkRequest,
-                                        @RequestNetworkType int requestType,
-                                        int transport, Message onCompleteMsg) {
+            @RequestNetworkType int requestType, int transport, Message onHandoverCompleteMsg) {
         if (mPhone.getDcTracker(transport) != null) {
             mPhone.getDcTracker(transport).requestNetwork(networkRequest, requestType,
-                    onCompleteMsg);
+                    onHandoverCompleteMsg);
         }
     }
 
@@ -358,11 +363,11 @@ public class TelephonyNetworkFactory extends NetworkFactory {
 
     private void onDataHandoverNeeded(@ApnType int apnType, int targetTransport,
                                       HandoverParams handoverParams) {
-        log("onDataHandoverNeeded: apnType=" + ApnSetting.getApnTypeStringInternal(apnType)
+        log("onDataHandoverNeeded: apnType=" + ApnSetting.getApnTypeString(apnType)
                 + ", target transport="
                 + AccessNetworkConstants.transportTypeToString(targetTransport));
         if (mTransportManager.getCurrentTransport(apnType) == targetTransport) {
-            log("APN type " + ApnSetting.getApnTypeStringInternal(apnType) + " is already on "
+            log("APN type " + ApnSetting.getApnTypeString(apnType) + " is already on "
                     + AccessNetworkConstants.transportTypeToString(targetTransport));
             handoverParams.callback.onCompleted(true, false);
             return;
@@ -379,7 +384,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 DcTracker dcTracker = mPhone.getDcTracker(currentTransport);
                 if (dcTracker != null) {
                     DataConnection dc = dcTracker.getDataConnectionByApnType(
-                            ApnSetting.getApnTypeStringInternal(apnType));
+                            ApnSetting.getApnTypeString(apnType));
                     if (dc != null && (dc.isActive())) {
                         Message onCompleteMsg = mInternalHandler.obtainMessage(
                                 EVENT_DATA_HANDOVER_COMPLETED);
@@ -388,7 +393,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                         mPendingHandovers.put(onCompleteMsg, handoverParams);
                         requestNetworkInternal(networkRequest, DcTracker.REQUEST_TYPE_HANDOVER,
                                 targetTransport, onCompleteMsg);
-                        log("Requested handover " + ApnSetting.getApnTypeStringInternal(apnType)
+                        log("Requested handover " + ApnSetting.getApnTypeString(apnType)
                                 + " to "
                                 + AccessNetworkConstants.transportTypeToString(targetTransport));
                         handoverPending = true;
@@ -452,6 +457,13 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 // This network is released already, so tear down data call immediately.
                 releaseNetworkInternal(networkRequest,
                         DcTracker.RELEASE_TYPE_DETACH, targetTransport);
+            }
+        } else {
+            // If handover fails and requires to fallback, the context of target transport needs to
+            // be released
+            if (!success) {
+                releaseNetworkInternal(networkRequest,
+                        DcTracker.RELEASE_TYPE_NORMAL, targetTransport);
             }
         }
 
