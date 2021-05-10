@@ -321,7 +321,9 @@ public class PhoneFactory {
 
             int cdmaSubscription = CdmaSubscriptionSourceManager.getDefault(context);
             for (int i = prevActiveModemCount; i < activeModemCount; i++) {
-                sCommandsInterfaces[i] = new RIL(context, RadioAccessFamily.getRafFromNetworkType(
+                sCommandsInterfaces[i] = TelephonyComponentFactory.getInstance().inject(
+                        RIL.class.getName()).
+                        makeRIL(context, RadioAccessFamily.getRafFromNetworkType(
                         RILConstants.PREFERRED_NETWORK_MODE),
                         cdmaSubscription, i);
                 sPhones[i] = createPhone(context, i);

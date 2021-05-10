@@ -825,7 +825,7 @@ public class PhoneSwitcher extends Handler {
         }
     }
 
-    private synchronized void onMultiSimConfigChanged(int activeModemCount) {
+    protected synchronized void onMultiSimConfigChanged(int activeModemCount) {
         // No change.
         if (mActiveModemCount == activeModemCount) return;
         int oldActiveModemCount = mActiveModemCount;

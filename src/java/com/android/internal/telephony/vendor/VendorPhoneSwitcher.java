@@ -47,6 +47,7 @@ import com.android.internal.telephony.dataconnection.DcRequest;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
 
+import static java.util.Arrays.copyOf;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -64,13 +65,13 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
     private final int USER_INITIATED_SWITCH = 0;
     private final int NONUSER_INITIATED_SWITCH = 1;
     protected final String PROPERTY_TEMP_DDSSWITCH = "persist.vendor.radio.enable_temp_dds";
-    protected final GsmCdmaCall[] mFgCsCalls;
-    protected final GsmCdmaCall[] mBgCsCalls;
-    protected final GsmCdmaCall[] mRiCsCalls;
-    protected final ImsPhone[] mImsPhones;
-    protected final ImsPhoneCall[] mFgImsCalls;
-    protected final ImsPhoneCall[] mBgImsCalls;
-    protected final ImsPhoneCall[] mRiImsCalls;
+    protected GsmCdmaCall[] mFgCsCalls;
+    protected GsmCdmaCall[] mBgCsCalls;
+    protected GsmCdmaCall[] mRiCsCalls;
+    protected ImsPhone[] mImsPhones;
+    protected ImsPhoneCall[] mFgImsCalls;
+    protected ImsPhoneCall[] mBgImsCalls;
+    protected ImsPhoneCall[] mRiImsCalls;
 
     private final int EVENT_ALLOW_DATA_FALSE_RESPONSE  = 201;
     private final int EVENT_ALLOW_DATA_TRUE_RESPONSE   = 202;
@@ -631,6 +632,40 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
             }
         }
         return isValid;
+    }
+
+    @Override
+    protected synchronized void onMultiSimConfigChanged(int activeModemCount) {
+        super.onMultiSimConfigChanged(activeModemCount);
+        int prevModemCount = mImsPhones.length;
+        if (prevModemCount == activeModemCount) return;
+        // if switching from SS to DSDS, increase the array size.
+        // Do not decrease for DSDS to SS, as ABSENT sim state is sent for second slot
+        if (prevModemCount < activeModemCount) {
+            mSimStates = copyOf(mSimStates, activeModemCount);
+        }
+        mAllowDataFailure = copyOf(mAllowDataFailure, activeModemCount);
+        mImsPhones = copyOf(mImsPhones, activeModemCount);
+        mFgCsCalls = copyOf(mFgCsCalls, activeModemCount);
+        mBgCsCalls = copyOf(mBgCsCalls, activeModemCount);
+        mRiCsCalls = copyOf(mRiCsCalls, activeModemCount);
+        mFgImsCalls = copyOf(mFgImsCalls, activeModemCount);
+        mBgImsCalls = copyOf(mBgImsCalls, activeModemCount);
+        mRiImsCalls = copyOf(mRiImsCalls, activeModemCount);
+
+        for (int i = 0; i < mActiveModemCount; i++) {
+            if (PhoneFactory.getPhone(i) != null) {
+                mFgCsCalls[i] = (GsmCdmaCall) PhoneFactory.getPhone(i).getForegroundCall();
+                mBgCsCalls[i] = (GsmCdmaCall) PhoneFactory.getPhone(i).getBackgroundCall();
+                mRiCsCalls[i] = (GsmCdmaCall) PhoneFactory.getPhone(i).getRingingCall();
+            }
+            mImsPhones[i] = (ImsPhone)PhoneFactory.getPhone(i).getImsPhone();
+            if (mImsPhones[i] != null) {
+                mFgImsCalls[i] = mImsPhones[i].getForegroundCall();
+                mBgImsCalls[i] = mImsPhones[i].getBackgroundCall();
+                mRiImsCalls[i] = mImsPhones[i].getRingingCall();
+            }
+        }
     }
 
     /*
