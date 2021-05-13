@@ -333,7 +333,7 @@ public class SubscriptionInfoUpdater extends Handler {
         }
     }
 
-    private void onMultiSimConfigChanged() {
+    protected void onMultiSimConfigChanged() {
         int activeModemCount = ((TelephonyManager) sContext.getSystemService(
                 Context.TELEPHONY_SERVICE)).getActiveModemCount();
         // For inactive modems, reset its states.
