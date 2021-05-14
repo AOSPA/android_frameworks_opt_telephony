@@ -4774,6 +4774,13 @@ public class DcTracker extends Handler {
         boolean isEmergencyApnConfigured = false;
         boolean isImsApnConfigured = false;
 
+        //Add default apn setting for ia if no APN is present.
+        if (mAllApnSettings.isEmpty()) {
+            mAllApnSettings.add(buildDefaultApnSetting(
+                    "DEFAULT IA", "", ApnSetting.TYPE_IA));
+            log("default IA empty(null) apn is created");
+        }
+
         for (ApnSetting apn : mAllApnSettings) {
             if (apn.canHandleType(ApnSetting.TYPE_EMERGENCY)) {
                 isEmergencyApnConfigured = true;
@@ -4789,8 +4796,10 @@ public class DcTracker extends Handler {
 
         // Add default apn setting for emergency service if it is not present
         if (!isEmergencyApnConfigured) {
+            String apn = mPhone.getContext().getResources().
+                    getString(com.android.internal.R.string.config_emergency_apn);
             mAllApnSettings.add(buildDefaultApnSetting(
-                    "DEFAULT EIMS", "sos", ApnSetting.TYPE_EMERGENCY));
+                    "DEFAULT EIMS", apn, ApnSetting.TYPE_EMERGENCY));
             log("default emergency apn is created");
         }
 
