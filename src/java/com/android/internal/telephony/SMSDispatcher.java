@@ -43,6 +43,7 @@ import android.os.AsyncResult;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.Process;
@@ -63,6 +64,8 @@ import android.text.Html;
 import android.text.Spanned;
 import android.text.TextUtils;
 import android.util.EventLog;
+import android.util.IndentingPrintWriter;
+import android.util.LocalLog;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -81,6 +84,8 @@ import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccController;
 import com.android.telephony.Rlog;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -150,6 +155,7 @@ public abstract class SMSDispatcher extends Handler {
     protected final CommandsInterface mCi;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected final TelephonyManager mTelephonyManager;
+    protected final LocalLog mLocalLog = new LocalLog(16);
 
     /** Maximum number of times to retry sending a failed SMS. */
     protected static final int MAX_SEND_RETRIES = 3;
@@ -174,6 +180,9 @@ public abstract class SMSDispatcher extends Handler {
     /* Flags indicating whether the current device allows sms service */
     protected boolean mSmsCapable = true;
     protected boolean mSmsSendDisabled;
+
+    @VisibleForTesting
+    public int mCarrierMessagingTimeout = 10 * 60 * 1000; //10 minutes
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected static int getNextConcatenatedRef() {
@@ -345,19 +354,23 @@ public abstract class SMSDispatcher extends Handler {
     /**
      * Use the carrier messaging service to send a data or text SMS.
      */
-    protected abstract class SmsSender {
+    protected abstract class SmsSender extends Handler {
+        private static final int EVENT_TIMEOUT = 1;
         protected final SmsTracker mTracker;
         // Initialized in sendSmsByCarrierApp
         protected volatile SmsSenderCallback mSenderCallback;
         protected final CarrierMessagingServiceWrapper mCarrierMessagingServiceWrapper =
                 new CarrierMessagingServiceWrapper();
+        private String mCarrierPackageName;
 
         protected SmsSender(SmsTracker tracker) {
+            super(Looper.getMainLooper());
             mTracker = tracker;
         }
 
         public void sendSmsByCarrierApp(String carrierPackageName,
                                         SmsSenderCallback senderCallback) {
+            mCarrierPackageName = carrierPackageName;
             mSenderCallback = senderCallback;
             if (!mCarrierMessagingServiceWrapper.bindToCarrierMessagingService(
                     mContext, carrierPackageName, runnable -> runnable.run(),
@@ -368,10 +381,33 @@ public abstract class SMSDispatcher extends Handler {
                         0 /* messageRef */);
             } else {
                 Rlog.d(TAG, "bindService() for carrier messaging service succeeded");
+                sendMessageDelayed(obtainMessage(EVENT_TIMEOUT), mCarrierMessagingTimeout);
             }
         }
 
         public abstract void onServiceReady();
+
+        @Override
+        public void handleMessage(Message msg) {
+            if (msg.what == EVENT_TIMEOUT) {
+                logWithLocalLog("handleMessage: did not receive response from "
+                        + mCarrierPackageName + " for " + mCarrierMessagingTimeout + " ms");
+                mSenderCallback.onSendSmsComplete(
+                        CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK,
+                        0 /* messageRef */);
+            } else {
+                logWithLocalLog("handleMessage: received unexpected message " + msg.what);
+            }
+        }
+
+        public void removeTimeout() {
+            removeMessages(EVENT_TIMEOUT);
+        }
+    }
+
+    private void logWithLocalLog(String logStr) {
+        mLocalLog.log(logStr);
+        Rlog.d(TAG, logStr);
     }
 
     /**
@@ -399,7 +435,7 @@ public abstract class SMSDispatcher extends Handler {
                             runnable -> runnable.run(),
                             mSenderCallback);
                 } catch (RuntimeException e) {
-                    Rlog.e(TAG, "Exception sending the SMS: " + e);
+                    Rlog.e(TAG, "Exception sending the SMS: " + e.getMessage());
                     mSenderCallback.onSendSmsComplete(
                             CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK,
                             0 /* messageRef */);
@@ -469,11 +505,11 @@ public abstract class SMSDispatcher extends Handler {
          */
         @Override
         public void onSendSmsComplete(int result, int messageRef) {
-            checkCallerIsPhoneOrCarrierApp();
             final long identity = Binder.clearCallingIdentity();
             try {
                 mSmsSender.mCarrierMessagingServiceWrapper.disconnect();
                 processSendSmsResponse(mSmsSender.mTracker, result, messageRef);
+                mSmsSender.removeTimeout();
             } finally {
                 Binder.restoreCallingIdentity(identity);
             }
@@ -629,7 +665,6 @@ public abstract class SMSDispatcher extends Handler {
                 return;
             }
 
-            checkCallerIsPhoneOrCarrierApp();
             final long identity = Binder.clearCallingIdentity();
             try {
                 processSendMultipartSmsResponse(mSmsSender.mTrackers, result, messageRefs);
@@ -2419,7 +2454,7 @@ public abstract class SMSDispatcher extends Handler {
         if (mSmsDispatchersController != null) {
             return mSmsDispatchersController.isIms();
         } else {
-            Rlog.e(TAG, "mSmsDispatchersController  is null");
+            Rlog.e(TAG, "mSmsDispatchersController is null");
             return false;
         }
     }
@@ -2496,5 +2531,19 @@ public abstract class SMSDispatcher extends Handler {
         } finally {
             Binder.restoreCallingIdentity(token);
         }
+    }
+
+    /**
+     * Dump local logs
+     */
+    public void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
+        IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
+        pw.println(TAG);
+        pw.increaseIndent();
+        pw.println("mLocalLog:");
+        pw.increaseIndent();
+        mLocalLog.dump(fd, pw, args);
+        pw.decreaseIndent();
+        pw.decreaseIndent();
     }
 }
