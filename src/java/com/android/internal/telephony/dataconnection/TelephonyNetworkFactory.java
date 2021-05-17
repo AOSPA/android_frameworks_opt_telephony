@@ -134,7 +134,15 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         return makeNetworkFilter(subscriptionId);
     }
 
-    private NetworkCapabilities makeNetworkFilter(int subscriptionId) {
+    /**
+     * Build the network request filter used by this factory.
+     * @param subscriptionId the subscription ID to listen to
+     * @return the filter to send to the system server
+     */
+    // This is used by the test to simulate the behavior of the system server, which is to
+    // send requests that match the network filter.
+    @VisibleForTesting
+    public NetworkCapabilities makeNetworkFilter(int subscriptionId) {
         final NetworkCapabilities.Builder builder = new NetworkCapabilities.Builder()
                 .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_MMS)
@@ -293,7 +301,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     }
 
     private boolean isNetworkCapabilityEims(NetworkRequest networkRequest) {
-        return networkRequest.networkCapabilities.hasCapability(
+        return networkRequest.hasCapability(
             android.net.NetworkCapabilities.NET_CAPABILITY_EIMS);
     }
 
@@ -303,11 +311,11 @@ public class TelephonyNetworkFactory extends NetworkFactory {
 
     private void onNeedNetworkFor(Message msg) {
         NetworkRequest networkRequest = (NetworkRequest) msg.obj;
-        if (networkRequest.type != NetworkRequest.Type.REQUEST &&
-                 networkRequest.type != NetworkRequest.Type.BACKGROUND_REQUEST) {
-           logl("Skip non REQUEST/BACKGROUND_REQUEST type request: " + networkRequest);
-           return;
-        }
+        //        if (networkRequest.type != NetworkRequest.Type.REQUEST &&
+        //       networkRequest.type != NetworkRequest.Type.BACKGROUND_REQUEST) {
+        // logl("Skip non REQUEST/BACKGROUND_REQUEST type request: " + networkRequest);
+        // return;
+        //}
         boolean shouldApply = mPhoneSwitcher.shouldApplyNetworkRequest(
                 networkRequest, mPhone.getPhoneId());
 

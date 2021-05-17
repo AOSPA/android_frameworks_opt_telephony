@@ -47,6 +47,7 @@ import com.android.internal.telephony.dataconnection.DcRequest;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
 
+import static java.util.Arrays.copyOf;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -55,7 +56,6 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
     private final int MAX_CONNECT_FAILURE_COUNT = 5;
     private final int[] mRetryArray =  new int []{5,10,20,40,60};
     private int[] mAllowDataFailure;
-    private boolean[] mDdsRequestSent;
     private boolean mManualDdsSwitch = false;
     private int mDefaultDataPhoneId = -1;
     private String [] mSimStates;
@@ -65,13 +65,13 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
     private final int USER_INITIATED_SWITCH = 0;
     private final int NONUSER_INITIATED_SWITCH = 1;
     protected final String PROPERTY_TEMP_DDSSWITCH = "persist.vendor.radio.enable_temp_dds";
-    protected final GsmCdmaCall[] mFgCsCalls;
-    protected final GsmCdmaCall[] mBgCsCalls;
-    protected final GsmCdmaCall[] mRiCsCalls;
-    protected final ImsPhone[] mImsPhones;
-    protected final ImsPhoneCall[] mFgImsCalls;
-    protected final ImsPhoneCall[] mBgImsCalls;
-    protected final ImsPhoneCall[] mRiImsCalls;
+    protected GsmCdmaCall[] mFgCsCalls;
+    protected GsmCdmaCall[] mBgCsCalls;
+    protected GsmCdmaCall[] mRiCsCalls;
+    protected ImsPhone[] mImsPhones;
+    protected ImsPhoneCall[] mFgImsCalls;
+    protected ImsPhoneCall[] mBgImsCalls;
+    protected ImsPhoneCall[] mRiImsCalls;
 
     private final int EVENT_ALLOW_DATA_FALSE_RESPONSE  = 201;
     private final int EVENT_ALLOW_DATA_TRUE_RESPONSE   = 202;
@@ -85,7 +85,6 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
     public VendorPhoneSwitcher(int maxActivePhones, Context context, Looper looper) {
         super (maxActivePhones, context, looper);
         mAllowDataFailure = new int[mActiveModemCount];
-        mDdsRequestSent = new boolean[mActiveModemCount];
         mSimStates = new String[mActiveModemCount];
         IntentFilter filter = new IntentFilter();
         filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
@@ -111,8 +110,6 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
                 mBgImsCalls[i] = mImsPhones[i].getBackgroundCall();
                 mRiImsCalls[i] = mImsPhones[i].getRingingCall();
             }
-
-            mDdsRequestSent[i] = false;
         }
     }
 
@@ -135,12 +132,6 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
                 log("mSimStateIntentReceiver: phoneId = " + phoneId + " value = " + value);
                 if (SubscriptionManager.isValidPhoneId(phoneId)) {
                     mSimStates[phoneId] = value;
-                    // If SIM is absent, allow DDS request always, which avoids DDS switch
-                    // can't be completed in the no-SIM case because the sent status of the
-                    // old preferred phone has no chance to reset in hot-swap
-                    if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(value)) {
-                        mDdsRequestSent[phoneId] = false;
-                    }
                 }
 
                 if (isSimReady(phoneId) && (getConnectFailureCount(phoneId) > 0)) {
@@ -239,7 +230,8 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
         }
         StringBuilder sb = new StringBuilder(reason);
 
-        boolean diffDetected = requestsChanged;
+        boolean diffDetected = mHalCommandToUse != HAL_COMMAND_PREFERRED_DATA && requestsChanged;
+
 
         // Check if user setting of default non-opportunistic data sub is changed.
         final int primaryDataSubId = mSubscriptionController.getDefaultDataSubId();
@@ -308,9 +300,6 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
         if (oldPreferredDataPhoneId != mPreferredDataPhoneId) {
             sb.append(" preferred phoneId ").append(oldPreferredDataPhoneId)
                     .append("->").append(mPreferredDataPhoneId);
-            if (SubscriptionManager.isValidPhoneId(oldPreferredDataPhoneId)) {
-                mDdsRequestSent[oldPreferredDataPhoneId] = false;
-            }
             mDdsSwitchState = DdsSwitchState.REQUIRED;
             diffDetected = true;
         } else if (hasSubRefreshedOnThePreferredPhone) {
@@ -465,16 +454,10 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
                     obtainMessage(isPhoneActive(phoneId) ? EVENT_ALLOW_DATA_TRUE_RESPONSE
                     : EVENT_ALLOW_DATA_FALSE_RESPONSE, phoneId, 0));
         } else if (phoneId == mPreferredDataPhoneId) {
-            if (!mDdsRequestSent[phoneId]) {
-                // Only setPreferredDataModem if the phoneId equals to current mPreferredDataPhoneId
-                log("sendRilCommands: setPreferredDataModem - phoneId: " + phoneId);
-                mRadioConfig.setPreferredDataModem(phoneId,
-                        obtainMessage(EVENT_DDS_SWITCH_RESPONSE, phoneId, 0));
-                mDdsRequestSent[phoneId] = true;
-            } else {
-                log("sendRilCommands: setPreferredDataModem request already sent on phoneId: " +
-                        phoneId);
-            }
+            // Only setPreferredDataModem if the phoneId equals to current mPreferredDataPhoneId
+            log("sendRilCommands: setPreferredDataModem - phoneId: " + phoneId);
+            mRadioConfig.setPreferredDataModem(phoneId,
+                    obtainMessage(EVENT_DDS_SWITCH_RESPONSE, phoneId, 0));
         }
     }
 
@@ -541,7 +524,6 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
 
     private void onDdsSwitchResponse(int phoneId, AsyncResult ar) {
         if (ar.exception != null) {
-            mDdsRequestSent[phoneId] = false;
             incConnectFailureCount(phoneId);
             log("Dds switch failed on phoneId = " + phoneId + ", failureCount = "
                     + getConnectFailureCount(phoneId));
@@ -650,6 +632,40 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
             }
         }
         return isValid;
+    }
+
+    @Override
+    protected synchronized void onMultiSimConfigChanged(int activeModemCount) {
+        super.onMultiSimConfigChanged(activeModemCount);
+        int prevModemCount = mImsPhones.length;
+        if (prevModemCount == activeModemCount) return;
+        // if switching from SS to DSDS, increase the array size.
+        // Do not decrease for DSDS to SS, as ABSENT sim state is sent for second slot
+        if (prevModemCount < activeModemCount) {
+            mSimStates = copyOf(mSimStates, activeModemCount);
+        }
+        mAllowDataFailure = copyOf(mAllowDataFailure, activeModemCount);
+        mImsPhones = copyOf(mImsPhones, activeModemCount);
+        mFgCsCalls = copyOf(mFgCsCalls, activeModemCount);
+        mBgCsCalls = copyOf(mBgCsCalls, activeModemCount);
+        mRiCsCalls = copyOf(mRiCsCalls, activeModemCount);
+        mFgImsCalls = copyOf(mFgImsCalls, activeModemCount);
+        mBgImsCalls = copyOf(mBgImsCalls, activeModemCount);
+        mRiImsCalls = copyOf(mRiImsCalls, activeModemCount);
+
+        for (int i = 0; i < mActiveModemCount; i++) {
+            if (PhoneFactory.getPhone(i) != null) {
+                mFgCsCalls[i] = (GsmCdmaCall) PhoneFactory.getPhone(i).getForegroundCall();
+                mBgCsCalls[i] = (GsmCdmaCall) PhoneFactory.getPhone(i).getBackgroundCall();
+                mRiCsCalls[i] = (GsmCdmaCall) PhoneFactory.getPhone(i).getRingingCall();
+            }
+            mImsPhones[i] = (ImsPhone)PhoneFactory.getPhone(i).getImsPhone();
+            if (mImsPhones[i] != null) {
+                mFgImsCalls[i] = mImsPhones[i].getForegroundCall();
+                mBgImsCalls[i] = mImsPhones[i].getBackgroundCall();
+                mRiImsCalls[i] = mImsPhones[i].getRingingCall();
+            }
+        }
     }
 
     /*

@@ -436,8 +436,6 @@ public class GsmCdmaPhone extends Phone {
     private void initRatSpecific(int precisePhoneType) {
         mPendingMMIs.clear();
         mIccPhoneBookIntManager.updateIccRecords(null);
-        mEsn = null;
-        mMeid = null;
 
         mPrecisePhoneType = precisePhoneType;
         logd("Precise phone type " + mPrecisePhoneType);
@@ -1276,8 +1274,8 @@ public class GsmCdmaPhone extends Phone {
     private boolean useImsForCall(DialArgs dialArgs) {
         return isImsUseEnabled()
                 && mImsPhone != null
-                && (mImsPhone.isVolteEnabled() || mImsPhone.isWifiCallingEnabled() ||
-                (mImsPhone.isVideoEnabled() && VideoProfile.isVideo(dialArgs.videoState)))
+                && (mImsPhone.isVoiceOverCellularImsEnabled() || mImsPhone.isWifiCallingEnabled()
+                || (mImsPhone.isVideoEnabled() && VideoProfile.isVideo(dialArgs.videoState)))
                 && (mImsPhone.getServiceState().getState() == ServiceState.STATE_IN_SERVICE);
     }
 
@@ -1393,8 +1391,8 @@ public class GsmCdmaPhone extends Phone {
                     + ", isWpsCall=" + isWpsCall
                     + ", allowWpsOverIms=" + allowWpsOverIms
                     + ", imsPhone=" + imsPhone
-                    + ", imsPhone.isVolteEnabled()="
-                    + ((imsPhone != null) ? imsPhone.isVolteEnabled() : "N/A")
+                    + ", imsPhone.isVoiceOverCellularImsEnabled()="
+                    + ((imsPhone != null) ? imsPhone.isVoiceOverCellularImsEnabled() : "N/A")
                     + ", imsPhone.isVowifiEnabled()="
                     + ((imsPhone != null) ? imsPhone.isWifiCallingEnabled() : "N/A")
                     + ", imsPhone.isVideoEnabled()="
@@ -1505,7 +1503,7 @@ public class GsmCdmaPhone extends Phone {
                         isImsUseEnabled()
                         && imsPhone != null
                         // VoLTE not available
-                        && !imsPhone.isVolteEnabled()
+                        && !imsPhone.isVoiceOverCellularImsEnabled()
                         // WFC is available
                         && imsPhone.isWifiCallingEnabled()
                         && !isEmergency
@@ -1700,7 +1698,7 @@ public class GsmCdmaPhone extends Phone {
         SharedPreferences.Editor editor = sp.edit();
         setVmSimImsi(getSubscriberId());
         logd("storeVoiceMailNumber: mPrecisePhoneType=" + mPrecisePhoneType + " vmNumber="
-                + number);
+                + Rlog.pii(LOG_TAG, number));
         if (isPhoneTypeGsm()) {
             editor.putString(VM_NUMBER + getPhoneId(), number);
             editor.apply();
@@ -1721,9 +1719,10 @@ public class GsmCdmaPhone extends Phone {
                 SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
                 String spName = isPhoneTypeGsm() ? VM_NUMBER : VM_NUMBER_CDMA;
                 number = sp.getString(spName + getPhoneId(), null);
-                logd("getVoiceMailNumber: from " + spName + " number=" + number);
+                logd("getVoiceMailNumber: from " + spName + " number="
+                        + Rlog.pii(LOG_TAG, number));
             } else {
-                logd("getVoiceMailNumber: from IccRecords number=" + number);
+                logd("getVoiceMailNumber: from IccRecords number=" + Rlog.pii(LOG_TAG, number));
             }
         }
         if (!isPhoneTypeGsm() && TextUtils.isEmpty(number)) {
@@ -3654,9 +3653,9 @@ public class GsmCdmaPhone extends Phone {
             // Get how many number of system selection code ranges
             int selRc = Integer.parseInt(sch[1]);
             for (int i = 0; i < selRc; i++) {
-                if (!TextUtils.isEmpty(sch[i+2]) && !TextUtils.isEmpty(sch[i+3])) {
-                    int selMin = Integer.parseInt(sch[i+2]);
-                    int selMax = Integer.parseInt(sch[i+3]);
+                if (!TextUtils.isEmpty(sch[i*2+2]) && !TextUtils.isEmpty(sch[i*2+3])) {
+                    int selMin = Integer.parseInt(sch[i*2+2]);
+                    int selMax = Integer.parseInt(sch[i*2+3]);
                     // Check if the selection code extracted from the dial string falls
                     // within any of the range pairs specified in the schema.
                     if ((sysSelCodeInt >= selMin) && (sysSelCodeInt <= selMax)) {

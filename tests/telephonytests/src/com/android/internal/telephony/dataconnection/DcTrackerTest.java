@@ -205,9 +205,41 @@ public class DcTrackerTest extends TelephonyTest {
     }
 
     private class ApnSettingContentProvider extends MockContentProvider {
+        public final String[] FAKE_APN_COLUMNS = new String[]{
+                Telephony.Carriers._ID, Telephony.Carriers.NUMERIC,
+                Telephony.Carriers.NAME, Telephony.Carriers.APN,
+                Telephony.Carriers.PROXY, Telephony.Carriers.PORT,
+                Telephony.Carriers.MMSC, Telephony.Carriers.MMSPROXY,
+                Telephony.Carriers.MMSPORT, Telephony.Carriers.USER,
+                Telephony.Carriers.PASSWORD, Telephony.Carriers.AUTH_TYPE,
+                Telephony.Carriers.TYPE,
+                Telephony.Carriers.PROTOCOL,
+                Telephony.Carriers.ROAMING_PROTOCOL,
+                Telephony.Carriers.CARRIER_ENABLED, Telephony.Carriers.BEARER,
+                Telephony.Carriers.BEARER_BITMASK,
+                Telephony.Carriers.PROFILE_ID,
+                Telephony.Carriers.MODEM_PERSIST,
+                Telephony.Carriers.MAX_CONNECTIONS,
+                Telephony.Carriers.WAIT_TIME_RETRY,
+                Telephony.Carriers.TIME_LIMIT_FOR_MAX_CONNECTIONS,
+                Telephony.Carriers.MTU,
+                Telephony.Carriers.MVNO_TYPE,
+                Telephony.Carriers.MVNO_MATCH_DATA,
+                Telephony.Carriers.NETWORK_TYPE_BITMASK,
+                Telephony.Carriers.APN_SET_ID,
+                Telephony.Carriers.CARRIER_ID,
+                Telephony.Carriers.SKIP_464XLAT
+        };
+
         private int mPreferredApnSet = 0;
 
+        private Object[] mPreferredApn = null;
+
         private String mFakeApn1Types = "default,supl";
+
+        private String mFakeApn5Types = "dun";
+
+        private int mFakeApn1Bitmask = NETWORK_TYPE_LTE_BITMASK;
 
         private int mRowIdOffset = 0;
 
@@ -215,8 +247,335 @@ public class DcTrackerTest extends TelephonyTest {
             mFakeApn1Types = apnTypes;
         }
 
+        public void setFakeApn5Types(String apnTypes) {
+            mFakeApn5Types = apnTypes;
+        }
+
+        public void setFakeApn1NetworkTypeBitmask(int bitmask) {
+            mFakeApn1Bitmask = bitmask;
+        }
+
         public void setRowIdOffset(int rowIdOffset) {
             mRowIdOffset = rowIdOffset;
+        }
+
+        public void setFakePreferredApn(Object[] fakeApn) {
+            mPreferredApn = fakeApn;
+        }
+
+        public Object[] getFakeApn1() {
+            return new Object[]{
+                    2163 + mRowIdOffset,    // id
+                    FAKE_PLMN,              // numeric
+                    "sp-mode",              // name
+                    FAKE_APN1,              // apn
+                    "",                     // proxy
+                    "",                     // port
+                    "",                     // mmsc
+                    "",                     // mmsproxy
+                    "",                     // mmsport
+                    "",                     // user
+                    "",                     // password
+                    -1,                     // authtype
+                    mFakeApn1Types,         // types
+                    "IP",                   // protocol
+                    "IP",                   // roaming_protocol
+                    1,                      // carrier_enabled
+                    ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
+                    0,                      // bearer_bitmask
+                    0,                      // profile_id
+                    1,                      // modem_cognitive
+                    0,                      // max_conns
+                    0,                      // wait_time
+                    0,                      // max_conns_time
+                    0,                      // mtu
+                    "",                     // mvno_type
+                    "",                     // mnvo_match_data
+                    mFakeApn1Bitmask,       // network_type_bitmask
+                    0,                      // apn_set_id
+                    -1,                     // carrier_id
+                    -1                      // skip_464xlat
+            };
+        }
+
+        public Object[] getFakeApn2() {
+            return new Object[]{
+                    2164 + mRowIdOffset,    // id
+                    FAKE_PLMN,              // numeric
+                    "mopera U",             // name
+                    FAKE_APN2,              // apn
+                    "",                     // proxy
+                    "",                     // port
+                    "",                     // mmsc
+                    "",                     // mmsproxy
+                    "",                     // mmsport
+                    "",                     // user
+                    "",                     // password
+                    -1,                     // authtype
+                    "default,supl",         // types
+                    "IP",                   // protocol
+                    "IP",                   // roaming_protocol
+                    1,                      // carrier_enabled
+                    ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer,
+                    0,                      // bearer_bitmask
+                    0,                      // profile_id
+                    1,                      // modem_cognitive
+                    0,                      // max_conns
+                    0,                      // wait_time
+                    0,                      // max_conns_time
+                    0,                      // mtu
+                    "",                     // mvno_type
+                    "",                     // mnvo_match_data
+                    NETWORK_TYPE_LTE_BITMASK, // network_type_bitmask
+                    0,                      // apn_set_id
+                    -1,                     // carrier_id
+                    -1                      // skip_464xlat
+            };
+        }
+
+        public Object[] getFakeApn3() {
+            return new Object[]{
+                    2165 + mRowIdOffset,    // id
+                    FAKE_PLMN,              // numeric
+                    "b-mobile for Nexus",   // name
+                    FAKE_APN3,              // apn
+                    "",                     // proxy
+                    "",                     // port
+                    "",                     // mmsc
+                    "",                     // mmsproxy
+                    "",                     // mmsport
+                    "",                     // user
+                    "",                     // password
+                    -1,                     // authtype
+                    "ims",                  // types
+                    "IP",                   // protocol
+                    "IP",                   // roaming_protocol
+                    1,                      // carrier_enabled
+                    0,                      // bearer
+                    0,                      // bearer_bitmask
+                    0,                      // profile_id
+                    1,                      // modem_cognitive
+                    0,                      // max_conns
+                    0,                      // wait_time
+                    0,                      // max_conns_time
+                    0,                      // mtu
+                    "",                     // mvno_type
+                    "",                     // mnvo_match_data
+                    0,                      // network_type_bitmask
+                    0,                      // apn_set_id
+                    -1,                     // carrier_id
+                    -1                      // skip_464xlat
+            };
+        }
+
+        public Object[] getFakeApn4() {
+            return new Object[]{
+                    2166 + mRowIdOffset,    // id
+                    FAKE_PLMN,              // numeric
+                    "sp-mode ehrpd",        // name
+                    FAKE_APN4,              // apn
+                    "",                     // proxy
+                    "",                     // port
+                    "",                     // mmsc
+                    "",                     // mmsproxy
+                    "",                     // mmsport
+                    "",                     // user
+                    "",                     // password
+                    -1,                     // authtype
+                    "default,supl",         // types
+                    "IP",                   // protocol
+                    "IP",                   // roaming_protocol
+                    1,                      // carrier_enabled
+                    ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD, // bearer
+                    0,                      // bearer_bitmask
+                    0,                      // profile_id
+                    1,                      // modem_cognitive
+                    0,                      // max_conns
+                    0,                      // wait_time
+                    0,                      // max_conns_time
+                    0,                      // mtu
+                    "",                     // mvno_type
+                    "",                     // mnvo_match_data
+                    NETWORK_TYPE_EHRPD_BITMASK, // network_type_bitmask
+                    0,                      // apn_set_id
+                    -1,                     // carrier_id
+                    -1                      // skip_464xlat
+            };
+        }
+
+        public Object[] getFakeApn5() {
+            return new Object[]{
+                    2167 + mRowIdOffset,    // id
+                    FAKE_PLMN,              // numeric
+                    "b-mobile for Nexus",   // name
+                    FAKE_APN5,              // apn
+                    "",                     // proxy
+                    "",                     // port
+                    "",                     // mmsc
+                    "",                     // mmsproxy
+                    "",                     // mmsport
+                    "",                     // user
+                    "",                     // password
+                    -1,                     // authtype
+                    mFakeApn5Types,         // types
+                    "IP",                   // protocol
+                    "IP",                   // roaming_protocol
+                    1,                      // carrier_enabled
+                    0,                      // bearer
+                    0,                      // bearer_bitmask
+                    0,                      // profile_id
+                    1,                      // modem_cognitive
+                    0,                      // max_conns
+                    0,                      // wait_time
+                    0,                      // max_conns_time
+                    0,                      // mtu
+                    "",                     // mvno_type
+                    "",                     // mnvo_match_data
+                    0,                      // network_type_bitmask
+                    0,                      // apn_set_id
+                    -1,                     // carrier_id
+                    -1                      // skip_464xlat
+            };
+        }
+
+        public Object[] getFakeApn6() {
+            return new Object[]{
+                    2168 + mRowIdOffset,    // id
+                    FAKE_PLMN,              // numeric
+                    "sp-mode",              // name
+                    FAKE_APN6,              // apn
+                    "",                     // proxy
+                    "",                     // port
+                    "",                     // mmsc
+                    "",                     // mmsproxy
+                    "",                     // mmsport
+                    "",                     // user
+                    "",                     // password
+                    -1,                     // authtype
+                    "mms,xcap",             // types
+                    "IP",                   // protocol
+                    "IP",                   // roaming_protocol
+                    1,                      // carrier_enabled
+                    ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
+                    0,                      // bearer_bitmask
+                    0,                      // profile_id
+                    1,                      // modem_cognitive
+                    0,                      // max_conns
+                    0,                      // wait_time
+                    0,                      // max_conns_time
+                    0,                      // mtu
+                    "",                     // mvno_type
+                    "",                     // mnvo_match_data
+                    NETWORK_TYPE_LTE_BITMASK, // network_type_bitmask
+                    0,                      // apn_set_id
+                    -1,                     // carrier_id
+                    -1                      // skip_464xlat
+            };
+        }
+
+        public Object[] getFakeApn7() {
+            return new Object[]{
+                    2169 + mRowIdOffset,    // id
+                    FAKE_PLMN,              // numeric
+                    "sp-mode",              // name
+                    FAKE_APN7,              // apn
+                    "",                     // proxy
+                    "",                     // port
+                    "",                     // mmsc
+                    "",                     // mmsproxy
+                    "",                     // mmsport
+                    "",                     // user
+                    "",                     // password
+                    -1,                     // authtype
+                    "default",              // types
+                    "IP",                   // protocol
+                    "IP",                   // roaming_protocol
+                    1,                      // carrier_enabled
+                    ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
+                    0,                      // bearer_bitmask
+                    0,                      // profile_id
+                    1,                      // modem_cognitive
+                    0,                      // max_conns
+                    0,                      // wait_time
+                    0,                      // max_conns_time
+                    0,                      // mtu
+                    "",                     // mvno_type
+                    "",                     // mnvo_match_data
+                    NETWORK_TYPE_LTE_BITMASK,  // network_type_bitmask
+                    1,                      // apn_set_id
+                    -1,                     // carrier_id
+                    -1                      // skip_464xlat
+            };
+        }
+
+        public Object[] getFakeApn8() {
+            return new Object[]{
+                    2170 + mRowIdOffset,    // id
+                    FAKE_PLMN,              // numeric
+                    "IMS",                  // name
+                    FAKE_APN8,              // apn
+                    "",                     // proxy
+                    "",                     // port
+                    "",                     // mmsc
+                    "",                     // mmsproxy
+                    "",                     // mmsport
+                    "",                     // user
+                    "",                     // password
+                    -1,                     // authtype
+                    "ims",                  // types
+                    "IP",                   // protocol
+                    "IP",                   // roaming_protocol
+                    1,                      // carrier_enabled
+                    ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
+                    0,                      // bearer_bitmask
+                    0,                      // profile_id
+                    1,                      // modem_cognitive
+                    0,                      // max_conns
+                    0,                      // wait_time
+                    0,                      // max_conns_time
+                    0,                      // mtu
+                    "",                     // mvno_type
+                    "",                     // mnvo_match_data
+                    NETWORK_TYPE_LTE_BITMASK,  // network_type_bitmask
+                    -1,                      // apn_set_id
+                    -1,                     // carrier_id
+                    -1                      // skip_464xlat
+            };
+        }
+
+        public Object[] getFakeApn9() {
+            return new Object[]{
+                    2171 + mRowIdOffset,    // id
+                    FAKE_PLMN,              // numeric
+                    "sp-mode nr",           // name
+                    FAKE_APN9,              // apn
+                    "",                     // proxy
+                    "",                     // port
+                    "",                     // mmsc
+                    "",                     // mmsproxy
+                    "",                     // mmsport
+                    "",                     // user
+                    "",                     // password
+                    -1,                     // authtype
+                    "default,enterprise",   // types
+                    "IP",                   // protocol
+                    "IP",                   // roaming_protocol
+                    1,                      // carrier_enabled
+                    ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
+                    0,                      // bearer_bitmask
+                    0,                      // profile_id
+                    1,                      // modem_cognitive
+                    0,                      // max_conns
+                    0,                      // wait_time
+                    0,                      // max_conns_time
+                    0,                      // mtu
+                    "",                     // mvno_type
+                    "",                     // mnvo_match_data
+                    NETWORK_TYPE_NR_BITMASK, // network_type_bitmask
+                    0,                      // apn_set_id
+                    -1,                     // carrier_id
+                    -1                      // skip_464xlat
+            };
         }
 
         @Override
@@ -237,327 +596,16 @@ public class DcTrackerTest extends TelephonyTest {
                 if (projection == null) {
 
                     logd("Query '" + FAKE_PLMN + "' APN settings");
-                    MatrixCursor mc = new MatrixCursor(
-                            new String[]{Telephony.Carriers._ID, Telephony.Carriers.NUMERIC,
-                                    Telephony.Carriers.NAME, Telephony.Carriers.APN,
-                                    Telephony.Carriers.PROXY, Telephony.Carriers.PORT,
-                                    Telephony.Carriers.MMSC, Telephony.Carriers.MMSPROXY,
-                                    Telephony.Carriers.MMSPORT, Telephony.Carriers.USER,
-                                    Telephony.Carriers.PASSWORD, Telephony.Carriers.AUTH_TYPE,
-                                    Telephony.Carriers.TYPE,
-                                    Telephony.Carriers.PROTOCOL,
-                                    Telephony.Carriers.ROAMING_PROTOCOL,
-                                    Telephony.Carriers.CARRIER_ENABLED, Telephony.Carriers.BEARER,
-                                    Telephony.Carriers.BEARER_BITMASK,
-                                    Telephony.Carriers.PROFILE_ID,
-                                    Telephony.Carriers.MODEM_PERSIST,
-                                    Telephony.Carriers.MAX_CONNECTIONS,
-                                    Telephony.Carriers.WAIT_TIME_RETRY,
-                                    Telephony.Carriers.TIME_LIMIT_FOR_MAX_CONNECTIONS,
-                                    Telephony.Carriers.MTU,
-                                    Telephony.Carriers.MVNO_TYPE,
-                                    Telephony.Carriers.MVNO_MATCH_DATA,
-                                    Telephony.Carriers.NETWORK_TYPE_BITMASK,
-                                    Telephony.Carriers.APN_SET_ID,
-                                    Telephony.Carriers.CARRIER_ID,
-                                    Telephony.Carriers.SKIP_464XLAT});
-
-                    mc.addRow(new Object[]{
-                            2163 + mRowIdOffset,    // id
-                            FAKE_PLMN,              // numeric
-                            "sp-mode",              // name
-                            FAKE_APN1,              // apn
-                            "",                     // proxy
-                            "",                     // port
-                            "",                     // mmsc
-                            "",                     // mmsproxy
-                            "",                     // mmsport
-                            "",                     // user
-                            "",                     // password
-                            -1,                     // authtype
-                            mFakeApn1Types,         // types
-                            "IP",                   // protocol
-                            "IP",                   // roaming_protocol
-                            1,                      // carrier_enabled
-                            ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
-                            0,                      // bearer_bitmask
-                            0,                      // profile_id
-                            1,                      // modem_cognitive
-                            0,                      // max_conns
-                            0,                      // wait_time
-                            0,                      // max_conns_time
-                            0,                      // mtu
-                            "",                     // mvno_type
-                            "",                     // mnvo_match_data
-                            NETWORK_TYPE_LTE_BITMASK, // network_type_bitmask
-                            0,                      // apn_set_id
-                            -1,                     // carrier_id
-                            -1                      // skip_464xlat
-                    });
-
-                    mc.addRow(new Object[]{
-                            2164 + mRowIdOffset,    // id
-                            FAKE_PLMN,              // numeric
-                            "mopera U",             // name
-                            FAKE_APN2,              // apn
-                            "",                     // proxy
-                            "",                     // port
-                            "",                     // mmsc
-                            "",                     // mmsproxy
-                            "",                     // mmsport
-                            "",                     // user
-                            "",                     // password
-                            -1,                     // authtype
-                            "default,supl",         // types
-                            "IP",                   // protocol
-                            "IP",                   // roaming_protocol
-                            1,                      // carrier_enabled
-                            ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer,
-                            0,                      // bearer_bitmask
-                            0,                      // profile_id
-                            1,                      // modem_cognitive
-                            0,                      // max_conns
-                            0,                      // wait_time
-                            0,                      // max_conns_time
-                            0,                      // mtu
-                            "",                     // mvno_type
-                            "",                     // mnvo_match_data
-                            NETWORK_TYPE_LTE_BITMASK, // network_type_bitmask
-                            0,                      // apn_set_id
-                            -1,                     // carrier_id
-                            -1                      // skip_464xlat
-                    });
-
-                    mc.addRow(new Object[]{
-                            2165 + mRowIdOffset,    // id
-                            FAKE_PLMN,              // numeric
-                            "b-mobile for Nexus",   // name
-                            FAKE_APN3,              // apn
-                            "",                     // proxy
-                            "",                     // port
-                            "",                     // mmsc
-                            "",                     // mmsproxy
-                            "",                     // mmsport
-                            "",                     // user
-                            "",                     // password
-                            -1,                     // authtype
-                            "ims",                  // types
-                            "IP",                   // protocol
-                            "IP",                   // roaming_protocol
-                            1,                      // carrier_enabled
-                            0,                      // bearer
-                            0,                      // bearer_bitmask
-                            0,                      // profile_id
-                            1,                      // modem_cognitive
-                            0,                      // max_conns
-                            0,                      // wait_time
-                            0,                      // max_conns_time
-                            0,                      // mtu
-                            "",                     // mvno_type
-                            "",                     // mnvo_match_data
-                            0,                      // network_type_bitmask
-                            0,                      // apn_set_id
-                            -1,                     // carrier_id
-                            -1                      // skip_464xlat
-                    });
-
-                    mc.addRow(new Object[]{
-                            2166 + mRowIdOffset,    // id
-                            FAKE_PLMN,              // numeric
-                            "sp-mode ehrpd",        // name
-                            FAKE_APN4,              // apn
-                            "",                     // proxy
-                            "",                     // port
-                            "",                     // mmsc
-                            "",                     // mmsproxy
-                            "",                     // mmsport
-                            "",                     // user
-                            "",                     // password
-                            -1,                     // authtype
-                            "default,supl",         // types
-                            "IP",                   // protocol
-                            "IP",                   // roaming_protocol
-                            1,                      // carrier_enabled
-                            ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD, // bearer
-                            0,                      // bearer_bitmask
-                            0,                      // profile_id
-                            1,                      // modem_cognitive
-                            0,                      // max_conns
-                            0,                      // wait_time
-                            0,                      // max_conns_time
-                            0,                      // mtu
-                            "",                     // mvno_type
-                            "",                     // mnvo_match_data
-                            NETWORK_TYPE_EHRPD_BITMASK, // network_type_bitmask
-                            0,                      // apn_set_id
-                            -1,                     // carrier_id
-                            -1                      // skip_464xlat
-                    });
-
-                    mc.addRow(new Object[]{
-                            2167 + mRowIdOffset,    // id
-                            FAKE_PLMN,              // numeric
-                            "b-mobile for Nexus",   // name
-                            FAKE_APN5,              // apn
-                            "",                     // proxy
-                            "",                     // port
-                            "",                     // mmsc
-                            "",                     // mmsproxy
-                            "",                     // mmsport
-                            "",                     // user
-                            "",                     // password
-                            -1,                     // authtype
-                            "dun",                  // types
-                            "IP",                   // protocol
-                            "IP",                   // roaming_protocol
-                            1,                      // carrier_enabled
-                            0,                      // bearer
-                            0,                      // bearer_bitmask
-                            0,                      // profile_id
-                            1,                      // modem_cognitive
-                            0,                      // max_conns
-                            0,                      // wait_time
-                            0,                      // max_conns_time
-                            0,                      // mtu
-                            "",                     // mvno_type
-                            "",                     // mnvo_match_data
-                            0,                      // network_type_bitmask
-                            0,                      // apn_set_id
-                            -1,                     // carrier_id
-                            -1                      // skip_464xlat
-                    });
-
-                    mc.addRow(new Object[]{
-                            2168 + mRowIdOffset,    // id
-                            FAKE_PLMN,              // numeric
-                            "sp-mode",              // name
-                            FAKE_APN6,              // apn
-                            "",                     // proxy
-                            "",                     // port
-                            "",                     // mmsc
-                            "",                     // mmsproxy
-                            "",                     // mmsport
-                            "",                     // user
-                            "",                     // password
-                            -1,                     // authtype
-                            "mms,xcap",             // types
-                            "IP",                   // protocol
-                            "IP",                   // roaming_protocol
-                            1,                      // carrier_enabled
-                            ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
-                            0,                      // bearer_bitmask
-                            0,                      // profile_id
-                            1,                      // modem_cognitive
-                            0,                      // max_conns
-                            0,                      // wait_time
-                            0,                      // max_conns_time
-                            0,                      // mtu
-                            "",                     // mvno_type
-                            "",                     // mnvo_match_data
-                            NETWORK_TYPE_LTE_BITMASK, // network_type_bitmask
-                            0,                      // apn_set_id
-                            -1,                     // carrier_id
-                            -1                      // skip_464xlat
-                    });
-
-                    mc.addRow(new Object[]{
-                            2169 + mRowIdOffset,    // id
-                            FAKE_PLMN,              // numeric
-                            "sp-mode",              // name
-                            FAKE_APN7,              // apn
-                            "",                     // proxy
-                            "",                     // port
-                            "",                     // mmsc
-                            "",                     // mmsproxy
-                            "",                     // mmsport
-                            "",                     // user
-                            "",                     // password
-                            -1,                     // authtype
-                            "default",              // types
-                            "IP",                   // protocol
-                            "IP",                   // roaming_protocol
-                            1,                      // carrier_enabled
-                            ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
-                            0,                      // bearer_bitmask
-                            0,                      // profile_id
-                            1,                      // modem_cognitive
-                            0,                      // max_conns
-                            0,                      // wait_time
-                            0,                      // max_conns_time
-                            0,                      // mtu
-                            "",                     // mvno_type
-                            "",                     // mnvo_match_data
-                            NETWORK_TYPE_LTE_BITMASK,  // network_type_bitmask
-                            1,                      // apn_set_id
-                            -1,                     // carrier_id
-                            -1                      // skip_464xlat
-                    });
-
-                    mc.addRow(new Object[]{
-                            2170 + mRowIdOffset,    // id
-                            FAKE_PLMN,              // numeric
-                            "IMS",                  // name
-                            FAKE_APN8,              // apn
-                            "",                     // proxy
-                            "",                     // port
-                            "",                     // mmsc
-                            "",                     // mmsproxy
-                            "",                     // mmsport
-                            "",                     // user
-                            "",                     // password
-                            -1,                     // authtype
-                            "ims",                  // types
-                            "IP",                   // protocol
-                            "IP",                   // roaming_protocol
-                            1,                      // carrier_enabled
-                            ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
-                            0,                      // bearer_bitmask
-                            0,                      // profile_id
-                            1,                      // modem_cognitive
-                            0,                      // max_conns
-                            0,                      // wait_time
-                            0,                      // max_conns_time
-                            0,                      // mtu
-                            "",                     // mvno_type
-                            "",                     // mnvo_match_data
-                            NETWORK_TYPE_LTE_BITMASK,  // network_type_bitmask
-                            -1,                      // apn_set_id
-                            -1,                     // carrier_id
-                            -1                      // skip_464xlat
-                    });
-
-                    mc.addRow(new Object[]{
-                            2171 + mRowIdOffset,    // id
-                            FAKE_PLMN,              // numeric
-                            "sp-mode nr",           // name
-                            FAKE_APN9,              // apn
-                            "",                     // proxy
-                            "",                     // port
-                            "",                     // mmsc
-                            "",                     // mmsproxy
-                            "",                     // mmsport
-                            "",                     // user
-                            "",                     // password
-                            -1,                     // authtype
-                            "default,enterprise",   // types
-                            "IP",                   // protocol
-                            "IP",                   // roaming_protocol
-                            1,                      // carrier_enabled
-                            ServiceState.RIL_RADIO_TECHNOLOGY_LTE, // bearer
-                            0,                      // bearer_bitmask
-                            0,                      // profile_id
-                            1,                      // modem_cognitive
-                            0,                      // max_conns
-                            0,                      // wait_time
-                            0,                      // max_conns_time
-                            0,                      // mtu
-                            "",                     // mvno_type
-                            "",                     // mnvo_match_data
-                            NETWORK_TYPE_NR_BITMASK, // network_type_bitmask
-                            0,                      // apn_set_id
-                            -1,                     // carrier_id
-                            -1                      // skip_464xlat
-                    });
+                    MatrixCursor mc = new MatrixCursor(FAKE_APN_COLUMNS);
+                    mc.addRow(getFakeApn1());
+                    mc.addRow(getFakeApn2());
+                    mc.addRow(getFakeApn3());
+                    mc.addRow(getFakeApn4());
+                    mc.addRow(getFakeApn5());
+                    mc.addRow(getFakeApn6());
+                    mc.addRow(getFakeApn7());
+                    mc.addRow(getFakeApn8());
+                    mc.addRow(getFakeApn9());
 
                     return mc;
                 }
@@ -569,6 +617,15 @@ public class DcTrackerTest extends TelephonyTest {
                 mc.addRow(new Object[]{ mPreferredApnSet });
                 mc.addRow(new Object[]{ 0 });
                 return mc;
+            } else if (isPathPrefixMatch(uri,
+                    Uri.withAppendedPath(Telephony.Carriers.CONTENT_URI, "preferapn_no_update"))) {
+                if (mPreferredApn == null) {
+                    return null;
+                } else {
+                    MatrixCursor mc = new MatrixCursor(FAKE_APN_COLUMNS);
+                    mc.addRow(mPreferredApn);
+                    return mc;
+                }
             }
 
             return null;
@@ -623,6 +680,8 @@ public class DcTrackerTest extends TelephonyTest {
         Settings.Global.putInt(mContext.getContentResolver(),
                 Settings.Global.DATA_STALL_RECOVERY_ON_BAD_NETWORK, 0);
 
+        doReturn(AccessNetworkConstants.TRANSPORT_TYPE_WWAN).when(mTransportManager)
+                .getPreferredTransport(anyInt());
         doReturn(true).when(mSubscriptionManager).isActiveSubId(anyInt());
         doReturn(PhoneConstants.State.IDLE).when(mCT).getState();
         doReturn(true).when(mSST).getDesiredPowerState();
@@ -1203,7 +1262,7 @@ public class DcTrackerTest extends TelephonyTest {
                 eq(AccessNetworkType.EUTRAN), any(DataProfile.class), eq(false), eq(false),
                 eq(DataService.REQUEST_REASON_NORMAL), any(), anyInt(), any(), tdCaptor.capture(),
                 anyBoolean(), any(Message.class));
-        assertEquals("FAKE APN 1", tdCaptor.getValue().getDataNetworkName());
+        assertEquals(FAKE_APN1, tdCaptor.getValue().getDataNetworkName());
         assertEquals(null, tdCaptor.getValue().getOsAppId());
 
         mNetworkRegistrationInfo = new NetworkRegistrationInfo.Builder()
@@ -1223,7 +1282,131 @@ public class DcTrackerTest extends TelephonyTest {
                 eq(DataService.REQUEST_REASON_NORMAL), any(), anyInt(), any(), tdCaptor.capture(),
                 anyBoolean(), any(Message.class));
         assertEquals(null, tdCaptor.getValue().getDataNetworkName());
-        assertTrue(tdCaptor.getValue().getOsAppId().equals("ENTERPRISE"));
+        assertTrue(Arrays.equals(DataConnection.getEnterpriseOsAppId(),
+                tdCaptor.getValue().getOsAppId()));
+    }
+
+    // Test the ENTERPRISE APN setup when default data is not set up yet.
+    @Test
+    public void testTrySetupDataEnterpriseApnNoDefaultData() {
+        mNetworkRegistrationInfo = new NetworkRegistrationInfo.Builder()
+                .setAccessNetworkTechnology(TelephonyManager.NETWORK_TYPE_NR)
+                .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME)
+                .build();
+        doReturn(mNetworkRegistrationInfo).when(mServiceState).getNetworkRegistrationInfo(
+                anyInt(), anyInt());
+        mDct.enableApn(ApnSetting.TYPE_ENTERPRISE, DcTracker.REQUEST_TYPE_NORMAL, null);
+        sendInitializationEvents();
+
+        ArgumentCaptor<TrafficDescriptor> tdCaptor =
+                ArgumentCaptor.forClass(TrafficDescriptor.class);
+        verify(mSimulatedCommandsVerifier, times(1)).setupDataCall(
+                eq(AccessNetworkType.NGRAN), any(DataProfile.class), eq(false), eq(false),
+                eq(DataService.REQUEST_REASON_NORMAL), any(), anyInt(), any(), tdCaptor.capture(),
+                anyBoolean(), any(Message.class));
+        assertEquals(null, tdCaptor.getValue().getDataNetworkName());
+        assertTrue(Arrays.equals(DataConnection.getEnterpriseOsAppId(),
+                tdCaptor.getValue().getOsAppId()));
+
+        // Check APN contexts with no DEFAULT set up
+        Map<Integer, ApnContext> apnContexts = mDct.getApnContexts()
+                .stream().collect(Collectors.toMap(ApnContext::getApnTypeBitmask, x -> x));
+        assertEquals(DctConstants.State.IDLE, apnContexts.get(ApnSetting.TYPE_DEFAULT).getState());
+        assertEquals(DctConstants.State.FAILED,
+                apnContexts.get(ApnSetting.TYPE_ENTERPRISE).getState());
+
+        mNetworkRegistrationInfo = new NetworkRegistrationInfo.Builder()
+                .setAccessNetworkTechnology(TelephonyManager.NETWORK_TYPE_LTE)
+                .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME)
+                .build();
+        doReturn(mNetworkRegistrationInfo).when(mServiceState).getNetworkRegistrationInfo(
+                anyInt(), anyInt());
+        mDct.enableApn(ApnSetting.TYPE_DEFAULT, DcTracker.REQUEST_TYPE_NORMAL, null);
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        waitForMs(200);
+
+        verify(mSimulatedCommandsVerifier, times(1)).setupDataCall(
+                eq(AccessNetworkType.EUTRAN), any(DataProfile.class), eq(false), eq(false),
+                eq(DataService.REQUEST_REASON_NORMAL), any(), anyInt(), any(), tdCaptor.capture(),
+                anyBoolean(), any(Message.class));
+        assertEquals(FAKE_APN1, tdCaptor.getValue().getDataNetworkName());
+        assertEquals(null, tdCaptor.getValue().getOsAppId());
+
+        // Check APN contexts after DEFAULT is set up (and ENTERPRISE failure)
+        apnContexts = mDct.getApnContexts()
+                .stream().collect(Collectors.toMap(ApnContext::getApnTypeBitmask, x -> x));
+        assertEquals(DctConstants.State.CONNECTED,
+                apnContexts.get(ApnSetting.TYPE_DEFAULT).getState());
+        assertEquals(DctConstants.State.FAILED,
+                apnContexts.get(ApnSetting.TYPE_ENTERPRISE).getState());
+
+        mNetworkRegistrationInfo = new NetworkRegistrationInfo.Builder()
+                .setAccessNetworkTechnology(TelephonyManager.NETWORK_TYPE_NR)
+                .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME)
+                .build();
+        doReturn(mNetworkRegistrationInfo).when(mServiceState).getNetworkRegistrationInfo(
+                anyInt(), anyInt());
+        SetupDataCallResult result = createSetupDataCallResult();
+        result.cid = 10;
+        mSimulatedCommands.setDataCallResult(true, result);
+        mDct.enableApn(ApnSetting.TYPE_ENTERPRISE, DcTracker.REQUEST_TYPE_NORMAL, null);
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        waitForMs(200);
+
+        verify(mSimulatedCommandsVerifier, times(2)).setupDataCall(
+                eq(AccessNetworkType.NGRAN), any(DataProfile.class), eq(false), eq(false),
+                eq(DataService.REQUEST_REASON_NORMAL), any(), anyInt(), any(), tdCaptor.capture(),
+                anyBoolean(), any(Message.class));
+        assertEquals(null, tdCaptor.getValue().getDataNetworkName());
+        assertTrue(Arrays.equals(DataConnection.getEnterpriseOsAppId(),
+                tdCaptor.getValue().getOsAppId()));
+
+        // Check APN contexts after DEFAULT is set up (and ENTERPRISE reenabled)
+        apnContexts = mDct.getApnContexts()
+                .stream().collect(Collectors.toMap(ApnContext::getApnTypeBitmask, x -> x));
+        assertEquals(DctConstants.State.CONNECTED,
+                apnContexts.get(ApnSetting.TYPE_DEFAULT).getState());
+        assertEquals(DctConstants.State.CONNECTED,
+                apnContexts.get(ApnSetting.TYPE_ENTERPRISE).getState());
+    }
+
+    // Test the ENTERPRISE APN setup when the same CID is returned.
+    @Test
+    public void testTrySetupDataEnterpriseApnDuplicateCid() {
+        mApnSettingContentProvider.setFakeApn1NetworkTypeBitmask(
+                NETWORK_TYPE_LTE_BITMASK | NETWORK_TYPE_NR_BITMASK);
+        mNetworkRegistrationInfo = new NetworkRegistrationInfo.Builder()
+                .setAccessNetworkTechnology(TelephonyManager.NETWORK_TYPE_NR)
+                .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME)
+                .build();
+        doReturn(mNetworkRegistrationInfo).when(mServiceState).getNetworkRegistrationInfo(
+                anyInt(), anyInt());
+        // mSimulatedCommandsVerifier will return the same CID in SetupDataCallResult
+        mDct.enableApn(ApnSetting.TYPE_DEFAULT, DcTracker.REQUEST_TYPE_NORMAL, null);
+        mDct.enableApn(ApnSetting.TYPE_ENTERPRISE, DcTracker.REQUEST_TYPE_NORMAL, null);
+        sendInitializationEvents();
+        waitForMs(200);
+
+        ArgumentCaptor<TrafficDescriptor> tdCaptor =
+                ArgumentCaptor.forClass(TrafficDescriptor.class);
+        verify(mSimulatedCommandsVerifier, times(2)).setupDataCall(
+                eq(AccessNetworkType.NGRAN), any(DataProfile.class), eq(false), eq(false),
+                eq(DataService.REQUEST_REASON_NORMAL), any(), anyInt(), any(), tdCaptor.capture(),
+                anyBoolean(), any(Message.class));
+        List<TrafficDescriptor> tds = tdCaptor.getAllValues();
+        // [0] is default and [1] is enterprise, since default should be set up first
+        assertEquals(FAKE_APN1, tds.get(0).getDataNetworkName());
+        assertEquals(null, tds.get(0).getOsAppId());
+        assertEquals(null, tds.get(1).getDataNetworkName());
+        assertTrue(Arrays.equals(DataConnection.getEnterpriseOsAppId(), tds.get(1).getOsAppId()));
+
+        // Check APN contexts after DEFAULT and ENTERPRISE set up
+        Map<Integer, ApnContext> apnContexts = mDct.getApnContexts()
+                .stream().collect(Collectors.toMap(ApnContext::getApnTypeBitmask, x -> x));
+        assertEquals(DctConstants.State.CONNECTED,
+                apnContexts.get(ApnSetting.TYPE_DEFAULT).getState());
+        assertEquals(DctConstants.State.FAILED,
+                apnContexts.get(ApnSetting.TYPE_ENTERPRISE).getState());
     }
 
     @Test
@@ -1581,6 +1764,33 @@ public class DcTrackerTest extends TelephonyTest {
                 Settings.Global.TETHER_DUN_APN, null);
     }
 
+    /**
+     * Test that fetchDunApns() returns list that prioritize the preferred APN when the preferred
+     * APN including DUN type.
+     */
+    @Test
+    public void testFetchDunApnWithPreferredApn() {
+        // Set support APN types of FAKE_APN1 and FAKE_APN5
+        mApnSettingContentProvider.setFakeApn1Types("default,dun");
+        mApnSettingContentProvider.setFakeApn5Types("default,dun");
+
+        // Set prefer apn set id.
+        ContentResolver cr = mContext.getContentResolver();
+        ContentValues values = new ContentValues();
+        values.put(Telephony.Carriers.APN_SET_ID, 0);
+        cr.update(PREFERAPN_URI, values, null, null);
+        // Set FAKE_APN5 as the preferred APN.
+        mApnSettingContentProvider.setFakePreferredApn(mApnSettingContentProvider.getFakeApn5());
+
+        sendInitializationEvents();
+
+        // Return the APN list that set the preferred APN at the top.
+        ArrayList<ApnSetting> dunApns = mDct.fetchDunApns();
+        assertEquals(2, dunApns.size());
+        assertEquals(FAKE_APN5, dunApns.get(0).getApnName());
+        assertEquals(FAKE_APN1, dunApns.get(1).getApnName());
+    }
+
     // This tests simulates the race case where the sim status change event is triggered, the
     // default data connection is attached, and then the carrier config gets changed which bumps
     // the database id which we want to ignore when cleaning up connections and matching against
@@ -1633,6 +1843,69 @@ public class DcTrackerTest extends TelephonyTest {
         //Check that the DUN is using the same active data connection
         assertEquals(apnContexts.get(ApnSetting.TYPE_DEFAULT).getDataConnection(),
                 apnContextsAfterRowIdsChanged.get(ApnSetting.TYPE_DUN).getDataConnection());
+    }
+
+    @Test
+    @SmallTest
+    public void testCheckForCompatibleDataConnectionWithEnterprise() {
+        // Allow both DEFAULT and ENTERPRISE to use APN 1
+        mApnSettingContentProvider.setFakeApn1NetworkTypeBitmask(
+                NETWORK_TYPE_LTE_BITMASK | NETWORK_TYPE_NR_BITMASK);
+
+        // Enable the DEFAULT APN
+        mDct.enableApn(ApnSetting.TYPE_DEFAULT, DcTracker.REQUEST_TYPE_NORMAL, null);
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        sendInitializationEvents();
+
+        ArgumentCaptor<TrafficDescriptor> tdCaptor =
+                ArgumentCaptor.forClass(TrafficDescriptor.class);
+        verify(mSimulatedCommandsVerifier, times(1)).setupDataCall(
+                eq(AccessNetworkType.EUTRAN), any(DataProfile.class), eq(false), eq(false),
+                eq(DataService.REQUEST_REASON_NORMAL), any(), anyInt(), any(), tdCaptor.capture(),
+                anyBoolean(), any(Message.class));
+        assertEquals(FAKE_APN1, tdCaptor.getValue().getDataNetworkName());
+        assertEquals(null, tdCaptor.getValue().getOsAppId());
+
+        // Check APN contexts after DEFAULT is set up
+        Map<Integer, ApnContext> apnContexts = mDct.getApnContexts()
+                .stream().collect(Collectors.toMap(ApnContext::getApnTypeBitmask, x -> x));
+        assertEquals(apnContexts.get(ApnSetting.TYPE_DEFAULT).getState(),
+                DctConstants.State.CONNECTED);
+        assertNotEquals(apnContexts.get(ApnSetting.TYPE_ENTERPRISE).getState(),
+                DctConstants.State.CONNECTED);
+
+        // Enable the ENTERPRISE APN
+        mNetworkRegistrationInfo = new NetworkRegistrationInfo.Builder()
+                .setAccessNetworkTechnology(TelephonyManager.NETWORK_TYPE_NR)
+                .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME)
+                .build();
+        doReturn(mNetworkRegistrationInfo).when(mServiceState).getNetworkRegistrationInfo(
+                anyInt(), anyInt());
+        SetupDataCallResult result = createSetupDataCallResult();
+        result.cid = 10;
+        mSimulatedCommands.setDataCallResult(true, result);
+        mDct.enableApn(ApnSetting.TYPE_ENTERPRISE, DcTracker.REQUEST_TYPE_NORMAL, null);
+        waitForMs(200);
+
+        verify(mSimulatedCommandsVerifier, times(1)).setupDataCall(
+                eq(AccessNetworkType.NGRAN), any(DataProfile.class), eq(false), eq(false),
+                eq(DataService.REQUEST_REASON_NORMAL), any(), anyInt(), any(), tdCaptor.capture(),
+                anyBoolean(), any(Message.class));
+        assertEquals(null, tdCaptor.getValue().getDataNetworkName());
+        assertTrue(Arrays.equals(DataConnection.getEnterpriseOsAppId(),
+                tdCaptor.getValue().getOsAppId()));
+
+        // Check APN contexts after ENTERPRISE is set up
+        Map<Integer, ApnContext> apnContextsAfterRowIdsChanged = mDct.getApnContexts()
+                .stream().collect(Collectors.toMap(ApnContext::getApnTypeBitmask, x -> x));
+
+        // Make sure that the data connection used earlier wasn't cleaned up and still in use.
+        assertEquals(apnContexts.get(ApnSetting.TYPE_DEFAULT).getDataConnection(),
+                apnContextsAfterRowIdsChanged.get(ApnSetting.TYPE_DEFAULT).getDataConnection());
+
+        // Check that ENTERPRISE isn't using the same data connection as DEFAULT
+        assertNotEquals(apnContexts.get(ApnSetting.TYPE_DEFAULT).getDataConnection(),
+                apnContextsAfterRowIdsChanged.get(ApnSetting.TYPE_ENTERPRISE).getDataConnection());
     }
 
     // Test for Data setup with APN Set ID

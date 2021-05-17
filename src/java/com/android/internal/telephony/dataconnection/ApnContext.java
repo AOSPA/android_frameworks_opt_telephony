@@ -23,6 +23,7 @@ import android.os.Message;
 import android.telephony.Annotation.ApnType;
 import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.LocalLog;
 import android.util.SparseIntArray;
 
@@ -395,7 +396,7 @@ public class ApnContext {
     }
 
     private final LocalLog mLocalLog = new LocalLog(150);
-    private final ArrayList<NetworkRequest> mNetworkRequests = new ArrayList<>();
+    private final ArraySet<NetworkRequest> mNetworkRequests = new ArraySet<>();
     private final LocalLog mStateLocalLog = new LocalLog(50);
 
     public void requestLog(String str) {
@@ -407,15 +408,19 @@ public class ApnContext {
     public void requestNetwork(NetworkRequest networkRequest, @RequestNetworkType int type,
                                Message onCompleteMsg) {
         synchronized (mRefCountLock) {
-            mNetworkRequests.add(networkRequest);
-            logl("requestNetwork for " + networkRequest + ", type="
-                    + DcTracker.requestTypeToString(type));
-            mDcTracker.enableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type,
-                    onCompleteMsg);
-            if (mDataConnection != null) {
-                // New network request added. Should re-evaluate properties of
-                // the data connection. For example, the score may change.
-                mDataConnection.reevaluateDataConnectionProperties();
+            if (mNetworkRequests.contains(networkRequest) == true) {
+                logl("requestNetwork skip duplicate request (" + networkRequest + ")");
+            } else {
+                mNetworkRequests.add(networkRequest);
+                logl("requestNetwork for " + networkRequest + ", type="
+                        + DcTracker.requestTypeToString(type));
+                mDcTracker.enableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type,
+                        onCompleteMsg);
+                if (mDataConnection != null) {
+                    // New network request added. Should re-evaluate properties of
+                    // the data connection. For example, the score may change.
+                    mDataConnection.reevaluateDataConnectionProperties();
+                }
             }
         }
     }

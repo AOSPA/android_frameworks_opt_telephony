@@ -98,14 +98,9 @@ public class TelephonyRegistryTest extends TelephonyTest {
     private static final Set<Integer> READ_PHONE_STATE_EVENTS;
     static {
         READ_PHONE_STATE_EVENTS = new HashSet<>();
-        READ_PHONE_STATE_EVENTS.add(
-                TelephonyCallback.EVENT_CALL_FORWARDING_INDICATOR_CHANGED);
-        READ_PHONE_STATE_EVENTS.add(
-                TelephonyCallback.EVENT_MESSAGE_WAITING_INDICATOR_CHANGED);
-        READ_PHONE_STATE_EVENTS.add(
-                TelephonyCallback.EVENT_EMERGENCY_NUMBER_LIST_CHANGED);
-        READ_PHONE_STATE_EVENTS.add(
-                TelephonyCallback.EVENT_ACTIVE_DATA_SUBSCRIPTION_ID_CHANGED);
+        READ_PHONE_STATE_EVENTS.add(TelephonyCallback.EVENT_CALL_FORWARDING_INDICATOR_CHANGED);
+        READ_PHONE_STATE_EVENTS.add(TelephonyCallback.EVENT_MESSAGE_WAITING_INDICATOR_CHANGED);
+        READ_PHONE_STATE_EVENTS.add(TelephonyCallback.EVENT_EMERGENCY_NUMBER_LIST_CHANGED);
     }
 
     // All events contribute to TelephonyRegistry#isPrecisePhoneStatePermissionRequired
@@ -139,6 +134,8 @@ public class TelephonyRegistryTest extends TelephonyTest {
         READ_PRIVILEGED_PHONE_STATE_EVENTS.add( TelephonyCallback.EVENT_RADIO_POWER_STATE_CHANGED);
         READ_PRIVILEGED_PHONE_STATE_EVENTS.add(
                 TelephonyCallback.EVENT_VOICE_ACTIVATION_STATE_CHANGED);
+        READ_PRIVILEGED_PHONE_STATE_EVENTS.add(
+                TelephonyCallback.EVENT_ALLOWED_NETWORK_TYPE_LIST_CHANGED);
     }
 
     // All events contribute to TelephonyRegistry#isActiveEmergencySessionPermissionRequired
@@ -232,6 +229,14 @@ public class TelephonyRegistryTest extends TelephonyTest {
         when(mMockConfigurationProvider.isRegistrationLimitEnabledInPlatformCompat(anyInt()))
                 .thenReturn(false);
         when(mMockConfigurationProvider.isCallStateReadPhoneStateEnforcedInPlatformCompat(
+                anyString(), any())).thenReturn(false);
+        when(mMockConfigurationProvider.isActiveDataSubIdReadPhoneStateEnforcedInPlatformCompat(
+                anyString(), any())).thenReturn(false);
+        when(mMockConfigurationProvider.isCellInfoReadPhoneStateEnforcedInPlatformCompat(
+                anyString(), any())).thenReturn(false);
+        when(mMockConfigurationProvider.isDisplayInfoReadPhoneStateEnforcedInPlatformCompat(
+                anyString(), any())).thenReturn(false);
+        when(mMockConfigurationProvider.isDisplayInfoNrAdvancedSupported(
                 anyString(), any())).thenReturn(false);
         mTelephonyRegistry = new TelephonyRegistry(mContext, mMockConfigurationProvider);
         addTelephonyRegistryService();
@@ -469,7 +474,7 @@ public class TelephonyRegistryTest extends TelephonyTest {
         List<PhysicalChannelConfig> configs = new ArrayList<>(1);
         configs.add(config);
 
-        mTelephonyRegistry.notifyPhysicalChannelConfigForSubscriber(subId, configs);
+        mTelephonyRegistry.notifyPhysicalChannelConfigForSubscriber(0, subId, configs);
         mTelephonyRegistry.listenWithEventList(subId, mContext.getOpPackageName(),
                 mContext.getAttributionTag(), mTelephonyCallback.callback, events, true);
         processAllMessages();
@@ -638,7 +643,7 @@ public class TelephonyRegistryTest extends TelephonyTest {
                 .queryLocalInterface(anyString());
 
         UserInfo userInfo = new UserInfo(UserHandle.myUserId(), "" /* name */, 0 /* flags */);
-        doReturn(userInfo).when(mIActivityManager).getCurrentUser();
+        doReturn(userInfo.id).when(mIActivityManager).getCurrentUserId();
 
         doReturn(true).when(mLocationManager).isLocationEnabledForUser(any(UserHandle.class));
 
@@ -662,6 +667,7 @@ public class TelephonyRegistryTest extends TelephonyTest {
         // Broadcast ACTION_USER_SWITCHED for the current user Id + 1. Callback shouldn't be
         // triggered.
         userInfo.id++;
+        doReturn(userInfo.id).when(mIActivityManager).getCurrentUserId();
         mCellLocation = null;
         mContext.sendBroadcast(new Intent(Intent.ACTION_USER_SWITCHED));
 
