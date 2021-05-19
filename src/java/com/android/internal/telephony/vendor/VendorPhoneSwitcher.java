@@ -152,10 +152,13 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
                 log("mSimStateIntentReceiver: phoneId = " + phoneId + " value = " + value);
                 if (SubscriptionManager.isValidPhoneId(phoneId)) {
                     mSimStates[phoneId] = value;
+                    final boolean simDisabled = !isUiccProvisioned(phoneId);
+                    log("mSimStateIntentReceiver: phoneId = " + phoneId
+                            + " simDisabled = " + simDisabled);
                     // If SIM is absent, allow DDS request always, which avoids DDS switch
                     // can't be completed in the no-SIM case because the sent status of the
                     // old preferred phone has no chance to reset in hot-swap
-                    if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(value)) {
+                    if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(value) || simDisabled) {
                         mDdsRequestSent[phoneId] = false;
                     }
                 }
