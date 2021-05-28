@@ -21,6 +21,7 @@ import static android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID;
 import android.net.NetworkCapabilities;
 import android.net.NetworkFactory;
 import android.net.NetworkRequest;
+import android.net.NetworkScore;
 import android.net.TelephonyNetworkSpecifier;
 import android.os.AsyncResult;
 import android.os.Bundle;
@@ -260,6 +261,15 @@ public class TelephonyNetworkFactory extends NetworkFactory {
 
     // apply or revoke requests if our active-ness changes
     private void onActivePhoneSwitch() {
+        if (mSubscriptionId == mSubscriptionController.getActiveDataSubscriptionId()) {
+            logl("onActivePhoneSwitch: set primary flag for phoneId: " + mPhone.getPhoneId());
+            setScoreFilter(new NetworkScore.Builder().setLegacyInt(TELEPHONY_NETWORK_SCORE)
+                    .setTransportPrimary(true).build());
+        } else {
+            setScoreFilter(new NetworkScore.Builder().setLegacyInt(TELEPHONY_NETWORK_SCORE)
+                    .setTransportPrimary(false).build());
+        }
+
         for (HashMap.Entry<NetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
             NetworkRequest networkRequest = entry.getKey();
             boolean applied = entry.getValue() != AccessNetworkConstants.TRANSPORT_TYPE_INVALID;
