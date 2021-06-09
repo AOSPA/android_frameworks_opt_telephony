@@ -315,8 +315,7 @@ public class SmsDispatchersController extends Handler {
         // Timer expired. This indicates that device has been in service for
         // PARTIAL_SEGMENT_WAIT_DURATION since waitTimerStart. Delete orphaned message segments
         // older than waitTimerStart.
-        SmsBroadcastUndelivered.scanRawTable(mContext, mCdmaInboundSmsHandler,
-                mGsmInboundSmsHandler, waitTimerStart);
+        SmsBroadcastUndelivered.scanRawTable(mContext, waitTimerStart);
         if (VDBG) {
             logd("handlePartialSegmentTimerExpiry: scanRawTable() done");
         }
@@ -1045,6 +1044,13 @@ public class SmsDispatchersController extends Handler {
         }
     }
 
+    /**
+     * Get InboundSmsHandler for the phone.
+     */
+    public InboundSmsHandler getInboundSmsHandler(boolean is3gpp2) {
+        if (is3gpp2) return mCdmaInboundSmsHandler;
+        else return mGsmInboundSmsHandler;
+    }
 
     public interface SmsInjectionCallback {
         void onSmsInjectedResult(int result);
@@ -1053,6 +1059,9 @@ public class SmsDispatchersController extends Handler {
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         mGsmInboundSmsHandler.dump(fd, pw, args);
         mCdmaInboundSmsHandler.dump(fd, pw, args);
+        mGsmDispatcher.dump(fd, pw, args);
+        mCdmaDispatcher.dump(fd, pw, args);
+        mImsSmsDispatcher.dump(fd, pw, args);
     }
 
     private void logd(String msg) {

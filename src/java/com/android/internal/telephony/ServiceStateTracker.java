@@ -542,6 +542,8 @@ public class ServiceStateTracker extends Handler {
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean mEmergencyOnly = false;
+    private boolean mCSEmergencyOnly = false;
+    private boolean mPSEmergencyOnly = false;
     /** Started the recheck process after finding gprs should registered but not. */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean mStartedGprsRegCheck;
@@ -1550,6 +1552,7 @@ public class ServiceStateTracker extends Handler {
                     if (mPendingRadioPowerOffAfterDataOff) {
                         if (DBG) log("EVENT_ALL_DATA_DISCONNECTED, turn radio off now.");
                         hangupAndPowerOff();
+                        mPendingRadioPowerOffAfterDataOffTag += 1;
                         mPendingRadioPowerOffAfterDataOff = false;
                     } else {
                         log("EVENT_ALL_DATA_DISCONNECTED is stale");
@@ -2294,15 +2297,16 @@ public class ServiceStateTracker extends Handler {
                 int cssIndicator = voiceSpecificStates.cssSupported ? 1 : 0;
                 int newVoiceRat = ServiceState.networkTypeToRilRadioTechnology(
                         networkRegState.getAccessNetworkTechnology());
-
                 mNewSS.setVoiceRegState(regCodeToServiceState(registrationState));
                 mNewSS.setCssIndicator(cssIndicator);
                 mNewSS.addNetworkRegistrationInfo(networkRegState);
+
                 setPhyCellInfoFromCellIdentity(mNewSS, networkRegState.getCellIdentity());
 
                 //Denial reason if registrationState = 3
                 int reasonForDenial = networkRegState.getRejectCause();
-                mEmergencyOnly = networkRegState.isEmergencyEnabled();
+                mCSEmergencyOnly = networkRegState.isEmergencyEnabled();
+                mEmergencyOnly = (mCSEmergencyOnly || mPSEmergencyOnly);
                 if (mPhone.isPhoneTypeGsm()) {
 
                     mGsmVoiceRoaming = regCodeIsRoaming(registrationState);
@@ -2400,6 +2404,8 @@ public class ServiceStateTracker extends Handler {
                     mServiceStateStats.onServiceStateChanged(mSS);
                 }
 
+                mPSEmergencyOnly = networkRegState.isEmergencyEnabled();
+                mEmergencyOnly = (mCSEmergencyOnly || mPSEmergencyOnly);
                 if (mPhone.isPhoneTypeGsm()) {
 
                     mNewReasonDataDenied = networkRegState.getRejectCause();
@@ -5109,8 +5115,8 @@ public class ServiceStateTracker extends Handler {
         synchronized(this) {
             if (mPendingRadioPowerOffAfterDataOff) {
                 if (DBG) log("Process pending request to turn radio off.");
-                mPendingRadioPowerOffAfterDataOffTag += 1;
                 hangupAndPowerOff();
+                mPendingRadioPowerOffAfterDataOffTag += 1;
                 mPendingRadioPowerOffAfterDataOff = false;
                 return true;
             }
@@ -5583,6 +5589,8 @@ public class ServiceStateTracker extends Handler {
         pw.println(" mGsmVoiceRoaming=" + mGsmVoiceRoaming);
         pw.println(" mGsmDataRoaming=" + mGsmDataRoaming);
         pw.println(" mEmergencyOnly=" + mEmergencyOnly);
+        pw.println(" mCSEmergencyOnly=" + mCSEmergencyOnly);
+        pw.println(" mPSEmergencyOnly=" + mPSEmergencyOnly);
         pw.flush();
         mNitzState.dumpState(pw);
         pw.println(" mLastNitzData=" + mLastNitzData);

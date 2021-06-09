@@ -326,7 +326,7 @@ public class TransportManager extends Handler {
      */
     private synchronized void setCurrentTransport(@ApnType int apnType, int transport) {
         mCurrentTransports.put(apnType, transport);
-        logl("setCurrentTransport: apnType=" + ApnSetting.getApnTypeStringInternal(apnType)
+        logl("setCurrentTransport: apnType=" + ApnSetting.getApnTypeString(apnType)
                 + ", transport=" + AccessNetworkConstants.transportTypeToString(transport));
         final SharedPreferences sp
                 = PreferenceManager.getDefaultSharedPreferences(mPhone.getContext());
@@ -359,7 +359,7 @@ public class TransportManager extends Handler {
                     int targetTransport = ACCESS_NETWORK_TRANSPORT_TYPE_MAP.get(
                             networks.qualifiedNetworks[0]);
                     logl("Handover needed for APN type: "
-                            + ApnSetting.getApnTypeStringInternal(networks.apnType)
+                            + ApnSetting.getApnTypeString(networks.apnType)
                             + ", target transport: "
                             + AccessNetworkConstants.transportTypeToString(targetTransport));
                     // No matter whether this APN is in pending handover list,
@@ -379,8 +379,7 @@ public class TransportManager extends Handler {
                                             logl("Handover succeeded.");
                                         } else {
                                             logl("APN type "
-                                                    + ApnSetting.getApnTypeStringInternal(
-                                                            networks.apnType)
+                                                    + ApnSetting.getApnTypeString(networks.apnType)
                                                     + " handover to "
                                                     + AccessNetworkConstants.transportTypeToString(
                                                     targetTransport) + " failed."
@@ -578,7 +577,7 @@ public class TransportManager extends Handler {
         pw.increaseIndent();
         for (int i = 0; i < mCurrentAvailableNetworks.size(); i++) {
             pw.println("APN type "
-                    + ApnSetting.getApnTypeStringInternal(mCurrentAvailableNetworks.keyAt(i))
+                    + ApnSetting.getApnTypeString(mCurrentAvailableNetworks.keyAt(i))
                     + ": [" + Arrays.stream(mCurrentAvailableNetworks.valueAt(i))
                     .mapToObj(AccessNetworkType::toString)
                     .collect(Collectors.joining(",")) + "]");
@@ -589,7 +588,7 @@ public class TransportManager extends Handler {
         pw.println("mCurrentTransports=");
         pw.increaseIndent();
         for (Map.Entry<Integer, Integer> entry : mCurrentTransports.entrySet()) {
-            pw.println("APN type " + ApnSetting.getApnTypeStringInternal(entry.getKey())
+            pw.println("APN type " + ApnSetting.getApnTypeString(entry.getKey())
                     + ": " + AccessNetworkConstants.transportTypeToString(entry.getValue()));
         }
         pw.decreaseIndent();

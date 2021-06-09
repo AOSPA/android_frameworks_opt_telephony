@@ -617,16 +617,13 @@ public class VendorPhoneSwitcher extends PhoneSwitcher {
         if (ddsPhoneId != INVALID_PHONE_INDEX && ddsPhoneId == phoneId) {
             isValid = true;
         } else {
-            if (mPrioritizedDcRequests.size() > 0) {
-                for (int i = 0; i < mMaxDataAttachModemCount; i++) {
-                    DcRequest dcRequest = mPrioritizedDcRequests.get(i);
-                    if (dcRequest != null) {
-                        phoneIdForRequest = phoneIdForRequest(dcRequest.networkRequest,
-                                dcRequest.apnType);
-                        if (phoneIdForRequest == phoneId) {
-                            isValid = true;
-                            break;
-                        }
+            for (DcRequest dcRequest : mPrioritizedDcRequests) {
+                if (dcRequest != null) {
+                    phoneIdForRequest = phoneIdForRequest(dcRequest.networkRequest,
+                            dcRequest.apnType);
+                    if (phoneIdForRequest == phoneId) {
+                        isValid = true;
+                        break;
                     }
                 }
             }
