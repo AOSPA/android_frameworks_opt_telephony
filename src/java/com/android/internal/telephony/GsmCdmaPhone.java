@@ -2023,6 +2023,14 @@ public class GsmCdmaPhone extends Phone {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public String getLine1Number() {
+        String number = getMsisdnNumber();
+        if (!TextUtils.isEmpty(number)) {
+            return number;
+        }
+        return mImsPhone != null ? mImsPhone.getSubscriberUriNumber() : null;
+    }
+
+    private String getMsisdnNumber() {
         if (isPhoneTypeGsm()) {
             IccRecords r = mIccRecords.get();
             return (r != null) ? r.getMsisdnNumber() : null;

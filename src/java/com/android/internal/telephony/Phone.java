@@ -4659,6 +4659,15 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return null;
     }
 
+    /**
+     * Phone number of the current subscriber given by the IMS implementation.
+     * Applicable only on IMS; used in absence of line1number.
+     * @return phone number from SIP URIs aliased to the current subscriber
+     */
+    public String getSubscriberUriNumber() {
+        return null;
+    }
+
     public AppSmsManager getAppSmsManager() {
         return mAppSmsManager;
     }
