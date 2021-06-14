@@ -121,7 +121,7 @@ public class PhoneSwitcher extends Handler {
      * call to allow for carrier specific operations, such as provide SUPL updates during or after
      * the emergency call, since some modems do not support these operations on the non DDS.
      */
-    private static final class EmergencyOverrideRequest {
+    protected static final class EmergencyOverrideRequest {
         /* The Phone ID that the DDS should be set to. */
         int mPhoneId = INVALID_PHONE_INDEX;
         /* The time after the emergency call ends that the DDS should be overridden for. */
@@ -152,7 +152,7 @@ public class PhoneSwitcher extends Handler {
         /**
          * Send the override complete callback the result of setting the DDS to the new value.
          */
-        void sendOverrideCompleteCallbackResultAndClear(boolean result) {
+        public void sendOverrideCompleteCallbackResultAndClear(boolean result) {
             if (isCallbackAvailable()) {
                 mOverrideCompleteFuture.complete(result);
                 mOverrideCompleteFuture = null;
@@ -241,7 +241,7 @@ public class PhoneSwitcher extends Handler {
     // If non-null, An emergency call is about to be started, is ongoing, or has just ended and we
     // are overriding the DDS.
     // Internal state, should ONLY be accessed/modified inside of the handler.
-    private EmergencyOverrideRequest mEmergencyOverride;
+    protected EmergencyOverrideRequest mEmergencyOverride;
 
     private ISetOpportunisticDataCallback mSetOpptSubCallback;
 
@@ -1641,7 +1641,7 @@ public class PhoneSwitcher extends Handler {
         return ret;
     }
 
-    private void onDdsSwitchResponse(AsyncResult ar) {
+    protected void onDdsSwitchResponse(AsyncResult ar) {
         boolean commandSuccess = ar != null && ar.exception == null;
         int phoneId = (int) ar.userObj;
         if (mEmergencyOverride != null) {
