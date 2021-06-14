@@ -398,18 +398,21 @@ public class UiccProfile extends IccCard {
     }
 
     private void setCurrentAppType(boolean isGsm) {
+        int primaryAppType;
+        int secondaryAppType;
+        if (isGsm) {
+            primaryAppType = UiccController.APP_FAM_3GPP;
+            secondaryAppType = UiccController.APP_FAM_3GPP2;
+        } else {
+            primaryAppType = UiccController.APP_FAM_3GPP2;
+            secondaryAppType = UiccController.APP_FAM_3GPP;
+        }
         synchronized (mLock) {
-            if (isGsm) {
-                mCurrentAppType = UiccController.APP_FAM_3GPP;
+            UiccCardApplication newApp = getApplication(primaryAppType);
+            if (newApp != null || getApplication(secondaryAppType) == null) {
+                mCurrentAppType = primaryAppType;
             } else {
-                //if CSIM application is not present, set current app to default app i.e 3GPP
-                UiccCardApplication newApp = null;
-                newApp = getApplication(UiccController.APP_FAM_3GPP2);
-                if (newApp != null || getApplication(UiccController.APP_FAM_3GPP) == null) {
-                    mCurrentAppType = UiccController.APP_FAM_3GPP2;
-                } else {
-                    mCurrentAppType = UiccController.APP_FAM_3GPP;
-                }
+                mCurrentAppType = secondaryAppType;
             }
         }
         log("setCurrentAppType to be " + mCurrentAppType);
