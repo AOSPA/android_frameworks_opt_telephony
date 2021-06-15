@@ -2646,7 +2646,7 @@ public class DcTracker extends Handler {
         }
     }
 
-    private void sendHandoverCompleteMessages(@ApnType int apnType, boolean success,
+    protected void sendHandoverCompleteMessages(@ApnType int apnType, boolean success,
             boolean fallbackOnFailedHandover) {
         List<Message> messageList = mHandoverCompletionMsgs.get(apnType);
         if (messageList != null) {
