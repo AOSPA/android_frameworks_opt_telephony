@@ -39,6 +39,7 @@ import android.os.HwBinder;
 import android.os.Message;
 import android.os.Registrant;
 import android.os.RemoteException;
+import android.os.SystemProperties;
 import android.os.WorkSource;
 import android.telephony.TelephonyManager;
 import android.util.SparseArray;
@@ -97,6 +98,9 @@ public class RadioConfig extends Handler {
     }
 
     private boolean isMobileDataCapable(Context context) {
+        if(SystemProperties.getBoolean("ro.radio.noril", false)) {
+            return false;
+        }
         final TelephonyManager tm = context.getSystemService(TelephonyManager.class);
         if (tm == null) {
             return false;
