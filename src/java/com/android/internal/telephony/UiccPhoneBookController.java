@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2008 The Android Open Source Project
- * Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2013, 2021 The Linux Foundation. All rights reserved.
  * Not a Contribution.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,7 +23,9 @@ import android.content.ContentValues;
 import android.os.Build;
 import android.os.TelephonyServiceManager.ServiceRegisterer;
 import android.telephony.TelephonyFrameworkInitializer;
+import android.content.ContentValues;
 
+import com.android.internal.telephony.uicc.AdnCapacity;
 import com.android.internal.telephony.uicc.AdnRecord;
 import com.android.telephony.Rlog;
 
@@ -47,44 +49,24 @@ public class UiccPhoneBookController extends IIccPhoneBook.Stub {
     public boolean
     updateAdnRecordsInEfBySearch (int efid, String oldTag, String oldPhoneNumber,
             String newTag, String newPhoneNumber, String pin2) throws android.os.RemoteException {
-        return updateAdnRecordsInEfBySearchForSubscriber(getDefaultSubscription(), efid, oldTag,
-                oldPhoneNumber, newTag, newPhoneNumber, pin2);
+        ContentValues values = new ContentValues();
+        values.put(IccProvider.STR_TAG, oldTag);
+        values.put(IccProvider.STR_NUMBER, oldPhoneNumber);
+        values.put(IccProvider.STR_NEW_TAG, newTag);
+        values.put(IccProvider.STR_NEW_NUMBER, newPhoneNumber);
+        return updateAdnRecordsInEfBySearchForSubscriber(getDefaultSubscription(),
+                efid, values, pin2);
     }
 
     @Override
     public boolean
-    updateAdnRecordsInEfBySearchForSubscriber(int subId, int efid, String oldTag,
-            String oldPhoneNumber, String newTag, String newPhoneNumber,
-            String pin2) throws android.os.RemoteException {
+    updateAdnRecordsInEfByIndexForSubscriber(int subId, int efid, ContentValues values,
+            int index, String pin2) throws android.os.RemoteException {
         IccPhoneBookInterfaceManager iccPbkIntMgr =
                              getIccPhoneBookInterfaceManager(subId);
         if (iccPbkIntMgr != null) {
-            return iccPbkIntMgr.updateAdnRecordsInEfBySearch(efid, oldTag,
-                    oldPhoneNumber, newTag, newPhoneNumber, pin2);
-        } else {
-            Rlog.e(TAG,"updateAdnRecordsInEfBySearch iccPbkIntMgr is" +
-                      " null for Subscription:"+subId);
-            return false;
-        }
-    }
-
-    @Override
-    public boolean
-    updateAdnRecordsInEfByIndex(int efid, String newTag,
-            String newPhoneNumber, int index, String pin2) throws android.os.RemoteException {
-        return updateAdnRecordsInEfByIndexForSubscriber(getDefaultSubscription(), efid, newTag,
-                newPhoneNumber, index, pin2);
-    }
-
-    @Override
-    public boolean
-    updateAdnRecordsInEfByIndexForSubscriber(int subId, int efid, String newTag,
-            String newPhoneNumber, int index, String pin2) throws android.os.RemoteException {
-        IccPhoneBookInterfaceManager iccPbkIntMgr =
-                             getIccPhoneBookInterfaceManager(subId);
-        if (iccPbkIntMgr != null) {
-            return iccPbkIntMgr.updateAdnRecordsInEfByIndex(efid, newTag,
-                    newPhoneNumber, index, pin2);
+            return iccPbkIntMgr.updateAdnRecordsInEfByIndex(efid, values,
+                    index, pin2);
         } else {
             Rlog.e(TAG,"updateAdnRecordsInEfByIndex iccPbkIntMgr is" +
                       " null for Subscription:"+subId);
@@ -131,20 +113,18 @@ public class UiccPhoneBookController extends IIccPhoneBook.Stub {
     }
 
     @Override
-    public int[] getAdnRecordsCapacity() throws android.os.RemoteException {
+    public AdnCapacity getAdnRecordsCapacity() throws android.os.RemoteException {
         return getAdnRecordsCapacityForSubscriber(getDefaultSubscription());
     }
 
     @Override
-    public int[] getAdnRecordsCapacityForSubscriber(int subId)
+    public AdnCapacity getAdnRecordsCapacityForSubscriber(int subId)
            throws android.os.RemoteException {
-        IccPhoneBookInterfaceManager iccPbkIntMgr =
-                             getIccPhoneBookInterfaceManager(subId);
+        IccPhoneBookInterfaceManager iccPbkIntMgr = getIccPhoneBookInterfaceManager(subId);
         if (iccPbkIntMgr != null) {
             return iccPbkIntMgr.getAdnRecordsCapacity();
         } else {
-            Rlog.e(TAG,"getAdnRecordsCapacity iccPbkIntMgr is" +
-                      " null for Subscription:"+subId);
+            Rlog.e(TAG, "getAdnRecordsCapacity iccPbkIntMgr is null for Subscription:" + subId);
             return null;
         }
     }
@@ -152,21 +132,21 @@ public class UiccPhoneBookController extends IIccPhoneBook.Stub {
     public boolean
     updateAdnRecordsWithContentValuesInEfBySearch(int efid, ContentValues values,
         String pin2) throws android.os.RemoteException {
-            return updateAdnRecordsWithContentValuesInEfBySearchUsingSubId(
+            return updateAdnRecordsInEfBySearchForSubscriber(
                 getDefaultSubscription(), efid, values, pin2);
     }
 
+    @Override
     public boolean
-    updateAdnRecordsWithContentValuesInEfBySearchUsingSubId(int subId, int efid,
-        ContentValues values, String pin2)
-        throws android.os.RemoteException {
-        IccPhoneBookInterfaceManager iccPbkIntMgr =
-                             getIccPhoneBookInterfaceManager(subId);
+    updateAdnRecordsInEfBySearchForSubscriber(int subId, int efid,
+            ContentValues values, String pin2)
+            throws android.os.RemoteException {
+        IccPhoneBookInterfaceManager iccPbkIntMgr = getIccPhoneBookInterfaceManager(subId);
         if (iccPbkIntMgr != null) {
-            return iccPbkIntMgr.updateAdnRecordsWithContentValuesInEfBySearch(
+            return iccPbkIntMgr.updateAdnRecordsInEfBySearchForSubscriber(
                 efid, values, pin2);
         } else {
-            Rlog.e(TAG,"updateAdnRecordsWithContentValuesInEfBySearchUsingSubId " +
+            Rlog.e(TAG,"updateAdnRecordsInEfBySearchForSubscriber " +
                 "iccPbkIntMgr is null for Subscription:"+subId);
             return false;
         }
