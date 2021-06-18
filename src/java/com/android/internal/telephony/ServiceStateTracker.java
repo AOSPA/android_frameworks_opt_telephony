@@ -647,11 +647,17 @@ public class ServiceStateTracker extends Handler {
      * Reference: 3GPP TS 36.104 5.4.3)
      * inclusive ranges for which the lte rsrp boost is applied */
     private ArrayList<Pair<Integer, Integer>> mEarfcnPairListForRsrpBoost = null;
-
     private int mLteRsrpBoost = 0; // offset which is reduced from the rsrp threshold
                                    // while calculating signal strength level.
-    private final Object mLteRsrpBoostLock = new Object();
-    private static final int INVALID_LTE_EARFCN = -1;
+
+    /* Ranges of NR ARFCNs (5G Absolute Radio Frequency Channel Number,
+     * Reference: 3GPP TS 38.104)
+     * inclusive ranges for which the corresponding nr rsrp boost is applied */
+    private ArrayList<Pair<Integer, Integer>> mNrarfcnRangeListForRsrpBoost = null;
+    private int[] mNrRsrpBoost;
+
+    private final Object mRsrpBoostLock = new Object();
+    private static final int INVALID_ARFCN = -1;
 
     private final List<SignalRequestRecord> mSignalRequestRecords = new ArrayList<>();
 
@@ -1092,6 +1098,14 @@ public class ServiceStateTracker extends Handler {
     }
 
     /**
+     * Clear all the radio off reasons. This should be done when turning radio off for genuine or
+     * test emergency calls.
+     */
+    public void clearAllRadioOffReasons() {
+        sRadioPowerOffReasons.clear();
+    }
+
+    /**
      * Turn on or off radio power.
      */
     public final void setRadioPower(boolean power) {
@@ -1113,7 +1127,7 @@ public class ServiceStateTracker extends Handler {
      * Turn on or off radio power with option to specify whether it's for emergency call and specify
      * a reason for setting the power state.
      * More details check {@link PhoneInternalInterface#setRadioPower(
-     * boolean, boolean, boolean, boolean, String)}.
+     * boolean, boolean, boolean, boolean, int)}.
      */
     public void setRadioPowerForReason(boolean power, boolean forEmergencyCall,
             boolean isSelectedPhoneForEmergencyCall, boolean forceApply, int reason) {
@@ -1122,7 +1136,7 @@ public class ServiceStateTracker extends Handler {
 
         if (power) {
             if (forEmergencyCall) {
-                sRadioPowerOffReasons.clear();
+                clearAllRadioOffReasons();
             } else {
                 sRadioPowerOffReasons.remove(reason);
             }
@@ -1203,23 +1217,6 @@ public class ServiceStateTracker extends Handler {
         if (!mWantSingleLocationUpdate && !mWantContinuousLocationUpdates) {
             mCi.setLocationUpdates(false, null, null);
         }
-    }
-
-    private int getLteEarfcn(CellIdentity cellIdentity) {
-        int lteEarfcn = INVALID_LTE_EARFCN;
-        if (cellIdentity != null) {
-            switch (cellIdentity.getType()) {
-                case CellInfoType.LTE: {
-                    lteEarfcn = ((CellIdentityLte) cellIdentity).getEarfcn();
-                    break;
-                }
-                default: {
-                    break;
-                }
-            }
-        }
-
-        return lteEarfcn;
     }
 
     @Override
@@ -2432,8 +2429,7 @@ public class ServiceStateTracker extends Handler {
                     mNewSS.setDataRoamingFromRegistration(isDataRoaming);
                 }
 
-                updateServiceStateLteEarfcnBoost(mNewSS,
-                        getLteEarfcn(networkRegState.getCellIdentity()));
+                updateServiceStateArfcnRsrpBoost(mNewSS, networkRegState.getCellIdentity());
                 break;
             }
 
@@ -5125,19 +5121,21 @@ public class ServiceStateTracker extends Handler {
     /**
      * Checks if the provided earfcn falls withing the range of earfcns.
      *
-     * return true if earfcn falls within the provided range; false otherwise.
+     * return int index in earfcnPairList if earfcn falls within the provided range; -1 otherwise.
      */
-    private boolean containsEarfcnInEarfcnRange(ArrayList<Pair<Integer, Integer>> earfcnPairList,
+    private int containsEarfcnInEarfcnRange(ArrayList<Pair<Integer, Integer>> earfcnPairList,
             int earfcn) {
+        int index = 0;
         if (earfcnPairList != null) {
             for (Pair<Integer, Integer> earfcnPair : earfcnPairList) {
                 if ((earfcn >= earfcnPair.first) && (earfcn <= earfcnPair.second)) {
-                    return true;
+                    return index;
                 }
+                index++;
             }
         }
 
-        return false;
+        return -1;
     }
 
     /**
@@ -5201,7 +5199,7 @@ public class ServiceStateTracker extends Handler {
         mCarrierConfigLoaded = true;
         pollState();
 
-        updateLteEarfcnLists(config);
+        updateArfcnLists(config);
         updateReportingCriteria(config);
         updateOperatorNamePattern(config);
         mCdnr.updateEfFromCarrierConfig(config);
@@ -5213,13 +5211,29 @@ public class ServiceStateTracker extends Handler {
         pollStateInternal(false);
     }
 
-    private void updateLteEarfcnLists(PersistableBundle config) {
-        synchronized (mLteRsrpBoostLock) {
+    private void updateArfcnLists(PersistableBundle config) {
+        synchronized (mRsrpBoostLock) {
             mLteRsrpBoost = config.getInt(CarrierConfigManager.KEY_LTE_EARFCNS_RSRP_BOOST_INT, 0);
             String[] earfcnsStringArrayForRsrpBoost = config.getStringArray(
                     CarrierConfigManager.KEY_BOOSTED_LTE_EARFCNS_STRING_ARRAY);
             mEarfcnPairListForRsrpBoost = convertEarfcnStringArrayToPairList(
                     earfcnsStringArrayForRsrpBoost);
+
+            mNrRsrpBoost = config.getIntArray(
+                    CarrierConfigManager.KEY_NRARFCNS_RSRP_BOOST_INT_ARRAY);
+            String[] nrarfcnsStringArrayForRsrpBoost = config.getStringArray(
+                    CarrierConfigManager.KEY_BOOSTED_NRARFCNS_STRING_ARRAY);
+            mNrarfcnRangeListForRsrpBoost = convertEarfcnStringArrayToPairList(
+                    nrarfcnsStringArrayForRsrpBoost);
+
+            if ((mNrRsrpBoost == null && mNrarfcnRangeListForRsrpBoost != null)
+                    || (mNrRsrpBoost != null && mNrarfcnRangeListForRsrpBoost == null)
+                    || (mNrRsrpBoost != null && mNrarfcnRangeListForRsrpBoost != null
+                    && mNrRsrpBoost.length != mNrarfcnRangeListForRsrpBoost.size())) {
+                loge("Invalid parameters for NR RSRP boost");
+                mNrRsrpBoost = null;
+                mNrarfcnRangeListForRsrpBoost = null;
+            }
         }
     }
 
@@ -5269,15 +5283,36 @@ public class ServiceStateTracker extends Handler {
         }
     }
 
-    private void updateServiceStateLteEarfcnBoost(ServiceState serviceState, int lteEarfcn) {
-        synchronized (mLteRsrpBoostLock) {
-            if ((lteEarfcn != INVALID_LTE_EARFCN)
-                    && containsEarfcnInEarfcnRange(mEarfcnPairListForRsrpBoost, lteEarfcn)) {
-                serviceState.setLteEarfcnRsrpBoost(mLteRsrpBoost);
-            } else {
-                serviceState.setLteEarfcnRsrpBoost(0);
+    private void updateServiceStateArfcnRsrpBoost(ServiceState serviceState,
+            CellIdentity cellIdentity) {
+        int rsrpBoost = 0;
+        int arfcn;
+
+        synchronized (mRsrpBoostLock) {
+            switch (cellIdentity.getType()) {
+                case CellInfo.TYPE_LTE:
+                    arfcn = ((CellIdentityLte) cellIdentity).getEarfcn();
+                    if (arfcn != INVALID_ARFCN
+                            && containsEarfcnInEarfcnRange(mEarfcnPairListForRsrpBoost,
+                            arfcn) != -1) {
+                        rsrpBoost = mLteRsrpBoost;
+                    }
+                    break;
+                case CellInfo.TYPE_NR:
+                    arfcn = ((CellIdentityNr) cellIdentity).getNrarfcn();
+                    if (arfcn != INVALID_ARFCN) {
+                        int index = containsEarfcnInEarfcnRange(mNrarfcnRangeListForRsrpBoost,
+                                arfcn);
+                        if (index != -1) {
+                            rsrpBoost = mNrRsrpBoost[index];
+                        }
+                    }
+                    break;
+                default:
+                    break;
             }
         }
+        serviceState.setArfcnRsrpBoost(rsrpBoost);
     }
 
     /**
@@ -5526,11 +5561,12 @@ public class ServiceStateTracker extends Handler {
         }
     }
 
-    private void dumpEarfcnPairList(PrintWriter pw) {
-        pw.print(" mEarfcnPairListForRsrpBoost={");
-        if (mEarfcnPairListForRsrpBoost != null) {
-            int i = mEarfcnPairListForRsrpBoost.size();
-            for (Pair<Integer, Integer> earfcnPair : mEarfcnPairListForRsrpBoost) {
+    private void dumpEarfcnPairList(PrintWriter pw, ArrayList<Pair<Integer, Integer>> pairList,
+            String name) {
+        pw.print(" " + name + "={");
+        if (pairList != null) {
+            int i = pairList.size();
+            for (Pair<Integer, Integer> earfcnPair : pairList) {
                 pw.print("(");
                 pw.print(earfcnPair.first);
                 pw.print(",");
@@ -5627,9 +5663,11 @@ public class ServiceStateTracker extends Handler {
         pw.println(" mDeviceShuttingDown=" + mDeviceShuttingDown);
         pw.println(" mSpnUpdatePending=" + mSpnUpdatePending);
         pw.println(" mLteRsrpBoost=" + mLteRsrpBoost);
+        pw.println(" mNrRsrpBoost=" + Arrays.toString(mNrRsrpBoost));
         pw.println(" mCellInfoMinIntervalMs=" + mCellInfoMinIntervalMs);
         pw.println(" mEriManager=" + mEriManager);
-        dumpEarfcnPairList(pw);
+        dumpEarfcnPairList(pw, mEarfcnPairListForRsrpBoost, "mEarfcnPairListForRsrpBoost");
+        dumpEarfcnPairList(pw, mNrarfcnRangeListForRsrpBoost, "mNrarfcnRangeListForRsrpBoost");
 
         mLocaleTracker.dump(fd, pw, args);
         IndentingPrintWriter ipw = new IndentingPrintWriter(pw, "    ");
@@ -5983,7 +6021,7 @@ public class ServiceStateTracker extends Handler {
      * If dataRegState is in service on IWLAN, also check for wifi calling enabled.
      * @param ss service state.
      */
-    protected int getCombinedRegState(ServiceState ss) {
+    public int getCombinedRegState(ServiceState ss) {
         int regState = ss.getState();
         int dataRegState = ss.getDataRegistrationState();
         if ((regState == ServiceState.STATE_OUT_OF_SERVICE

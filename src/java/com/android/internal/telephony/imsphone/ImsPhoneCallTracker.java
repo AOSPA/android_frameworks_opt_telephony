@@ -1149,6 +1149,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             connection.getCall().detach(connection);
         }
         mConnections.clear();
+        // Pending MO was added to mConnections previously, so it has already been disconnected
+        // above. Remove all references to it.
+        mPendingMO = null;
         updatePhoneState();
     }
 
@@ -2176,7 +2179,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         }
 
         try {
-            fgImsCall.consultativeTransfer(bgImsCall);
+            // Per 3GPP TS 24.629 - A.2, the signalling for a consultative transfer should send the
+            // REFER on the background held call with the foreground call specified as the
+            // destination.
+            bgImsCall.consultativeTransfer(fgImsCall);
         } catch (ImsException e) {
             throw new CallStateException(e.getMessage());
         }
