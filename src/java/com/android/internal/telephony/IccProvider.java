@@ -31,6 +31,7 @@ import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyFrameworkInitializer;
 import android.text.TextUtils;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.uicc.AdnRecord;
 import com.android.internal.telephony.uicc.IccConstants;
 import com.android.telephony.Rlog;
@@ -63,14 +64,23 @@ public class IccProvider extends ContentProvider {
     protected static final int SDN_SUB = 6;
     protected static final int ADN_ALL = 7;
 
+    @VisibleForTesting
     public static final String STR_TAG = "tag";
+    @VisibleForTesting
     public static final String STR_NUMBER = "number";
+    @VisibleForTesting
     public static final String STR_EMAILS = "emails";
+    @VisibleForTesting
     public static final String STR_ANRS = "anrs";
+    @VisibleForTesting
     public static final String STR_NEW_TAG = "newTag";
+    @VisibleForTesting
     public static final String STR_NEW_NUMBER = "newNumber";
+    @VisibleForTesting
     public static final String STR_NEW_EMAILS = "newEmails";
+    @VisibleForTesting
     public static final String STR_NEW_ANRS = "newAnrs";
+    @VisibleForTesting
     public static final String STR_PIN2 = "pin2";
 
     private static final UriMatcher URL_MATCHER =
@@ -209,20 +219,21 @@ public class IccProvider extends ContentProvider {
                         "Cannot insert into URL: " + url);
         }
 
-        String tag = initialValues.getAsString("tag");
-        String number = initialValues.getAsString("number");
-        String emails = initialValues.getAsString("emails");
-        String anrs = initialValues.getAsString("anrs");
-
+        // We're not using the incoming initialValues
+        // so we can check/gate the arguments.
+        String tag = initialValues.getAsString(STR_TAG);
+        String number = initialValues.getAsString(STR_NUMBER);
+        String emails = initialValues.getAsString(STR_EMAILS);
+        String anrs = initialValues.getAsString(STR_ANRS);
         ContentValues values = new ContentValues();
         values.put(STR_TAG,"");
         values.put(STR_NUMBER,"");
         values.put(STR_EMAILS,"");
         values.put(STR_ANRS,"");
-        values.put(STR_NEW_TAG,tag);
-        values.put(STR_NEW_NUMBER,number);
-        values.put(STR_NEW_EMAILS,emails);
-        values.put(STR_NEW_ANRS,anrs);
+        values.put(STR_NEW_TAG, tag);
+        values.put(STR_NEW_NUMBER, number);
+        values.put(STR_NEW_EMAILS, emails);
+        values.put(STR_NEW_ANRS, anrs);
         boolean success = updateIccRecordInEf(efType, values, pin2, subId);
 
         if (!success) {
@@ -350,10 +361,10 @@ public class IccProvider extends ContentProvider {
         }
 
         ContentValues values = new ContentValues();
-        values.put(STR_TAG,tag);
-        values.put(STR_NUMBER,number);
-        values.put(STR_EMAILS,emails);
-        values.put(STR_ANRS,anrs);
+        values.put(STR_TAG, tag);
+        values.put(STR_NUMBER, number);
+        values.put(STR_EMAILS, emails);
+        values.put(STR_ANRS, anrs);
         values.put(STR_NEW_TAG,"");
         values.put(STR_NEW_NUMBER,"");
         values.put(STR_NEW_EMAILS,"");
@@ -361,7 +372,6 @@ public class IccProvider extends ContentProvider {
         if ((efType == FDN) && TextUtils.isEmpty(pin2)) {
             return 0;
         }
-
         if (DBG) log("delete mvalues= " + values);
         boolean success = updateIccRecordInEf(efType, values, pin2, subId);
         if (!success) {
@@ -409,13 +419,6 @@ public class IccProvider extends ContentProvider {
                         "Cannot insert into URL: " + url);
         }
 
-        String tag = values.getAsString("tag");
-        String number = values.getAsString("number");
-        String[] emails = null;
-        String newTag = values.getAsString("newTag");
-        String newNumber = values.getAsString("newNumber");
-        String[] newEmails = null;
-        // TODO(): Update for email.
         boolean success = updateIccRecordInEf(efType, values, pin2, subId);
 
         if (!success) {
@@ -463,44 +466,10 @@ public class IccProvider extends ContentProvider {
     }
 
     private boolean
-    addIccRecordToEf(int efType, String name, String number, String[] emails,
-            String pin2, int subId) {
-        if (DBG) log("addIccRecordToEf: efType=0x" + Integer.toHexString(efType).toUpperCase() +
-                ", name=" + Rlog.pii(TAG, name) + ", number=" + Rlog.pii(TAG, number) +
-                ", emails=" + Rlog.pii(TAG, emails) + ", subscription=" + subId);
-
-        boolean success = false;
-
-        // TODO: do we need to call getAdnRecordsInEf() before calling
-        // updateAdnRecordsInEfBySearch()? In any case, we will leave
-        // the UI level logic to fill that prereq if necessary. But
-        // hopefully, we can remove this requirement.
-
-        try {
-            IIccPhoneBook iccIpb = IIccPhoneBook.Stub.asInterface(
-                    TelephonyFrameworkInitializer
-                            .getTelephonyServiceManager()
-                            .getIccPhoneBookServiceRegisterer()
-                            .get());
-            if (iccIpb != null) {
-                success = iccIpb.updateAdnRecordsInEfBySearchForSubscriber(subId, efType,
-                        "", "", name, number, pin2);
-            }
-        } catch (RemoteException ex) {
-            // ignore it
-        } catch (SecurityException ex) {
-            if (DBG) log(ex.toString());
-        }
-        if (DBG) log("addIccRecordToEf: " + success);
-        return success;
-    }
-
-    private boolean
     updateIccRecordInEf(int efType, ContentValues values, String pin2, int subId) {
         boolean success = false;
-
         if (DBG) log("updateIccRecordInEf: efType=" + efType +
-                    ", values: [ "+ values + " ], subId:" + subId);
+                ", values: [ "+ values + "  ], subId:" + subId);
         try {
             IIccPhoneBook iccIpb = IIccPhoneBook.Stub.asInterface(
                     TelephonyFrameworkInitializer
@@ -509,7 +478,7 @@ public class IccProvider extends ContentProvider {
                             .get());
             if (iccIpb != null) {
                 success = iccIpb
-                        .updateAdnRecordsWithContentValuesInEfBySearchUsingSubId(
+                        .updateAdnRecordsInEfBySearchForSubscriber(
                             subId, efType, values, pin2);
             }
         } catch (RemoteException ex) {
@@ -518,34 +487,6 @@ public class IccProvider extends ContentProvider {
             if (DBG) log(ex.toString());
         }
         if (DBG) log("updateIccRecordInEf: " + success);
-        return success;
-    }
-
-    private boolean deleteIccRecordFromEf(int efType, String name, String number, String[] emails,
-            String pin2, int subId) {
-        if (DBG) log("deleteIccRecordFromEf: efType=0x" +
-                Integer.toHexString(efType).toUpperCase() + ", name=" + Rlog.pii(TAG, name) +
-                ", number=" + Rlog.pii(TAG, number) + ", emails=" + Rlog.pii(TAG, emails) +
-                ", pin2=" + Rlog.pii(TAG, pin2) + ", subscription=" + subId);
-
-        boolean success = false;
-
-        try {
-            IIccPhoneBook iccIpb = IIccPhoneBook.Stub.asInterface(
-                    TelephonyFrameworkInitializer
-                            .getTelephonyServiceManager()
-                            .getIccPhoneBookServiceRegisterer()
-                            .get());
-            if (iccIpb != null) {
-                success = iccIpb.updateAdnRecordsInEfBySearchForSubscriber(subId, efType,
-                          name, number, "", "", pin2);
-            }
-        } catch (RemoteException ex) {
-            // ignore it
-        } catch (SecurityException ex) {
-            if (DBG) log(ex.toString());
-        }
-        if (DBG) log("deleteIccRecordFromEf: " + success);
         return success;
     }
 
@@ -561,7 +502,6 @@ public class IccProvider extends ContentProvider {
             Object[] contact = new Object[5];
             String alphaTag = record.getAlphaTag();
             String number = record.getNumber();
-            String[] anrs = record.getAdditionalNumbers();
             if (DBG) log("loadRecord: " + alphaTag + ", " + Rlog.pii(TAG, number));
             contact[0] = alphaTag;
             contact[1] = number;
@@ -577,6 +517,7 @@ public class IccProvider extends ContentProvider {
                 contact[2] = emailString.toString();
             }
 
+            String[] anrs = record.getAdditionalNumbers();
             if (anrs != null) {
                 StringBuilder anrString = new StringBuilder();
                 for (String anr : anrs) {
