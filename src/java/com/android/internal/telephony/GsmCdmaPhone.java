@@ -62,6 +62,7 @@ import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
 import android.telecom.VideoProfile;
 import android.telephony.AccessNetworkConstants;
+import android.telephony.Annotation.RadioPowerState;
 import android.telephony.BarringInfo;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CellIdentity;
@@ -97,6 +98,7 @@ import com.android.internal.telephony.gsm.SuppServiceNotification;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCallTracker;
 import com.android.internal.telephony.imsphone.ImsPhoneMmiCode;
+import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.metrics.VoiceCallSessionStats;
 import com.android.internal.telephony.test.SimulatedRadioControl;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
@@ -1401,7 +1403,11 @@ public class GsmCdmaPhone extends Phone {
                     + ((imsPhone != null) ? imsPhone.getServiceState().getState() : "N/A"));
         }
 
-        Phone.checkWfcWifiOnlyModeBeforeDial(mImsPhone, mPhoneId, mContext);
+        // Bypass WiFi Only WFC check if this is an emergency call - we should still try to
+        // place over cellular if possible.
+        if (!isEmergency) {
+            Phone.checkWfcWifiOnlyModeBeforeDial(mImsPhone, mPhoneId, mContext);
+        }
         if (imsPhone != null && !allowWpsOverIms && !useImsForCall && isWpsCall
                 && imsPhone.getCallTracker() instanceof ImsPhoneCallTracker) {
             logi("WPS call placed over CS; disconnecting all IMS calls..");
@@ -2618,7 +2624,6 @@ public class GsmCdmaPhone extends Phone {
      * @param mmi MMI that is done
      */
     public void onMMIDone(MmiCode mmi) {
-
         /* Only notify complete if it's on the pending list.
          * Otherwise, it's already been handled (eg, previously canceled).
          * The exception is cancellation of an incoming USSD-REQUEST, which is
@@ -2626,7 +2631,6 @@ public class GsmCdmaPhone extends Phone {
          */
         if (mPendingMMIs.remove(mmi) || (isPhoneTypeGsm() && (mmi.isUssdRequest() ||
                 ((GsmMmiCode)mmi).isSsInfo()))) {
-
             ResultReceiver receiverCallback = mmi.getUssdCallbackReceiver();
             if (receiverCallback != null) {
                 Rlog.i(LOG_TAG, "onMMIDone: invoking callback: " + mmi);
@@ -2667,6 +2671,7 @@ public class GsmCdmaPhone extends Phone {
         if (!isPhoneTypeGsm()) {
             loge("onIncomingUSSD: not expected on GSM");
         }
+
         boolean isUssdError;
         boolean isUssdRequest;
         boolean isUssdRelease;
@@ -2694,7 +2699,6 @@ public class GsmCdmaPhone extends Phone {
 
         if (found != null) {
             // Complete pending USSD
-
             if (isUssdRelease) {
                 found.onUssdRelease();
             } else if (isUssdError) {
@@ -2714,6 +2718,13 @@ public class GsmCdmaPhone extends Phone {
                                                    GsmCdmaPhone.this,
                                                    mUiccApplication.get());
             onNetworkInitiatedUssd(mmi);
+        } else if (isUssdError && !isUssdRelease) {
+            GsmMmiCode mmi;
+            mmi = GsmMmiCode.newNetworkInitiatedUssd(ussdMessage,
+                    true,
+                    GsmCdmaPhone.this,
+                    mUiccApplication.get());
+            mmi.onUssdFinishedError();
         }
     }
 
@@ -2729,6 +2740,10 @@ public class GsmCdmaPhone extends Phone {
         Rlog.i(LOG_TAG, "syncClirSetting: " + CLIR_KEY + getSubId() + "=" + clirSetting);
         if (clirSetting >= 0) {
             mCi.setCLIR(clirSetting, null);
+        } else {
+            // if there is no preference set, ensure the CLIR is updated to the default value in
+            // order to ensure that CLIR values in the RIL are not carried over during SIM swap.
+            mCi.setCLIR(CommandsInterface.CLIR_DEFAULT, null);
         }
     }
 
@@ -2791,8 +2806,10 @@ public class GsmCdmaPhone extends Phone {
     }
 
     private void handleRadioPowerStateChange() {
-        Rlog.d(LOG_TAG, "handleRadioPowerStateChange, state= " + mCi.getRadioState());
-        mNotifier.notifyRadioPowerStateChanged(this, mCi.getRadioState());
+        @RadioPowerState int newState = mCi.getRadioState();
+        Rlog.d(LOG_TAG, "handleRadioPowerStateChange, state= " + newState);
+        mNotifier.notifyRadioPowerStateChanged(this, newState);
+        TelephonyMetrics.getInstance().writeRadioState(mPhoneId, newState);
     }
 
     @Override

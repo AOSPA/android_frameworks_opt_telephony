@@ -24,9 +24,11 @@ import android.os.Parcelable;
 import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
 
+import com.android.internal.util.ArrayUtils;
 import com.android.telephony.Rlog;
 
 import java.util.Arrays;
+import java.util.List;
 
 /**
  *
@@ -90,12 +92,13 @@ public class AdnRecord implements Parcelable {
             String number;
             String[] emails;
             String[] additionalNumbers;
+
             efid = source.readInt();
             recordNumber = source.readInt();
             alphaTag = source.readString();
             number = source.readString();
             emails = source.createStringArray();
-            additionalNumbers = source.readStringArray();
+            additionalNumbers = source.createStringArray();
 
             return new AdnRecord(efid, recordNumber, alphaTag, number, emails, additionalNumbers);
         }
@@ -220,6 +223,10 @@ public class AdnRecord implements Parcelable {
         return mRecordNumber;
     }
 
+    public void setRecId(int recordId) {
+        mRecordNumber = recordId;
+    }
+
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String getNumber() {
         return mNumber;
@@ -244,7 +251,7 @@ public class AdnRecord implements Parcelable {
     }
 
     public void setAdditionalNumbers(String[] additionalNumbers) {
-        this.mAdditionalNumbers = additionalNumbers;
+        mAdditionalNumbers = additionalNumbers;
     }
 
     public int getRecordNumber() {
@@ -255,6 +262,7 @@ public class AdnRecord implements Parcelable {
         mRecordNumber = recNumber;
     }
 
+
     @Override
     public String toString() {
         return "ADN Record '" + mAlphaTag + "' '" + Rlog.pii(LOG_TAG, mNumber) + " "
@@ -264,8 +272,8 @@ public class AdnRecord implements Parcelable {
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isEmpty() {
-        return TextUtils.isEmpty(mAlphaTag) && TextUtils.isEmpty(mNumber) && mEmails == null
-                && mAdditionalNumbers == null;
+        return TextUtils.isEmpty(mAlphaTag) && TextUtils.isEmpty(mNumber)
+                && mEmails == null && mAdditionalNumbers == null;
     }
 
     public boolean hasExtendedRecord() {
@@ -292,48 +300,24 @@ public class AdnRecord implements Parcelable {
             return true;
         }
 
-        if (s1 == null) {
-            s1 = new String[1];
-            s1[0] = "";
+        s1 = ArrayUtils.emptyIfNull(s1, String.class);
+        s2 = ArrayUtils.emptyIfNull(s2, String.class);
+
+        List<String> src = Arrays.asList(s1);
+        List<String> dest = Arrays.asList(s2);
+
+        if (src.size() != dest.size()) {
+            return false;
         }
 
-        if (s2 == null) {
-            s2 = new String[1];
-            s2[0] = "";
-        }
-
-        for (String str:s1) {
-            if (TextUtils.isEmpty(str)) {
-                continue;
-            } else {
-                if (Arrays.asList(s2).contains(str)) {
-                    continue;
-                } else {
-                    return false;
-                }
-            }
-        }
-
-        for (String str:s2) {
-            if (TextUtils.isEmpty(str)) {
-                continue;
-            } else {
-                if (Arrays.asList(s1).contains(str)) {
-                    continue;
-                } else {
-                    return false;
-                }
-            }
-        }
-
-        return true;
+        return src.containsAll(dest);
     }
 
     public boolean isEqual(AdnRecord adn) {
         return ( stringCompareNullEqualsEmpty(mAlphaTag, adn.mAlphaTag) &&
                 stringCompareNullEqualsEmpty(mNumber, adn.mNumber) &&
-                arrayCompareNullEqualsEmpty(mEmails, adn.mEmails)
-                && arrayCompareNullEqualsEmpty(mAdditionalNumbers, adn.mAdditionalNumbers));
+                arrayCompareNullEqualsEmpty(mEmails, adn.mEmails) &&
+                arrayCompareNullEqualsEmpty(mAdditionalNumbers, adn.mAdditionalNumbers));
     }
 
     //***** Parcelable Implementation
@@ -374,11 +358,11 @@ public class AdnRecord implements Parcelable {
             adnString[i] = (byte) 0xFF;
         }
 
-        if ((TextUtils.isEmpty(mNumber)) && (TextUtils.isEmpty(mAlphaTag))) {
+        if (TextUtils.isEmpty(mNumber) && TextUtils.isEmpty(mAlphaTag)) {
             Rlog.w(LOG_TAG, "[buildAdnString] Empty dialing number");
             return adnString;   // return the empty record (for delete)
-        } else if ((mNumber != null) && (mNumber.length()
-                > (ADN_DIALING_NUMBER_END - ADN_DIALING_NUMBER_START + 1) * 2)) {
+        } else if (mNumber != null && mNumber.length()
+                > (ADN_DIALING_NUMBER_END - ADN_DIALING_NUMBER_START + 1) * 2) {
             Rlog.w(LOG_TAG,
                     "[buildAdnString] Max length of dialing number is 20");
             return null;
@@ -390,7 +374,7 @@ public class AdnRecord implements Parcelable {
             Rlog.w(LOG_TAG, "[buildAdnString] Max length of tag is " + footerOffset);
             return null;
         } else {
-            if (!(TextUtils.isEmpty(mNumber))) {
+            if (!TextUtils.isEmpty(mNumber)) {
                 bcdNumber = PhoneNumberUtils.numberToCalledPartyBCD(
                         mNumber, PhoneNumberUtils.BCD_EXTENDED_TYPE_EF_ADN);
 
@@ -485,7 +469,6 @@ public class AdnRecord implements Parcelable {
 
             mEmails = null;
             mAdditionalNumbers = null;
-
         } catch (RuntimeException ex) {
             Rlog.w(LOG_TAG, "Error parsing AdnRecord", ex);
             mNumber = "";
