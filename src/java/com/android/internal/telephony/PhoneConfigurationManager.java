@@ -19,8 +19,10 @@ package com.android.internal.telephony;
 import static android.telephony.TelephonyManager.ACTION_MULTI_SIM_CONFIG_CHANGED;
 import static android.telephony.TelephonyManager.EXTRA_ACTIVE_SIM_SUPPORTED_COUNT;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
@@ -70,6 +72,12 @@ public class PhoneConfigurationManager {
     private TelephonyManager mTelephonyManager;
     private static final RegistrantList sMultiSimConfigChangeRegistrants = new RegistrantList();
 
+    private final String ACTION_MSIM_VOICE_CAPABILITY =
+            "org.codeaurora.intent.action.MSIM_VOICE_CAPABILITY";
+    private final String PERMISSION_MSIM_VOICE_CAPABILITY =
+            "com.qti.permission.RECEIVE_MSIM_VOICE_CAPABILITY";
+    private final String EXTRAS_MSIM_VOICE_CAPABILITY = "MsimVoiceCapability";
+
     /**
      * Init method to instantiate the object
      * Should only be called once.
@@ -106,7 +114,20 @@ public class PhoneConfigurationManager {
         for (Phone phone : mPhones) {
             registerForRadioState(phone);
         }
+        mContext.registerReceiver(mConcurrentCallsReceiver,
+                new IntentFilter(ACTION_MSIM_VOICE_CAPABILITY), PERMISSION_MSIM_VOICE_CAPABILITY,
+                null);
     }
+
+    private BroadcastReceiver mConcurrentCallsReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            int voiceCapability = intent.getIntExtra(EXTRAS_MSIM_VOICE_CAPABILITY,
+                    TelephonyManager.MultiSimVoiceCapability.UNKNOWN);
+            log(" mConcurrentCallsReceiver: voiceCapability : " + voiceCapability);
+            TelephonyProperties.multi_sim_voice_capability(voiceCapability);
+        }
+    };
 
     private void registerForRadioState(Phone phone) {
         if (!StorageManager.inCryptKeeperBounce()) {
