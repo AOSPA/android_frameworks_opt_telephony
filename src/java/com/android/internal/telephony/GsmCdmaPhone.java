@@ -1685,6 +1685,16 @@ public class GsmCdmaPhone extends Phone {
     }
 
     @Override
+    public void setRadioPowerOnForTestEmergencyCall(boolean isSelectedPhoneForEmergencyCall) {
+        mSST.clearAllRadioOffReasons();
+
+        // We don't want to have forEmergency call be true to prevent radio emergencyDial command
+        // from being called for a test emergency number because the network may not be able to
+        // find emergency routing for it and dial it do the default emergency services line.
+        setRadioPower(true, false, isSelectedPhoneForEmergencyCall, false);
+    }
+
+    @Override
     public void setRadioPower(boolean power, boolean forEmergencyCall,
             boolean isSelectedPhoneForEmergencyCall, boolean forceApply) {
         setRadioPowerForReason(power, forEmergencyCall, isSelectedPhoneForEmergencyCall, forceApply,
@@ -1696,7 +1706,6 @@ public class GsmCdmaPhone extends Phone {
             boolean isSelectedPhoneForEmergencyCall, boolean forceApply, int reason) {
         mSST.setRadioPowerForReason(power, forEmergencyCall, isSelectedPhoneForEmergencyCall,
                 forceApply, reason);
-
     }
 
     private void storeVoiceMailNumber(String number) {
@@ -2316,7 +2325,8 @@ public class GsmCdmaPhone extends Phone {
             extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccountHandle);
 
             final TelecomManager telecomManager = TelecomManager.from(mContext);
-            telecomManager.placeCall(Uri.parse(PhoneAccount.SCHEME_TEL + cfNumber), extras);
+            telecomManager.placeCall(
+                    Uri.fromParts(PhoneAccount.SCHEME_TEL, cfNumber, null), extras);
 
             AsyncResult.forMessage(onComplete, CommandsInterface.SS_STATUS_UNKNOWN, null);
             onComplete.sendToTarget();
@@ -2481,7 +2491,8 @@ public class GsmCdmaPhone extends Phone {
             extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccountHandle);
 
             final TelecomManager telecomManager = TelecomManager.from(mContext);
-            telecomManager.placeCall(Uri.parse(PhoneAccount.SCHEME_TEL + cwPrefix), extras);
+            telecomManager.placeCall(
+                    Uri.fromParts(PhoneAccount.SCHEME_TEL, cwPrefix, null), extras);
 
             AsyncResult.forMessage(onComplete, CommandsInterface.SS_STATUS_UNKNOWN, null);
             onComplete.sendToTarget();
