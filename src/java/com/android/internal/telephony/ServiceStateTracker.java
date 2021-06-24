@@ -192,7 +192,7 @@ public class ServiceStateTracker extends Handler {
     private List<CellInfo> mLastCellInfoList = null;
     private List<PhysicalChannelConfig> mLastPhysicalChannelConfigList = null;
 
-    private static final Set<Integer> sRadioPowerOffReasons = new HashSet();
+    private final Set<Integer> mRadioPowerOffReasons = new HashSet();
 
     @UnsupportedAppUsage
     private SignalStrength mSignalStrength;
@@ -721,7 +721,7 @@ public class ServiceStateTracker extends Handler {
                 Settings.Global.ENABLE_CELLULAR_ON_BOOT, 1);
         mDesiredPowerState = (enableCellularOnBoot > 0) && ! (airplaneMode > 0);
         if (!mDesiredPowerState) {
-            sRadioPowerOffReasons.add(Phone.RADIO_POWER_REASON_USER);
+            mRadioPowerOffReasons.add(Phone.RADIO_POWER_REASON_USER);
         }
         mRadioPowerLog.log("init : airplane mode = " + airplaneMode + " enableCellularOnBoot = " +
                 enableCellularOnBoot);
@@ -1094,7 +1094,7 @@ public class ServiceStateTracker extends Handler {
      * @return the current reasons for which the radio is off.
      */
     public Set<Integer> getRadioPowerOffReasons() {
-        return sRadioPowerOffReasons;
+        return mRadioPowerOffReasons;
     }
 
     /**
@@ -1102,7 +1102,7 @@ public class ServiceStateTracker extends Handler {
      * test emergency calls.
      */
     public void clearAllRadioOffReasons() {
-        sRadioPowerOffReasons.clear();
+        mRadioPowerOffReasons.clear();
     }
 
     /**
@@ -1138,21 +1138,21 @@ public class ServiceStateTracker extends Handler {
             if (forEmergencyCall) {
                 clearAllRadioOffReasons();
             } else {
-                sRadioPowerOffReasons.remove(reason);
+                mRadioPowerOffReasons.remove(reason);
             }
         } else {
-            sRadioPowerOffReasons.add(reason);
+            mRadioPowerOffReasons.add(reason);
         }
         if (power == mDesiredPowerState && !forceApply) {
             log("setRadioPower mDesiredPowerState is already " + power + " Do nothing.");
             return;
         }
-        if (power && !sRadioPowerOffReasons.isEmpty()) {
+        if (power && !mRadioPowerOffReasons.isEmpty()) {
             log("setRadioPowerForReason " + "power: " + power + " forEmergencyCall= "
                     + forEmergencyCall + " isSelectedPhoneForEmergencyCall: "
                     + isSelectedPhoneForEmergencyCall + " forceApply " + forceApply + "reason:"
                     + reason + " will not power on the radio as it is powered off for the "
-                    + "following reasons: " + sRadioPowerOffReasons + ".");
+                    + "following reasons: " + mRadioPowerOffReasons + ".");
             return;
         }
 
@@ -6335,8 +6335,7 @@ public class ServiceStateTracker extends Handler {
                 continue;
             }
             for (SignalThresholdInfo info : record.mRequest.getSignalThresholdInfos()) {
-                if (ran == info.getRadioAccessNetworkType()
-                        && measurement == info.getSignalMeasurementType()) {
+                if (isRanAndSignalMeasurementTypeMatch(ran, measurement, info)) {
                     for (int appThreshold : info.getThresholds()) {
                         target.add(appThreshold);
                     }
@@ -6367,12 +6366,44 @@ public class ServiceStateTracker extends Handler {
         sendMessage(obtainMessage(EVENT_ON_DEVICE_IDLE_STATE_CHANGED, isDeviceIdle));
     }
 
+    boolean shouldEnableSignalThresholdForAppRequest(
+            @AccessNetworkConstants.RadioAccessNetworkType int ran,
+            @SignalThresholdInfo.SignalMeasurementType int measurement,
+            int subId,
+            boolean isDeviceIdle) {
+        for (SignalRequestRecord record : mSignalRequestRecords) {
+            if (subId != record.mSubId) {
+                continue;
+            }
+            for (SignalThresholdInfo info : record.mRequest.getSignalThresholdInfos()) {
+                if (isRanAndSignalMeasurementTypeMatch(ran, measurement, info)
+                        && (!isDeviceIdle || isSignalReportRequestedWhileIdle(record.mRequest))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRanAndSignalMeasurementTypeMatch(
+            @AccessNetworkConstants.RadioAccessNetworkType int ran,
+            @SignalThresholdInfo.SignalMeasurementType int measurement,
+            SignalThresholdInfo info) {
+        return ran == info.getRadioAccessNetworkType()
+                && measurement == info.getSignalMeasurementType();
+    }
+
+    private static boolean isSignalReportRequestedWhileIdle(SignalStrengthUpdateRequest request) {
+        return request.isSystemThresholdReportingRequestedWhileIdle()
+                || request.isReportingRequestedWhileIdle();
+    }
+
     private class SignalRequestRecord implements IBinder.DeathRecipient {
         final int mSubId; // subId the request originally applied to
         final int mCallingUid;
         final SignalStrengthUpdateRequest mRequest;
 
-        SignalRequestRecord(int subId, int uid, SignalStrengthUpdateRequest request) {
+        SignalRequestRecord(int subId, int uid, @NonNull SignalStrengthUpdateRequest request) {
             this.mCallingUid = uid;
             this.mSubId = subId;
             this.mRequest = request;
@@ -6387,8 +6418,7 @@ public class ServiceStateTracker extends Handler {
     private void updateAlwaysReportSignalStrength() {
         final int curSubId = mPhone.getSubId();
         boolean alwaysReport = mSignalRequestRecords.stream().anyMatch(
-                srr -> srr.mSubId == curSubId && (srr.mRequest.isReportingRequestedWhileIdle()
-                        || srr.mRequest.isSystemThresholdReportingRequestedWhileIdle()));
+                srr -> srr.mSubId == curSubId && isSignalReportRequestedWhileIdle(srr.mRequest));
 
         // TODO(b/177924721): TM#setAlwaysReportSignalStrength will be removed and we will not
         // worry about unset flag which was set by other client.
