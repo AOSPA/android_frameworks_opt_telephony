@@ -272,8 +272,6 @@ public class ImsPhone extends ImsPhoneBase {
     // The roaming state if currently in service, or the last roaming state when was in service.
     private boolean mLastKnownRoamingState = false;
 
-    private boolean mIsInImsEcm = false;
-
     private boolean mIsOutgoingImsVoiceAllowed = false;
 
     // List of Registrants to send supplementary service notifications to.
@@ -874,7 +872,7 @@ public class ImsPhone extends ImsPhoneBase {
 
     @Override
     public boolean isInImsEcm() {
-        return mIsInImsEcm;
+        return EcbmHandler.getInstance().isInImsEcm();
     }
 
     public void notifyNewRingingConnection(Connection c) {
