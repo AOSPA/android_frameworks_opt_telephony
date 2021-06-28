@@ -127,6 +127,15 @@ public class VendorGsmCdmaPhone extends GsmCdmaPhone {
                 VendorSubscriptionController.getInstance().notifyRadioCapabilityAvailable();
                 break;
 
+            case EVENT_REAPPLY_UICC_APPS_ENABLEMENT_DONE: {
+                ar = (AsyncResult) msg.obj;
+                super.handleMessage(msg);
+                if (ar.exception == null) {
+                    VendorSubscriptionController.getInstance().updateUserPreferences();
+                }
+                break;
+            }
+
             default: {
                 super.handleMessage(msg);
             }
