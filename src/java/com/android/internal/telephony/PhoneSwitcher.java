@@ -1572,6 +1572,7 @@ public class PhoneSwitcher extends Handler {
         // in network (DIALING -> ALERTING).
         return (phone.getForegroundCall().getState() == Call.State.ACTIVE
                 || phone.getForegroundCall().getState() == Call.State.ALERTING
+                || phone.getForegroundCall().getState() == Call.State.DISCONNECTING
                 || phone.getBackgroundCall().getState() == Call.State.HOLDING);
     }
 
