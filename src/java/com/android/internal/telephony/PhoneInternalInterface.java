@@ -206,7 +206,6 @@ public interface PhoneInternalInterface {
     static final String REASON_DATA_ENABLED_OVERRIDE = "dataEnabledOverride";
     static final String REASON_IWLAN_DATA_SERVICE_DIED = "iwlanDataServiceDied";
     static final String REASON_VCN_REQUESTED_TEARDOWN = "vcnRequestedTeardown";
-    static final String REASON_DATA_UNTHROTTLED = "dataUnthrottled";
 
     // Reasons for Radio being powered off
     int RADIO_POWER_REASON_USER = 0;
@@ -579,14 +578,6 @@ public interface PhoneInternalInterface {
     default void setRadioPower(boolean power) {
         setRadioPower(power, false, false, false);
     }
-
-    /**
-     * Sets the radio power on for a test emergency number.
-     *
-     * @param isSelectedPhoneForEmergencyCall true means this phone / modem is selected to place
-     *                                  emergency call after turning power on.
-     */
-    default void setRadioPowerOnForTestEmergencyCall(boolean isSelectedPhoneForEmergencyCall) {}
 
     /**
      * Sets the radio power on/off state with option to specify whether it's for emergency call

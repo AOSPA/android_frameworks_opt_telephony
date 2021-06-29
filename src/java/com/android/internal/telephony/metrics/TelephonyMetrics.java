@@ -48,7 +48,6 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.AccessNetworkConstants;
-import android.telephony.Annotation.RadioPowerState;
 import android.telephony.CallQuality;
 import android.telephony.DisconnectCause;
 import android.telephony.NetworkRegistrationInfo;
@@ -110,7 +109,6 @@ import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.DataSwi
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.ModemRestart;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.NetworkCapabilitiesInfo;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.OnDemandDataSwitch;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RadioState;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilDeactivateDataCall;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilDeactivateDataCall.DeactivateReason;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCall;
@@ -185,7 +183,8 @@ public class TelephonyMetrics {
     private final SparseArray<TelephonyServiceState> mLastServiceState = new SparseArray<>();
 
     /**
-     * Last ims capabilities. This is for injecting the base of a new log or a new call/sms session
+     * Last ims capabilities. This is for injecting the base of a new log or a new call/sms
+     * session
      */
     private final SparseArray<ImsCapabilities> mLastImsCapabilities = new SparseArray<>();
 
@@ -195,16 +194,19 @@ public class TelephonyMetrics {
      */
     private final SparseArray<ImsConnectionState> mLastImsConnectionState = new SparseArray<>();
 
-    /** Last settings state. This is for deduping same settings event logged. */
+    /**
+     * Last settings state. This is for deduping same settings event logged.
+     */
     private final SparseArray<TelephonySettings> mLastSettings = new SparseArray<>();
 
-    /** Last sim state, indexed by phone id. */
+    /**
+     * Last sim state, indexed by phone id.
+     */
     private final SparseArray<Integer> mLastSimState = new SparseArray<>();
 
-    /** Last radio state, indexed by phone id. */
-    private final SparseArray<Integer> mLastRadioState = new SparseArray<>();
-
-    /** Last active subscription information, indexed by phone id. */
+    /**
+     * Last active subscription information, indexed by phone id.
+     */
     private final SparseArray<ActiveSubscriptionInfo> mLastActiveSubscriptionInfos =
             new SparseArray<>();
 
@@ -216,18 +218,26 @@ public class TelephonyMetrics {
      */
     private int mLastEnabledModemBitmap = (1 << TelephonyManager.getDefault().getPhoneCount()) - 1;
 
-    /** Last carrier id matching. */
+    /**
+     * Last carrier id matching.
+     */
     private final SparseArray<CarrierIdMatching> mLastCarrierId = new SparseArray<>();
 
-    /** Last NetworkCapabilitiesInfo, indexed by phone id. */
+    /**
+     * Last NetworkCapabilitiesInfo, indexed by phone id.
+     */
     private final SparseArray<NetworkCapabilitiesInfo> mLastNetworkCapabilitiesInfos =
             new SparseArray<>();
 
-    /** Last RilDataCall Events (indexed by cid), indexed by phone id */
+    /**
+     * Last RilDataCall Events (indexed by cid), indexed by phone id
+     */
     private final SparseArray<SparseArray<RilDataCall>> mLastRilDataCallEvents =
             new SparseArray<>();
 
-    /** List of Tx and Rx Bandwidth estimation stats maps */
+    /**
+     * List of Tx and Rx Bandwidth estimation stats maps
+     */
     private final List<Map<String, BwEstimationStats>> mBwEstStatsMapList = new ArrayList<>(
             Arrays.asList(new ArrayMap<>(), new ArrayMap<>()));
 
@@ -739,12 +749,6 @@ public class TelephonyMetrics {
             }
         }
 
-        for (int i = 0; i < mLastRadioState.size(); i++) {
-            final int key = mLastRadioState.keyAt(i);
-            TelephonyEvent event = new TelephonyEventBuilder(mStartElapsedTimeMs, key)
-                    .setRadioState(mLastRadioState.get(key)).build();
-            addTelephonyEvent(event);
-        }
     }
 
     /**
@@ -2706,27 +2710,6 @@ public class TelephonyMetrics {
         addTelephonyEvent(event);
     }
 
-    /** Write radio state changed event */
-    public void writeRadioState(int phoneId, @RadioPowerState int state) {
-        int radioState = convertRadioState(state);
-        TelephonyEvent event = new TelephonyEventBuilder(phoneId).setRadioState(radioState).build();
-        mLastRadioState.put(phoneId, radioState);
-        addTelephonyEvent(event);
-    }
-
-    private static int convertRadioState(@RadioPowerState int state) {
-        switch (state) {
-            case TelephonyManager.RADIO_POWER_OFF:
-                return RadioState.RADIO_STATE_OFF;
-            case TelephonyManager.RADIO_POWER_ON:
-                return RadioState.RADIO_STATE_ON;
-            case TelephonyManager.RADIO_POWER_UNAVAILABLE:
-                return RadioState.RADIO_STATE_UNAVAILABLE;
-            default:
-                return RadioState.RADIO_STATE_UNKNOWN;
-        }
-    }
-
     /**
      * Convert SMS format
      */
@@ -2951,11 +2934,11 @@ public class TelephonyMetrics {
      * Write bandwidth estimator stats
      */
     public synchronized void writeBandwidthStats(int link, int rat, int nrMode,
-            int signalLevel, int bwEstExtErrPercent, int coldStartErrPercent, int bwKbps) {
+            int signalLevel, int bwEstExtErrPercent, int coldStartErrPercent, int avgUsedKbps) {
         BwEstimationStats stats = lookupEstimationStats(link, rat, nrMode);
         stats.mBwEstErrorAcc[signalLevel] += Math.abs(bwEstExtErrPercent);
         stats.mStaticBwErrorAcc[signalLevel] += Math.abs(coldStartErrPercent);
-        stats.mBwAccKbps[signalLevel] += bwKbps;
+        stats.mAvgBwKbps[signalLevel] = avgUsedKbps;
         stats.mCount[signalLevel]++;
     }
 
@@ -2993,7 +2976,7 @@ public class TelephonyMetrics {
         final int mNrMode;
         final long[] mBwEstErrorAcc = new long[NUM_SIGNAL_LEVEL];
         final long[] mStaticBwErrorAcc = new long[NUM_SIGNAL_LEVEL];
-        final long[] mBwAccKbps = new long[NUM_SIGNAL_LEVEL];
+        final int[] mAvgBwKbps = new int[NUM_SIGNAL_LEVEL];
         final int[] mCount = new int[NUM_SIGNAL_LEVEL];
 
         BwEstimationStats(int radioTechnology, int nrMode) {
@@ -3006,9 +2989,9 @@ public class TelephonyMetrics {
             StringBuilder sb = new StringBuilder();
             return sb.append(LinkBandwidthEstimator.getDataRatName(mRadioTechnology, mNrMode))
                     .append("\n Count\n").append(printValues(mCount))
-                    .append("\n AvgKbps\n").append(printAvgValues(mBwAccKbps, mCount))
-                    .append("\n BwEst Error\n").append(printAvgValues(mBwEstErrorAcc, mCount))
-                    .append("\n StaticBw Error\n").append(printAvgValues(mStaticBwErrorAcc, mCount))
+                    .append("\n AvgKbps\n").append(printValues(mAvgBwKbps))
+                    .append("\n BwEst Error\n").append(printAvgError(mBwEstErrorAcc, mCount))
+                    .append("\n StaticBw Error\n").append(printAvgError(mStaticBwErrorAcc, mCount))
                     .toString();
         }
 
@@ -3020,10 +3003,10 @@ public class TelephonyMetrics {
             return sb.toString();
         }
 
-        private String printAvgValues(long[] stats, int[] count) {
+        private String printAvgError(long[] stats, int[] count) {
             StringBuilder sb = new StringBuilder();
             for (int k = 0; k < NUM_SIGNAL_LEVEL; k++) {
-                int avgStat = calculateAvg(stats[k], count[k]);
+                int avgStat = calculateAvgError(stats[k], count[k]);
                 sb.append(" " + avgStat);
             }
             return sb.toString();
@@ -3050,16 +3033,16 @@ public class TelephonyMetrics {
                 BandwidthEstimatorStats.PerLevel stats = new BandwidthEstimatorStats.PerLevel();
                 stats.signalLevel = level;
                 stats.count = count;
-                stats.avgBwKbps = calculateAvg(mBwAccKbps[level], count);
-                stats.staticBwErrorPercent = calculateAvg(mStaticBwErrorAcc[level], count);
-                stats.bwEstErrorPercent = calculateAvg(mBwEstErrorAcc[level], count);
+                stats.avgBwKbps = mAvgBwKbps[level];
+                stats.staticBwErrorPercent = calculateAvgError(mStaticBwErrorAcc[level], count);
+                stats.bwEstErrorPercent = calculateAvgError(mBwEstErrorAcc[level], count);
                 return stats;
             }
             return null;
         }
 
-        private int calculateAvg(long acc, int count) {
-            return (count > 0) ? (int) (acc / count) : 0;
+        private int calculateAvgError(long errorAccPercent, int count) {
+            return (count > 0) ? (int) (errorAccPercent / count) : 0;
         }
     }
 

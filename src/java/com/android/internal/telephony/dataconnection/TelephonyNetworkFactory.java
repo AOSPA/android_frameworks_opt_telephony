@@ -42,7 +42,6 @@ import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.dataconnection.DcTracker.ReleaseNetworkType;
 import com.android.internal.telephony.dataconnection.DcTracker.RequestNetworkType;
 import com.android.internal.telephony.dataconnection.TransportManager.HandoverParams;
-import com.android.internal.telephony.metrics.NetworkRequestsStats;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.telephony.Rlog;
 
@@ -236,7 +235,6 @@ public class TelephonyNetworkFactory extends NetworkFactory {
      */
     private void requestNetworkInternal(NetworkRequest networkRequest,
             @RequestNetworkType int requestType, int transport, Message onHandoverCompleteMsg) {
-        NetworkRequestsStats.addNetworkRequest(networkRequest, mSubscriptionId);
         if (mPhone.getDcTracker(transport) != null) {
             mPhone.getDcTracker(transport).requestNetwork(networkRequest, requestType,
                     onHandoverCompleteMsg);
@@ -246,7 +244,6 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     private void releaseNetworkInternal(NetworkRequest networkRequest,
                                         @ReleaseNetworkType int releaseType,
                                         int transport) {
-        NetworkRequestsStats.addNetworkRelease(networkRequest, mSubscriptionId);
         if (mPhone.getDcTracker(transport) != null) {
             mPhone.getDcTracker(transport).releaseNetwork(networkRequest, releaseType);
         }
@@ -398,7 +395,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 if (dcTracker != null) {
                     DataConnection dc = dcTracker.getDataConnectionByApnType(
                             ApnSetting.getApnTypeString(apnType));
-                    if (dc != null && (dc.isActive()) || dc.isActivating()) {
+                    if (dc != null && (dc.isActive())) {
                         Message onCompleteMsg = mInternalHandler.obtainMessage(
                                 EVENT_DATA_HANDOVER_COMPLETED);
                         onCompleteMsg.getData().putParcelable(
@@ -408,8 +405,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                                 targetTransport, onCompleteMsg);
                         log("Requested handover " + ApnSetting.getApnTypeString(apnType)
                                 + " to "
-                                + AccessNetworkConstants.transportTypeToString(targetTransport)
-                                + ". " + networkRequest);
+                                + AccessNetworkConstants.transportTypeToString(targetTransport));
                         handoverPending = true;
                     } else {
                         // Request is there, but no actual data connection. In this case, just move
@@ -465,21 +461,12 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                     // connection can be re-established on the other transport.
                     : DcTracker.RELEASE_TYPE_DETACH;
             releaseNetworkInternal(networkRequest, releaseType, originTransport);
-
-            // Before updating the network request with the target transport, make sure the request
-            // is still there because it's possible that connectivity service has already released
-            // the network while handover is ongoing. If connectivity service already released
-            // the network request, we need to tear down the just-handovered data connection on the
-            // target transport.
             if (mNetworkRequests.containsKey(networkRequest)) {
-                // Update it with the target transport.
                 mNetworkRequests.put(networkRequest, targetTransport);
             } else {
-                log("Network request was released before handover is completed. Now"
-                        + " we need to release this network request. "
-                        + networkRequest);
-                releaseNetworkInternal(networkRequest, DcTracker.RELEASE_TYPE_NORMAL,
-                        targetTransport);
+                // This network is released already, so tear down data call immediately.
+                releaseNetworkInternal(networkRequest,
+                        DcTracker.RELEASE_TYPE_DETACH, targetTransport);
             }
         } else {
             // If handover fails and requires to fallback, the context of target transport needs to

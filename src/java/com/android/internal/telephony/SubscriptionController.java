@@ -61,7 +61,6 @@ import android.telephony.UiccAccessRule;
 import android.telephony.UiccSlotInfo;
 import android.telephony.euicc.EuiccManager;
 import android.text.TextUtils;
-import android.util.EventLog;
 import android.util.LocalLog;
 import android.util.Log;
 
@@ -95,7 +94,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Implementation of the ISub interface.
@@ -929,10 +927,6 @@ public class SubscriptionController extends ISub.Stub {
             subList = getSubInfo(null, null);
             if (subList != null) {
                 if (VDBG) logd("[getAllSubInfoList]- " + subList.size() + " infos return");
-                subList.stream().map(
-                        subscriptionInfo -> conditionallyRemoveIdentifiers(subscriptionInfo,
-                                callingPackage, callingFeatureId, "getAllSubInfoList"))
-                        .collect(Collectors.toList());
             } else {
                 if (VDBG) logd("[getAllSubInfoList]- no info return");
             }
@@ -1093,18 +1087,12 @@ public class SubscriptionController extends ISub.Stub {
     @Override
     public List<SubscriptionInfo> getAvailableSubscriptionInfoList(String callingPackage,
             String callingFeatureId) {
-        try {
-            enforceReadPrivilegedPhoneState("getAvailableSubscriptionInfoList");
-        } catch (SecurityException e) {
-            try {
-                mContext.enforceCallingOrSelfPermission(Manifest.permission.READ_PHONE_STATE, null);
-                // If caller doesn't have READ_PRIVILEGED_PHONE_STATE permission but only
-                // has READ_PHONE_STATE permission, log this event.
-                EventLog.writeEvent(0x534e4554, "185235454", Binder.getCallingUid());
-            } catch (SecurityException ex) {
-                // Ignore
-            }
-            throw new SecurityException("Need READ_PRIVILEGED_PHONE_STATE to call "
+        // This API isn't public, so no need to provide a valid subscription ID - we're not worried
+        // about carrier-privileged callers not having access.
+        if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
+                mContext, SubscriptionManager.INVALID_SUBSCRIPTION_ID, callingPackage,
+                callingFeatureId, "getAvailableSubscriptionInfoList")) {
+            throw new SecurityException("Need READ_PHONE_STATE to call "
                     + " getAvailableSubscriptionInfoList");
         }
 
@@ -1800,26 +1788,17 @@ public class SubscriptionController extends ISub.Stub {
         // Now that all security checks passes, perform the operation as ourselves.
         final long identity = Binder.clearCallingIdentity();
         try {
-            boolean update = true;
-            int result = 0;
-            SubscriptionInfo subInfo = getSubscriptionInfo(subId);
-            if (subInfo != null) {
-                update = !TextUtils.equals(text, subInfo.getCarrierName());
-            }
-            if (update) {
-                ContentValues value = new ContentValues(1);
-                value.put(SubscriptionManager.CARRIER_NAME, text);
+            ContentValues value = new ContentValues(1);
+            value.put(SubscriptionManager.CARRIER_NAME, text);
 
-                result = mContext.getContentResolver().update(
-                        SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
+            int result = mContext.getContentResolver().update(
+                    SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
 
-                // Refresh the Cache of Active Subscription Info List
-                refreshCachedActiveSubscriptionInfoList();
+            // Refresh the Cache of Active Subscription Info List
+            refreshCachedActiveSubscriptionInfoList();
 
-                notifySubscriptionInfoChanged();
-            } else {
-                if (DBG) logd("[setCarrierText]: no value update");
-            }
+            notifySubscriptionInfoChanged();
+
             return result;
         } finally {
             Binder.restoreCallingIdentity(identity);
@@ -2046,35 +2025,30 @@ public class SubscriptionController extends ISub.Stub {
         final long identity = Binder.clearCallingIdentity();
         try {
             validateSubId(subId);
-            int result = 0;
+            int result;
             int phoneId = getPhoneId(subId);
 
             if (number == null || phoneId < 0 ||
                     phoneId >= mTelephonyManager.getPhoneCount()) {
-                if (DBG) logd("[setDisplayNumber]- fail");
+                if (DBG) logd("[setDispalyNumber]- fail");
                 return -1;
             }
-            boolean update = true;
-            SubscriptionInfo subInfo = getSubscriptionInfo(subId);
-            if (subInfo != null) {
-                update = !TextUtils.equals(subInfo.getNumber(), number);
-            }
-            if (update) {
-                ContentValues value = new ContentValues(1);
-                value.put(SubscriptionManager.NUMBER, number);
+            ContentValues value = new ContentValues(1);
+            value.put(SubscriptionManager.NUMBER, number);
 
-                // This function had a call to update number on the SIM (Phone.setLine1Number()) but
-                // that was removed as there doesn't seem to be a reason for that. If it is added
-                // back, watch out for deadlocks.
-                result = mContext.getContentResolver().update(
-                        SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
-                if (DBG) logd("[setDisplayNumber]- update result :" + result);
-                // Refresh the Cache of Active Subscription Info List
-                refreshCachedActiveSubscriptionInfoList();
-                notifySubscriptionInfoChanged();
-            } else {
-                if (DBG) logd("[setDisplayNumber]: no value update");
-            }
+            // This function had a call to update number on the SIM (Phone.setLine1Number()) but
+            // that was removed as there doesn't seem to be a reason for that. If it is added
+            // back, watch out for deadlocks.
+
+            result = mContext.getContentResolver().update(
+                    SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
+
+            // Refresh the Cache of Active Subscription Info List
+            refreshCachedActiveSubscriptionInfoList();
+
+            if (DBG) logd("[setDisplayNumber]- update result :" + result);
+            notifySubscriptionInfoChanged();
+
             return result;
         } finally {
             Binder.restoreCallingIdentity(identity);
@@ -2095,36 +2069,21 @@ public class SubscriptionController extends ISub.Stub {
             return;
         }
 
-        // remove trailing empty strings which will also get stripped from
-        // SubscriptionInfo.getEhplmns() and SubscriptionInfo.getHplmns()
-        String formattedEhplmns = ehplmns == null ? "" :
-                Arrays.stream(ehplmns).filter(s -> s != null && !s.isEmpty())
-                        .collect(Collectors.joining(","));
-        String formattedHplmns = hplmns == null ? "" :
-                Arrays.stream(hplmns).filter(s -> s != null && !s.isEmpty())
-                        .collect(Collectors.joining(","));
-        boolean noChange = false;
-        SubscriptionInfo subInfo = getSubscriptionInfo(subId);
-        if (subInfo != null) {
-            noChange = (ehplmns == null && subInfo.getEhplmns().isEmpty())
-                    || String.join(",", subInfo.getEhplmns()).equals(formattedEhplmns);
-            noChange = noChange && (hplmns == null && subInfo.getHplmns().isEmpty())
-                    || String.join(",", subInfo.getHplmns()).equals(formattedHplmns);
-        }
-        if (!noChange) {
-            ContentValues value = new ContentValues(2);
-            value.put(SubscriptionManager.EHPLMNS, formattedEhplmns);
-            value.put(SubscriptionManager.HPLMNS, formattedHplmns);
+        String formattedEhplmns = ehplmns == null ? "" : String.join(",", ehplmns);
+        String formattedHplmns = hplmns == null ? "" : String.join(",", hplmns);
 
-            int count = mContext.getContentResolver().update(
-                    SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
-            if (DBG) logd("[setAssociatedPlmns]- update result :" + count);
-            // Refresh the Cache of Active Subscription Info List
-            refreshCachedActiveSubscriptionInfoList();
-            notifySubscriptionInfoChanged();
-        } else {
-            if (DBG) logd("[setAssociatedPlmns]+ subId:" + subId + "no value update");
-        }
+        ContentValues value = new ContentValues(2);
+        value.put(SubscriptionManager.EHPLMNS, formattedEhplmns);
+        value.put(SubscriptionManager.HPLMNS, formattedHplmns);
+
+        int count = mContext.getContentResolver().update(
+                SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
+
+        // Refresh the Cache of Active Subscription Info List
+        refreshCachedActiveSubscriptionInfoList();
+
+        if (DBG) logd("[setAssociatedPlmns]- update result :" + count);
+        notifySubscriptionInfoChanged();
     }
 
     /**
@@ -2324,25 +2283,16 @@ public class SubscriptionController extends ISub.Stub {
         final long identity = Binder.clearCallingIdentity();
         try {
             validateSubId(subId);
-            int result = 0;
-            boolean update = true;
-            SubscriptionInfo subInfo = getSubscriptionInfo(subId);
-            if (subInfo != null) {
-                update = subInfo.getCarrierId() != carrierId;
-            }
-            if (update) {
-                ContentValues value = new ContentValues(1);
-                value.put(SubscriptionManager.CARRIER_ID, carrierId);
-                result = mContext.getContentResolver().update(
-                        SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
+            ContentValues value = new ContentValues(1);
+            value.put(SubscriptionManager.CARRIER_ID, carrierId);
+            int result = mContext.getContentResolver().update(
+                    SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
 
-                // Refresh the Cache of Active Subscription Info List
-                refreshCachedActiveSubscriptionInfoList();
+            // Refresh the Cache of Active Subscription Info List
+            refreshCachedActiveSubscriptionInfoList();
 
-                notifySubscriptionInfoChanged();
-            } else {
-                if (DBG) logd("[setCarrierId]: no value update");
-            }
+            notifySubscriptionInfoChanged();
+
             return result;
         } finally {
             Binder.restoreCallingIdentity(identity);
@@ -2366,31 +2316,21 @@ public class SubscriptionController extends ISub.Stub {
         } catch (NumberFormatException e) {
             loge("[setMccMnc] - couldn't parse mcc/mnc: " + mccMnc);
         }
-        SubscriptionInfo subInfo = getSubscriptionInfo(subId);
-        // check if there are any update
-        boolean update = true;
-        if (subInfo != null) {
-            update = (subInfo.getMcc() != mcc) || (subInfo.getMnc() != mnc)
-                    || !mccString.equals(subInfo.getMccString())
-                    || !mncString.equals(subInfo.getMncString());
-        }
-        int result = 0;
-        if (update) {
-            ContentValues value = new ContentValues(4);
-            value.put(SubscriptionManager.MCC, mcc);
-            value.put(SubscriptionManager.MNC, mnc);
-            value.put(SubscriptionManager.MCC_STRING, mccString);
-            value.put(SubscriptionManager.MNC_STRING, mncString);
+        if (DBG) logd("[setMccMnc]+ mcc/mnc:" + mcc + "/" + mnc + " subId:" + subId);
+        ContentValues value = new ContentValues(4);
+        value.put(SubscriptionManager.MCC, mcc);
+        value.put(SubscriptionManager.MNC, mnc);
+        value.put(SubscriptionManager.MCC_STRING, mccString);
+        value.put(SubscriptionManager.MNC_STRING, mncString);
 
-            result = mContext.getContentResolver().update(
-                    SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
-            if (DBG) logd("[setMccMnc]+ mcc/mnc:" + mcc + "/" + mnc + " subId:" + subId);
-            // Refresh the Cache of Active Subscription Info List
-            refreshCachedActiveSubscriptionInfoList();
-            notifySubscriptionInfoChanged();
-        } else {
-            if (DBG) logd("[setMccMnc] - no values update");
-        }
+        int result = mContext.getContentResolver().update(
+                SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
+
+        // Refresh the Cache of Active Subscription Info List
+        refreshCachedActiveSubscriptionInfoList();
+
+        notifySubscriptionInfoChanged();
+
         return result;
     }
 
@@ -2414,25 +2354,17 @@ public class SubscriptionController extends ISub.Stub {
      */
     public int setImsi(String imsi, int subId) {
         if (DBG) logd("[setImsi]+ imsi:" + scrubImsi(imsi) + " subId:" + subId);
-        boolean update = true;
-        int result = 0;
-        SubscriptionInfo subInfo = getSubscriptionInfo(subId);
-        if (subInfo != null) {
-            update = !TextUtils.equals(getImsiPrivileged(subId),imsi);
-        }
+        ContentValues value = new ContentValues(1);
+        value.put(SubscriptionManager.IMSI, imsi);
 
-        if (update) {
-            ContentValues value = new ContentValues(1);
-            value.put(SubscriptionManager.IMSI, imsi);
-            result = mContext.getContentResolver().update(
-                    SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
-            // Refresh the Cache of Active Subscription Info List
-            refreshCachedActiveSubscriptionInfoList();
+        int result = mContext.getContentResolver().update(
+                SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
 
-            notifySubscriptionInfoChanged();
-        } else {
-            if (DBG) logd("[setImsi]: no value update");
-        }
+        // Refresh the Cache of Active Subscription Info List
+        refreshCachedActiveSubscriptionInfoList();
+
+        notifySubscriptionInfoChanged();
+
         return result;
     }
 
@@ -2526,25 +2458,16 @@ public class SubscriptionController extends ISub.Stub {
      */
     public int setCountryIso(String iso, int subId) {
         if (DBG) logd("[setCountryIso]+ iso:" + iso + " subId:" + subId);
-        boolean update = true;
-        int result = 0;
-        SubscriptionInfo subInfo = getSubscriptionInfo(subId);
-        if (subInfo != null) {
-            update = !TextUtils.equals(subInfo.getCountryIso(), iso);
-        }
-        if (update) {
-            ContentValues value = new ContentValues();
-            value.put(SubscriptionManager.ISO_COUNTRY_CODE, iso);
+        ContentValues value = new ContentValues();
+        value.put(SubscriptionManager.ISO_COUNTRY_CODE, iso);
 
-            result = mContext.getContentResolver().update(
-                    SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
-            // Refresh the Cache of Active Subscription Info List
-            refreshCachedActiveSubscriptionInfoList();
+        int result = mContext.getContentResolver().update(
+                SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
 
-            notifySubscriptionInfoChanged();
-        } else {
-            if (DBG) logd("[setCountryIso]: no value update");
-        }
+        // Refresh the Cache of Active Subscription Info List
+        refreshCachedActiveSubscriptionInfoList();
+
+        notifySubscriptionInfoChanged();
         return result;
     }
 

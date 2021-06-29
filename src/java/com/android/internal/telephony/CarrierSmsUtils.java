@@ -22,9 +22,9 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Binder;
-import android.telephony.ims.feature.ImsFeature;
+import android.os.PersistableBundle;
+import android.telephony.CarrierConfigManager;
 
-import com.android.internal.telephony.ims.ImsResolver;
 import com.android.telephony.Rlog;
 
 import java.util.List;
@@ -36,20 +36,23 @@ public class CarrierSmsUtils {
     protected static final boolean VDBG = false;
     protected static final String TAG = CarrierSmsUtils.class.getSimpleName();
 
-    /**
-     * Return the package name of the ImsService that is implementing RCS features for the device.
+    private static final String CARRIER_IMS_PACKAGE_KEY =
+            CarrierConfigManager.KEY_CONFIG_IMS_PACKAGE_OVERRIDE_STRING;
+
+    /** Return a Carrier-overridden IMS package, if it exists and is a CarrierSmsFilter
+     *
      * @param context calling context
      * @param phone object from telephony
      * @param intent that should match a CarrierSmsFilter
-     * @return the name of the ImsService implementing RCS features on the device.
+     * @return the name of the IMS CarrierService package
      */
     @Nullable
-    public static String getImsRcsPackageForIntent(
+    public static String getCarrierImsPackageForIntent(
             Context context, Phone phone, Intent intent) {
 
-        String carrierImsPackage = getImsRcsPackage(phone);
+        String carrierImsPackage = getCarrierImsPackage(context, phone);
         if (carrierImsPackage == null) {
-            if (VDBG) Rlog.v(TAG, "No ImsService found implementing RCS.");
+            if (VDBG) Rlog.v(TAG, "No CarrierImsPackage override found");
             return null;
         }
 
@@ -68,22 +71,23 @@ public class CarrierSmsUtils {
         return null;
     }
 
-    /**
-     * @return the package name of the ImsService that is configured to implement RCS, or null if
-     * there is none configured/available.
-     */
     @Nullable
-    private static String getImsRcsPackage(Phone phone) {
-        ImsResolver resolver = ImsResolver.getInstance();
-        if (resolver == null) {
-            Rlog.i(TAG, "getImsRcsPackage: Device does not support IMS - skipping");
+    private static String getCarrierImsPackage(Context context, Phone phone) {
+        CarrierConfigManager cm = (CarrierConfigManager) context.getSystemService(
+                Context.CARRIER_CONFIG_SERVICE);
+        if (cm == null) {
+            Rlog.e(TAG, "Failed to retrieve CarrierConfigManager");
             return null;
         }
 
         final long identity = Binder.clearCallingIdentity();
         try {
-            return resolver.getConfiguredImsServicePackageName(phone.getPhoneId(),
-                    ImsFeature.FEATURE_RCS);
+            PersistableBundle config = cm.getConfigForSubId(phone.getSubId());
+            if (config == null) {
+                if (VDBG) Rlog.v(TAG, "No CarrierConfig for subId:" + phone.getSubId());
+                return null;
+            }
+            return config.getString(CARRIER_IMS_PACKAGE_KEY, null);
         } finally {
             Binder.restoreCallingIdentity(identity);
         }

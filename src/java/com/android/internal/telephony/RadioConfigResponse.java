@@ -16,14 +16,13 @@
 
 package com.android.internal.telephony;
 
+import static android.telephony.TelephonyManager.CAPABILITY_ALLOWED_NETWORK_TYPES_USED;
 import static android.telephony.TelephonyManager
         .CAPABILITY_NR_DUAL_CONNECTIVITY_CONFIGURATION_AVAILABLE;
 import static android.telephony.TelephonyManager.CAPABILITY_PHYSICAL_CHANNEL_CONFIG_1_6_SUPPORTED;
 import static android.telephony.TelephonyManager.CAPABILITY_SECONDARY_LINK_BANDWIDTH_VISIBLE;
-import static android.telephony.TelephonyManager.CAPABILITY_SIM_PHONEBOOK_IN_MODEM;
 import static android.telephony.TelephonyManager.CAPABILITY_SLICING_CONFIG_SUPPORTED;
 import static android.telephony.TelephonyManager.CAPABILITY_THERMAL_MITIGATION_DATA_THROTTLING;
-import static android.telephony.TelephonyManager.CAPABILITY_USES_ALLOWED_NETWORK_TYPES_BITMASK;
 import static android.telephony.TelephonyManager.RadioInterfaceCapability;
 
 import android.hardware.radio.V1_0.RadioError;
@@ -300,8 +299,8 @@ public class RadioConfigResponse extends IRadioConfigResponse.Stub {
 
         Rlog.d(TAG, "Radio Hal Version = " + radioHalVersion.toString());
         if (radioHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_1_6)) {
-            caps.add(CAPABILITY_USES_ALLOWED_NETWORK_TYPES_BITMASK);
-            Rlog.d(TAG, "CAPABILITY_USES_ALLOWED_NETWORK_TYPES_BITMASK");
+            caps.add(CAPABILITY_ALLOWED_NETWORK_TYPES_USED);
+            Rlog.d(TAG, "CAPABILITY_ALLOWED_NETWORK_TYPES_USED");
 
             if (!modemReducedFeatureSet1) {
                 caps.add(CAPABILITY_SECONDARY_LINK_BANDWIDTH_VISIBLE);
@@ -314,9 +313,6 @@ public class RadioConfigResponse extends IRadioConfigResponse.Stub {
                 Rlog.d(TAG, "CAPABILITY_SLICING_CONFIG_SUPPORTED");
                 caps.add(CAPABILITY_PHYSICAL_CHANNEL_CONFIG_1_6_SUPPORTED);
                 Rlog.d(TAG, "CAPABILITY_PHYSICAL_CHANNEL_CONFIG_1_6_SUPPORTED");
-            } else {
-                caps.add(CAPABILITY_SIM_PHONEBOOK_IN_MODEM);
-                Rlog.d(TAG, "CAPABILITY_SIM_PHONEBOOK_IN_MODEM");
             }
         }
         return caps;

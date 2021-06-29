@@ -46,7 +46,6 @@ import android.text.SpannableStringBuilder;
 import android.text.TextDirectionHeuristics;
 import android.text.TextUtils;
 
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CallForwardInfo;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.CommandException;
@@ -236,14 +235,10 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         Matcher m;
         GsmMmiCode ret = null;
 
-        if ((phone.getServiceState().getVoiceRoaming()
-                && phone.supportsConversionOfCdmaCallerIdMmiCodesWhileRoaming())
-                        || (isEmergencyNumber(phone, dialString)
-                                && isCarrierSupportCallerIdVerticalServiceCodes(phone))) {
+        if (phone.getServiceState().getVoiceRoaming()
+                && phone.supportsConversionOfCdmaCallerIdMmiCodesWhileRoaming()) {
             /* The CDMA MMI coded dialString will be converted to a 3GPP MMI Coded dialString
-               so that it can be processed by the matcher and code below. This can be triggered if
-               the dialing string is an emergency number and carrier supports caller ID vertical
-               service codes *67, *82.
+               so that it can be processed by the matcher and code below
              */
             dialString = convertCdmaMmiCodesTo3gppMmiCodes(dialString);
         }
@@ -784,7 +779,9 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             return false;
         }
 
-        if (isEmergencyNumber(phone, dialString)) {
+        TelephonyManager tm =
+                (TelephonyManager) phone.getContext().getSystemService(Context.TELEPHONY_SERVICE);
+        if (tm.isEmergencyNumber(dialString)) {
             return false;
         } else {
             return isShortCodeUSSD(dialString, phone);
@@ -836,42 +833,10 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      *       " # 31 # [called number] SEND "
      */
     @UnsupportedAppUsage
-    public boolean isTemporaryModeCLIR() {
-        return mSc != null && mSc.equals(SC_CLIR)
-                && mDialingNumber != null && (isActivate() || isDeactivate());
-    }
-
-    /**
-     * Checks if the dialing string is an emergency number.
-     */
-    @VisibleForTesting
-    public static boolean isEmergencyNumber(Phone phone, String dialString) {
-        try {
-            TelephonyManager tm = phone.getContext().getSystemService(TelephonyManager.class);
-            return tm.isEmergencyNumber(dialString);
-        } catch (RuntimeException ex) {
-            return false;
-        }
-    }
-
-    /**
-     * Checks if carrier supports caller id vertical service codes by checking with
-     * {@link CarrierConfigManager#KEY_CARRIER_SUPPORTS_CALLER_ID_VERTICAL_SERVICE_CODES_BOOL}.
-     */
-    @VisibleForTesting
-    public static boolean isCarrierSupportCallerIdVerticalServiceCodes(Phone phone) {
-        CarrierConfigManager configManager = phone.getContext().getSystemService(
-                CarrierConfigManager.class);
-        PersistableBundle b = null;
-        if (configManager != null) {
-            // If an invalid subId is used, this bundle will contain default values.
-            b = configManager.getConfigForSubId(phone.getSubId());
-        }
-        if (b != null) {
-            return b == null ? false : b.getBoolean(CarrierConfigManager
-                    .KEY_CARRIER_SUPPORTS_CALLER_ID_VERTICAL_SERVICE_CODES_BOOL);
-        }
-        return false;
+    public boolean
+    isTemporaryModeCLIR() {
+        return mSc != null && mSc.equals(SC_CLIR) && mDialingNumber != null
+                && (isActivate() || isDeactivate());
     }
 
     /**
@@ -1228,9 +1193,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     onUssdFinishedError() {
         if (mState == State.PENDING) {
             mState = State.FAILED;
-            if (mMessage.length() == 0) {
-                mMessage = mContext.getText(com.android.internal.R.string.mmiError);
-            }
+            mMessage = mContext.getText(com.android.internal.R.string.mmiError);
             Rlog.d(LOG_TAG, "onUssdFinishedError");
             mPhone.onMMIDone(this);
         }
@@ -1809,7 +1772,8 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      * @return integer value of corresponding key.
      */
     private int getIntCarrierConfig(String key) {
-        CarrierConfigManager ConfigManager = mContext.getSystemService(CarrierConfigManager.class);
+        CarrierConfigManager ConfigManager =
+                (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
         PersistableBundle b = null;
         if (ConfigManager != null) {
             // If an invalid subId is used, this bundle will contain default values.

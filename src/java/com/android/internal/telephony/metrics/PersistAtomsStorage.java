@@ -31,7 +31,6 @@ import com.android.internal.telephony.nano.PersistAtomsProto.DataCallSession;
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationStats;
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationTermination;
 import com.android.internal.telephony.nano.PersistAtomsProto.IncomingSms;
-import com.android.internal.telephony.nano.PersistAtomsProto.NetworkRequests;
 import com.android.internal.telephony.nano.PersistAtomsProto.OutgoingSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.PersistAtoms;
 import com.android.internal.telephony.nano.PersistAtomsProto.VoiceCallRatUsage;
@@ -300,20 +299,6 @@ public class PersistAtomsStorage {
         }
     }
 
-    /** Adds a new {@link NetworkRequests} to the storage. */
-    public synchronized void addNetworkRequests(NetworkRequests networkRequests) {
-        NetworkRequests existingMetrics = find(networkRequests);
-        if (existingMetrics != null) {
-            existingMetrics.enterpriseRequestCount += networkRequests.enterpriseRequestCount;
-            existingMetrics.enterpriseReleaseCount += networkRequests.enterpriseReleaseCount;
-        } else {
-            int newLength = mAtoms.networkRequests.length + 1;
-            mAtoms.networkRequests = Arrays.copyOf(mAtoms.networkRequests, newLength);
-            mAtoms.networkRequests[newLength - 1] = networkRequests;
-        }
-        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
-    }
-
     /**
      * Returns and clears the voice call sessions if last pulled longer than {@code
      * minIntervalMillis} ago, otherwise returns {@code null}.
@@ -480,23 +465,6 @@ public class PersistAtomsStorage {
         }
     }
 
-    /**
-     * Returns and clears the network requests if last pulled longer than {@code
-     * minIntervalMillis} ago, otherwise returns {@code null}.
-     */
-    @Nullable
-    public synchronized NetworkRequests[] getNetworkRequests(long minIntervalMillis) {
-        if (getWallTimeMillis() - mAtoms.networkRequestsPullTimestampMillis > minIntervalMillis) {
-            mAtoms.networkRequestsPullTimestampMillis = getWallTimeMillis();
-            NetworkRequests[] previousNetworkRequests = mAtoms.networkRequests;
-            mAtoms.networkRequests = new NetworkRequests[0];
-            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
-            return previousNetworkRequests;
-        } else {
-            return null;
-        }
-    }
-
     /** Loads {@link PersistAtoms} from a file in private storage. */
     private PersistAtoms loadAtomsFromFile() {
         try {
@@ -547,7 +515,6 @@ public class PersistAtomsStorage {
                             atoms.imsRegistrationTermination,
                             ImsRegistrationTermination.class,
                             MAX_NUM_IMS_REGISTRATION_TERMINATIONS);
-            atoms.networkRequests = sanitizeAtoms(atoms.networkRequests, NetworkRequests.class);
             // out of caution, sanitize also the timestamps
             atoms.voiceCallRatUsagePullTimestampMillis =
                     sanitizeTimestamp(atoms.voiceCallRatUsagePullTimestampMillis);
@@ -567,8 +534,6 @@ public class PersistAtomsStorage {
                     sanitizeTimestamp(atoms.imsRegistrationStatsPullTimestampMillis);
             atoms.imsRegistrationTerminationPullTimestampMillis =
                     sanitizeTimestamp(atoms.imsRegistrationTerminationPullTimestampMillis);
-            atoms.networkRequestsPullTimestampMillis =
-                    sanitizeTimestamp(atoms.networkRequestsPullTimestampMillis);
             return atoms;
         } catch (NoSuchFileException e) {
             Rlog.d(TAG, "PersistAtoms file not found");
@@ -692,19 +657,6 @@ public class PersistAtomsStorage {
     }
 
     /**
-     * Returns the network requests event that has the same carrier id as the given one,
-     * or {@code null} if it does not exist.
-     */
-    private @Nullable NetworkRequests find(NetworkRequests key) {
-        for (NetworkRequests item : mAtoms.networkRequests) {
-            if (item.carrierId == key.carrierId) {
-                return item;
-            }
-        }
-        return null;
-    }
-
-    /**
      * Inserts a new element in a random position in an array with a maximum size, replacing the
      * least recent item if possible.
      */
@@ -793,7 +745,6 @@ public class PersistAtomsStorage {
         atoms.cellularDataServiceSwitchPullTimestampMillis = currentTime;
         atoms.imsRegistrationStatsPullTimestampMillis = currentTime;
         atoms.imsRegistrationTerminationPullTimestampMillis = currentTime;
-        atoms.networkRequestsPullTimestampMillis = currentTime;
         Rlog.d(TAG, "created new PersistAtoms");
         return atoms;
     }

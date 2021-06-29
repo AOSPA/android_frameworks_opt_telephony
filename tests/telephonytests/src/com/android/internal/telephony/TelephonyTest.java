@@ -116,6 +116,7 @@ import com.android.internal.telephony.uicc.UiccProfile;
 import com.android.internal.telephony.uicc.UiccSlot;
 import com.android.server.pm.PackageManagerService;
 import com.android.server.pm.permission.LegacyPermissionManagerService;
+import com.android.server.pm.permission.PermissionManagerService;
 
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -212,6 +213,8 @@ public abstract class TelephonyTest {
     protected PackageManagerService mMockPackageManager;
     @Mock
     protected LegacyPermissionManagerService mMockLegacyPermissionManager;
+    @Mock
+    protected PermissionManagerService mMockPermissionManager;
 
     protected NetworkRegistrationInfo mNetworkRegistrationInfo =
             new NetworkRegistrationInfo.Builder()
@@ -656,7 +659,8 @@ public abstract class TelephonyTest {
         mServiceManagerMockedServices.put("connectivity_metrics_logger", mConnMetLoggerBinder);
         mServiceManagerMockedServices.put("package", mMockPackageManager);
         mServiceManagerMockedServices.put("legacy_permission", mMockLegacyPermissionManager);
-        logd("mMockLegacyPermissionManager replaced");
+        mServiceManagerMockedServices.put("permissionmgr", mMockPermissionManager);
+        logd("mMockPermissionManager replaced");
         doReturn(new int[]{AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
                 AccessNetworkConstants.TRANSPORT_TYPE_WLAN})
                 .when(mTransportManager).getAvailableTransports();
@@ -928,19 +932,6 @@ public abstract class TelephonyTest {
         doReturn(hasCarrierPrivileges ? TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS
                 : TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS).when(
                 mockTelephonyManager).getCarrierPrivilegeStatus(anyInt());
-    }
-
-    protected final void waitForDelayedHandlerAction(Handler h, long delayMillis,
-            long timeoutMillis) {
-        final CountDownLatch lock = new CountDownLatch(1);
-        h.postDelayed(lock::countDown, delayMillis);
-        while (lock.getCount() > 0) {
-            try {
-                lock.await(delayMillis + timeoutMillis, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                // do nothing
-            }
-        }
     }
 
     protected final void waitForHandlerAction(Handler h, long timeoutMillis) {

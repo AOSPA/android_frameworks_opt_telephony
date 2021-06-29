@@ -60,6 +60,7 @@ import android.hardware.radio.V1_6.OptionalDnn;
 import android.hardware.radio.V1_6.OptionalOsAppId;
 import android.hardware.radio.V1_6.OptionalSliceInfo;
 import android.hardware.radio.V1_6.OptionalTrafficDescriptor;
+import android.hardware.radio.deprecated.V1_0.IOemHook;
 import android.net.InetAddresses;
 import android.net.KeepalivePacketData;
 import android.net.LinkAddress;
@@ -129,7 +130,6 @@ import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
 import com.android.internal.telephony.uicc.IccUtils;
-import com.android.internal.telephony.uicc.SimPhonebookRecord;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
 
@@ -262,6 +262,12 @@ public class RIL extends BaseCommands implements CommandsInterface {
      */
     Set<Integer> mDisabledRadioServices = new HashSet();
 
+    /**
+     * A set that records if oem hook service is disabled in hal for
+     * a specific phone id slot to avoid further getService request.
+     */
+    Set<Integer> mDisabledOemHookServices = new HashSet();
+
     /* default work source which will blame phone process */
     protected WorkSource mRILDefaultWorkSource;
 
@@ -277,6 +283,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
     RadioResponse mRadioResponse;
     RadioIndication mRadioIndication;
     volatile IRadio mRadioProxy = null;
+    OemHookResponse mOemHookResponse;
+    OemHookIndication mOemHookIndication;
+    volatile IOemHook mOemHookProxy = null;
     final AtomicLong mRadioProxyCookie = new AtomicLong(0);
     final RadioProxyDeathRecipient mRadioProxyDeathRecipient;
     final RilHandler mRilHandler;
@@ -439,6 +448,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
     protected synchronized void resetProxyAndRequestList() {
         mRadioProxy = null;
+        mOemHookProxy = null;
 
         // increment the cookie so that death notification can be ignored
         mRadioProxyCookie.incrementAndGet();
@@ -450,6 +460,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         clearRequestList(RADIO_NOT_AVAILABLE, false);
 
         getRadioProxy(null);
+        getOemHookProxy(null);
     }
 
     /** Set a radio HAL fallback compatibility override. */
@@ -588,9 +599,63 @@ public class RIL extends BaseCommands implements CommandsInterface {
         if (active) {
             // Try to connect to RIL services and set response functions.
             getRadioProxy(null);
+            getOemHookProxy(null);
         } else {
             resetProxyAndRequestList();
         }
+    }
+
+    /** Returns an {@link IOemHook} instance or null if the service is not available. */
+    @VisibleForTesting
+    public synchronized IOemHook getOemHookProxy(Message result) {
+        if (!SubscriptionManager.isValidPhoneId((mPhoneId))) return null;
+        if (!mIsCellularSupported) {
+            if (RILJ_LOGV) riljLog("getOemHookProxy: Not calling getService(): wifi-only");
+            if (result != null) {
+                AsyncResult.forMessage(result, null,
+                        CommandException.fromRilErrno(RADIO_NOT_AVAILABLE));
+                result.sendToTarget();
+            }
+            return null;
+        }
+
+        if (mOemHookProxy != null) {
+            return mOemHookProxy;
+        }
+
+        try {
+            if (mDisabledOemHookServices.contains(mPhoneId)) {
+                riljLoge("getOemHookProxy: mOemHookProxy for " + HIDL_SERVICE_NAME[mPhoneId]
+                        + " is disabled");
+            } else {
+                mOemHookProxy = IOemHook.getService(HIDL_SERVICE_NAME[mPhoneId], true);
+                if (mOemHookProxy != null) {
+                    // not calling linkToDeath() as ril service runs in the same process and death
+                    // notification for that should be sufficient
+                    mOemHookProxy.setResponseFunctions(mOemHookResponse, mOemHookIndication);
+                } else {
+                    mDisabledOemHookServices.add(mPhoneId);
+                    riljLoge("getOemHookProxy: mOemHookProxy for " + HIDL_SERVICE_NAME[mPhoneId]
+                            + " is disabled");
+                }
+            }
+        } catch (NoSuchElementException e) {
+            mOemHookProxy = null;
+            riljLoge("IOemHook service is not on the device HAL: " + e);
+        }  catch (RemoteException e) {
+            mOemHookProxy = null;
+            riljLoge("OemHookProxy getService/setResponseFunctions: " + e);
+        }
+
+        if (mOemHookProxy == null) {
+            if (result != null) {
+                AsyncResult.forMessage(result, null,
+                        CommandException.fromRilErrno(RADIO_NOT_AVAILABLE));
+                result.sendToTarget();
+            }
+        }
+
+        return mOemHookProxy;
     }
 
     //***** Constructors
@@ -626,6 +691,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
         mRadioResponse = new RadioResponse(this);
         mRadioIndication = new RadioIndication(this);
+        mOemHookResponse = new OemHookResponse(this);
+        mOemHookIndication = new OemHookIndication(this);
         mRilHandler = new RilHandler();
         mRadioProxyDeathRecipient = new RadioProxyDeathRecipient();
 
@@ -649,6 +716,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         // set radio callback; needed to set RadioIndication callback (should be done after
         // wakelock stuff is initialized above as callbacks are received on separate binder threads)
         getRadioProxy(null);
+        getOemHookProxy(null);
 
         if (RILJ_LOGD) {
             riljLog("Radio HAL version: " + mRadioVersion);
@@ -3012,15 +3080,58 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    // TODO(b/171260715) Remove when HAL definition is removed
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void invokeOemRilRequestRaw(byte[] data, Message response) {
+        IOemHook oemHookProxy = getOemHookProxy(response);
+        if (oemHookProxy != null) {
+            RILRequest rr = obtainRequest(RIL_REQUEST_OEM_HOOK_RAW, response,
+                    mRILDefaultWorkSource);
+
+            if (RILJ_LOGD) {
+                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
+                        + "[" + IccUtils.bytesToHexString(data) + "]");
+            }
+
+            try {
+                oemHookProxy.sendRequestRaw(rr.mSerial, primitiveArrayToArrayList(data));
+            } catch (RemoteException | RuntimeException e) {
+                handleRadioProxyExceptionForRR(rr, "invokeOemRilRequestRaw", e);
+            }
+        } else {
+            // OEM Hook service is disabled for P and later devices.
+            // Deprecated OEM Hook APIs will perform no-op before being removed.
+            if (RILJ_LOGD) riljLog("Radio Oem Hook Service is disabled for P and later devices. ");
+        }
     }
 
-    // TODO(b/171260715) Remove when HAL definition is removed
     @Override
     public void invokeOemRilRequestStrings(String[] strings, Message result) {
+        IOemHook oemHookProxy = getOemHookProxy(result);
+        if (oemHookProxy != null) {
+            RILRequest rr = obtainRequest(RIL_REQUEST_OEM_HOOK_STRINGS, result,
+                    mRILDefaultWorkSource);
+
+            String logStr = "";
+            for (int i = 0; i < strings.length; i++) {
+                logStr = logStr + strings[i] + " ";
+            }
+            if (RILJ_LOGD) {
+                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest) + " strings = "
+                        + logStr);
+            }
+
+            try {
+                oemHookProxy.sendRequestStrings(rr.mSerial,
+                        new ArrayList<String>(Arrays.asList(strings)));
+            } catch (RemoteException | RuntimeException e) {
+                handleRadioProxyExceptionForRR(rr, "invokeOemRilRequestStrings", e);
+            }
+        } else {
+            // OEM Hook service is disabled for P and later devices.
+            // Deprecated OEM Hook APIs will perform no-op before being removed.
+            if (RILJ_LOGD) riljLog("Radio Oem Hook Service is disabled for P and later devices. ");
+        }
     }
 
     @Override
@@ -5906,100 +6017,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    @Override
-    public void getSimPhonebookRecords(Message result) {
-        IRadio radioProxy = getRadioProxy(result);
-        if (radioProxy != null) {
-            RILRequest rr = obtainRequest(RIL_REQUEST_GET_SIM_PHONEBOOK_RECORDS, result,
-                    mRILDefaultWorkSource);
-
-            if (RILJ_LOGD) {
-                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-            }
-
-            if (mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_1_6)) {
-                android.hardware.radio.V1_6.IRadio radioProxy16 =
-                            android.hardware.radio.V1_6.IRadio.castFrom(radioProxy);
-                try {
-                    radioProxy16.getSimPhonebookRecords(rr.mSerial);
-                } catch (RemoteException | RuntimeException e) {
-                    handleRadioProxyExceptionForRR(rr, "getPhonebookRecords", e);
-                }
-            } else {
-                riljLog("Unsupported API in lower than version 1.6 radio HAL" );
-                if (result != null) {
-                    AsyncResult.forMessage(result, null,
-                    CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
-                    result.sendToTarget();
-                }
-            }
-        }
-    }
-
-    @Override
-    public void getSimPhonebookCapacity(Message result) {
-        IRadio radioProxy = getRadioProxy(result);
-        if (radioProxy != null) {
-            RILRequest rr = obtainRequest(RIL_REQUEST_GET_SIM_PHONEBOOK_CAPACITY, result,
-                    mRILDefaultWorkSource);
-
-            if (RILJ_LOGD) {
-                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-            }
-
-            if (mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_1_6)) {
-                android.hardware.radio.V1_6.IRadio radioProxy16 =
-                            android.hardware.radio.V1_6.IRadio.castFrom(radioProxy);
-                try {
-                    radioProxy16.getSimPhonebookCapacity(rr.mSerial);
-                } catch (RemoteException | RuntimeException e) {
-                    handleRadioProxyExceptionForRR(rr, "getPhonebookRecords", e);
-                }
-            } else {
-                riljLog("Unsupported API in lower than version 1.6 radio HAL" );
-                if (result != null) {
-                    AsyncResult.forMessage(result, null,
-                    CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
-                    result.sendToTarget();
-                }
-            }
-        }
-    }
-
-    @Override
-    public void updateSimPhonebookRecord(SimPhonebookRecord phonebookRecord, Message result) {
-        IRadio radioProxy = getRadioProxy(result);
-        if (radioProxy != null) {
-            RILRequest rr = obtainRequest(RIL_REQUEST_UPDATE_SIM_PHONEBOOK_RECORD, result,
-                    mRILDefaultWorkSource);
-
-            if (RILJ_LOGD) {
-                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
-                        + " with " + phonebookRecord.toString());
-            }
-
-            if (mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_1_6)) {
-                android.hardware.radio.V1_6.IRadio radioProxy16 =
-                        android.hardware.radio.V1_6.IRadio.castFrom(radioProxy);
-
-                android.hardware.radio.V1_6.PhonebookRecordInfo pbRecordInfo =
-                        phonebookRecord.toPhonebookRecordInfo();
-                try {
-                     radioProxy16.updateSimPhonebookRecords(rr.mSerial, pbRecordInfo);
-                } catch (RemoteException | RuntimeException e) {
-                    handleRadioProxyExceptionForRR(rr, "updatePhonebookRecord", e);
-                }
-            } else {
-                riljLog("Unsupported API in lower than version 1.6 radio HAL" );
-                if (result != null) {
-                    AsyncResult.forMessage(result, null,
-                    CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
-                    result.sendToTarget();
-                }
-            }
-        }
-    }
-
     //***** Private Methods
     /** Helper that gets V1.6 of the radio interface OR sends back REQUEST_NOT_SUPPORTED */
     @Nullable private android.hardware.radio.V1_6.IRadio getRadioV16(Message msg) {
@@ -7006,14 +7023,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 return "GET_ALLOWED_NETWORK_TYPES_BITMAP";
             case RIL_REQUEST_GET_SLICING_CONFIG:
                 return "GET_SLICING_CONFIG";
-            case RIL_REQUEST_GET_SIM_PHONEBOOK_RECORDS:
-                return "GET_SIM_PHONEBOOK_RECORDS";
-            case RIL_REQUEST_UPDATE_SIM_PHONEBOOK_RECORD:
-                return "UPDATE_SIM_PHONEBOOK_RECORD";
-            case RIL_REQUEST_GET_SIM_PHONEBOOK_CAPACITY:
-                return "GET_SIM_PHONEBOOK_CAPACITY";
             case RIL_REQUEST_GET_ENHANCED_RADIO_CAPABILITY:
                 return "RIL_REQUEST_GET_ENHANCED_RADIO_CAPABILITY";
+
             default: return "<unknown request>";
         }
     }
@@ -7137,10 +7149,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 return "UNSOL_REGISTRATION_FAILED";
             case RIL_UNSOL_BARRING_INFO_CHANGED:
                 return "UNSOL_BARRING_INFO_CHANGED";
-            case RIL_UNSOL_RESPONSE_SIM_PHONEBOOK_CHANGED:
-                return "UNSOL_RESPONSE_SIM_PHONEBOOK_CHANGED";
-            case RIL_UNSOL_RESPONSE_SIM_PHONEBOOK_RECORDS_RECEIVED:
-                return "UNSOL_RESPONSE_SIM_PHONEBOOK_RECORDS_RECEIVED";
             default:
                 return "<unknown response>";
         }
