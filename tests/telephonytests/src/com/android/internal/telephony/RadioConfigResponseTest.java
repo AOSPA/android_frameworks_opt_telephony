@@ -48,7 +48,7 @@ public class RadioConfigResponseTest extends TelephonyTest {
         assertFalse(
                 caps.contains(TelephonyManager.CAPABILITY_SECONDARY_LINK_BANDWIDTH_VISIBLE));
         assertFalse(
-                caps.contains(TelephonyManager.CAPABILITY_ALLOWED_NETWORK_TYPES_USED));
+                caps.contains(TelephonyManager.CAPABILITY_USES_ALLOWED_NETWORK_TYPES_BITMASK));
         assertFalse(
                 caps.contains(
                         TelephonyManager.CAPABILITY_NR_DUAL_CONNECTIVITY_CONFIGURATION_AVAILABLE));
@@ -64,7 +64,7 @@ public class RadioConfigResponseTest extends TelephonyTest {
         assertFalse(
                 caps.contains(TelephonyManager.CAPABILITY_SECONDARY_LINK_BANDWIDTH_VISIBLE));
         assertTrue(
-                caps.contains(TelephonyManager.CAPABILITY_ALLOWED_NETWORK_TYPES_USED));
+                caps.contains(TelephonyManager.CAPABILITY_USES_ALLOWED_NETWORK_TYPES_BITMASK));
         assertFalse(
                 caps.contains(
                         TelephonyManager.CAPABILITY_NR_DUAL_CONNECTIVITY_CONFIGURATION_AVAILABLE));
@@ -72,6 +72,8 @@ public class RadioConfigResponseTest extends TelephonyTest {
                 caps.contains(TelephonyManager.CAPABILITY_THERMAL_MITIGATION_DATA_THROTTLING));
         assertFalse(
                 caps.contains(TelephonyManager.CAPABILITY_SLICING_CONFIG_SUPPORTED));
+        assertTrue(
+                caps.contains(TelephonyManager.CAPABILITY_SIM_PHONEBOOK_IN_MODEM));
     }
 
     @Test
@@ -80,7 +82,7 @@ public class RadioConfigResponseTest extends TelephonyTest {
         assertTrue(
                 caps.contains(TelephonyManager.CAPABILITY_SECONDARY_LINK_BANDWIDTH_VISIBLE));
         assertTrue(
-                caps.contains(TelephonyManager.CAPABILITY_ALLOWED_NETWORK_TYPES_USED));
+                caps.contains(TelephonyManager.CAPABILITY_USES_ALLOWED_NETWORK_TYPES_BITMASK));
         assertTrue(
                 caps.contains(
                         TelephonyManager.CAPABILITY_NR_DUAL_CONNECTIVITY_CONFIGURATION_AVAILABLE));
@@ -88,5 +90,7 @@ public class RadioConfigResponseTest extends TelephonyTest {
                 caps.contains(TelephonyManager.CAPABILITY_THERMAL_MITIGATION_DATA_THROTTLING));
         assertTrue(
                 caps.contains(TelephonyManager.CAPABILITY_SLICING_CONFIG_SUPPORTED));
+        assertFalse(
+                caps.contains(TelephonyManager.CAPABILITY_SIM_PHONEBOOK_IN_MODEM));
     }
 }

@@ -194,6 +194,215 @@ public class ImsResolverTest extends ImsTestBase {
     }
 
     /**
+     * Add a device ImsService and ensure that querying ImsResolver to see if an ImsService is
+     * configured succeeds.
+     */
+    @Test
+    @SmallTest
+    public void testIsDeviceImsServiceConfigured() throws Exception {
+        setupResolver(1 /*numSlots*/, TEST_DEVICE_DEFAULT_NAME.getPackageName(),
+                TEST_DEVICE_DEFAULT_NAME.getPackageName());
+        HashSet<String> features = new HashSet<>();
+        features.add(ImsResolver.METADATA_EMERGENCY_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_RCS_FEATURE);
+        setupPackageQuery(TEST_DEVICE_DEFAULT_NAME, features, true);
+        setupController();
+
+        // Complete package manager lookup and cache.
+        startBindCarrierConfigAlreadySet();
+
+        // device package name should be returned for both features.
+        final Boolean[] isConfigured = new Boolean[1];
+        // Calling this method will block us until the looper processes the command, so use
+        // runWithLooper to allow the message to be processed.
+        mLooper.runWithLooper(() ->
+                isConfigured[0] = mTestImsResolver.isImsServiceConfiguredForFeature(0,
+                        ImsFeature.FEATURE_MMTEL));
+        assertTrue(isConfigured[0]);
+        mLooper.runWithLooper(() ->
+                isConfigured[0] = mTestImsResolver.isImsServiceConfiguredForFeature(0,
+                        ImsFeature.FEATURE_RCS));
+        assertTrue(isConfigured[0]);
+    }
+
+    /**
+     * Add a device ImsService and ensure that querying the configured ImsService for all features
+     * reports the device ImsService.
+     */
+    @Test
+    @SmallTest
+    public void testGetConfiguredImsServiceDevice() throws Exception {
+        setupResolver(1 /*numSlots*/, TEST_DEVICE_DEFAULT_NAME.getPackageName(),
+                TEST_DEVICE_DEFAULT_NAME.getPackageName());
+        HashSet<String> features = new HashSet<>();
+        features.add(ImsResolver.METADATA_EMERGENCY_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_RCS_FEATURE);
+        setupPackageQuery(TEST_DEVICE_DEFAULT_NAME, features, true);
+        setupController();
+
+        // Complete package manager lookup and cache.
+        startBindCarrierConfigAlreadySet();
+
+        // device package name should be returned for both features.
+        final String[] packageName = new String[1];
+        // Calling this method will block us until the looper processes the command, so use
+        // runWithLooper to allow the message to be processed.
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_MMTEL));
+        assertEquals(TEST_DEVICE_DEFAULT_NAME.getPackageName(), packageName[0]);
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_RCS));
+        assertEquals(TEST_DEVICE_DEFAULT_NAME.getPackageName(), packageName[0]);
+    }
+
+    /**
+     * In the case that there is no device or carrier ImsService found, we return null for
+     * configuration queries.
+     */
+    @Test
+    @SmallTest
+    public void testGetConfiguredImsServiceNoDeviceOrCarrier() throws Exception {
+        setupResolver(1 /*numSlots*/, TEST_DEVICE_DEFAULT_NAME.getPackageName(),
+                TEST_DEVICE_DEFAULT_NAME.getPackageName());
+        // package query returns null
+        setupController();
+        // Complete package manager lookup and cache.
+        startBindCarrierConfigAlreadySet();
+
+        // device package name should be returned for both features.
+        final String[] packageName = new String[1];
+        // Calling this method will block us until the looper processes the command, so use
+        // runWithLooper to allow the message to be processed.
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_MMTEL));
+        assertNull(packageName[0]);
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_RCS));
+        assertNull(packageName[0]);
+    }
+
+    /**
+     * In the case that there is no device or carrier ImsService configured, we return null for
+     * configuration queries.
+     */
+    @Test
+    @SmallTest
+    public void testGetConfiguredImsServiceNoDeviceConfig() throws Exception {
+        // device configuration for MMTEL and RCS is null
+        setupResolver(1 /*numSlots*/, null, null);
+        HashSet<String> features = new HashSet<>();
+        features.add(ImsResolver.METADATA_EMERGENCY_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_RCS_FEATURE);
+        // ImsService query does report a device ImsService
+        setupPackageQuery(TEST_DEVICE_DEFAULT_NAME, features, true);
+        setupController();
+        // Complete package manager lookup and cache.
+        startBindCarrierConfigAlreadySet();
+
+        // device package name should be returned for both features.
+        final String[] packageName = new String[1];
+        // Calling this method will block us until the looper processes the command, so use
+        // runWithLooper to allow the message to be processed.
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_MMTEL));
+        assertNull(packageName[0]);
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_RCS));
+        assertNull(packageName[0]);
+    }
+
+    /**
+     * Add a device and carrier ImsService and ensure that querying the configured ImsService for
+     * all features reports the carrier ImsService and not device.
+     */
+    @Test
+    @SmallTest
+    public void testGetConfiguredImsServiceCarrier() throws Exception {
+        setupResolver(1 /*numSlots*/, TEST_DEVICE_DEFAULT_NAME.getPackageName(),
+                TEST_DEVICE_DEFAULT_NAME.getPackageName());
+        HashSet<String> features = new HashSet<>();
+        features.add(ImsResolver.METADATA_EMERGENCY_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_RCS_FEATURE);
+        setConfigCarrierStringMmTelRcs(0, TEST_CARRIER_DEFAULT_NAME.getPackageName());
+        List<ResolveInfo> info = new ArrayList<>();
+        info.add(getResolveInfo(TEST_DEVICE_DEFAULT_NAME, features, true));
+        info.add(getResolveInfo(TEST_CARRIER_DEFAULT_NAME, new HashSet<>(), true));
+        setupPackageQuery(info);
+        setupController();
+
+        // Complete package manager lookup and cache.
+        startBindCarrierConfigAlreadySet();
+        // Setup the carrier features and response.
+        HashSet<ImsFeatureConfiguration.FeatureSlotPair> carrierFeatures = new HashSet<>();
+        carrierFeatures.add(new ImsFeatureConfiguration.FeatureSlotPair(0,
+                ImsFeature.FEATURE_MMTEL));
+        carrierFeatures.add(new ImsFeatureConfiguration.FeatureSlotPair(0,
+                ImsFeature.FEATURE_RCS));
+        setupDynamicQueryFeatures(TEST_CARRIER_DEFAULT_NAME, carrierFeatures, 1);
+
+        // carrier package name should be returned for both features.
+        final String[] packageName = new String[1];
+        // Calling this method will block us until the looper processes the command, so use
+        // runWithLooper to allow the message to be processed.
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_MMTEL));
+        assertEquals(TEST_CARRIER_DEFAULT_NAME.getPackageName(), packageName[0]);
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_RCS));
+        assertEquals(TEST_CARRIER_DEFAULT_NAME.getPackageName(), packageName[0]);
+    }
+
+    /**
+     * Add a device ImsService and ensure that querying the configured ImsService for all features
+     * reports the device ImsService though there is a configuration for carrier (but no cached
+     * ImsService).
+     */
+    @Test
+    @SmallTest
+    public void testGetConfiguredImsServiceCarrierDevice() throws Exception {
+        setupResolver(1 /*numSlots*/, TEST_DEVICE_DEFAULT_NAME.getPackageName(),
+                TEST_DEVICE_DEFAULT_NAME.getPackageName());
+        HashSet<String> features = new HashSet<>();
+        features.add(ImsResolver.METADATA_EMERGENCY_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_MMTEL_FEATURE);
+        features.add(ImsResolver.METADATA_RCS_FEATURE);
+        // Carrier service is configured
+        setConfigCarrierStringMmTelRcs(0, TEST_CARRIER_DEFAULT_NAME.getPackageName());
+        List<ResolveInfo> info = new ArrayList<>();
+        // Carrier ImsService is not found during package query.
+        info.add(getResolveInfo(TEST_DEVICE_DEFAULT_NAME, features, true));
+        setupPackageQuery(info);
+        setupController();
+
+        // Complete package manager lookup and cache.
+        startBindCarrierConfigAlreadySet();
+
+        final String[] packageName = new String[1];
+        // Calling this method will block us until the looper processes the command, so use
+        // runWithLooper to allow the message to be processed.
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_MMTEL));
+        assertEquals(TEST_DEVICE_DEFAULT_NAME.getPackageName(), packageName[0]);
+        mLooper.runWithLooper(() ->
+                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                        ImsFeature.FEATURE_RCS));
+        assertEquals(TEST_DEVICE_DEFAULT_NAME.getPackageName(), packageName[0]);
+    }
+
+    /**
      * Set the carrier config override value and ensure that ImsResolver calls .bind on that
      * package name with the correct ImsFeatures.
      */
@@ -1663,12 +1872,6 @@ public class ImsResolverTest extends ImsTestBase {
             fail("Unable to create looper from handler.");
         }
 
-        ArgumentCaptor<BroadcastReceiver> receiversCaptor =
-                ArgumentCaptor.forClass(BroadcastReceiver.class);
-        verify(mMockContext, times(3)).registerReceiver(receiversCaptor.capture(), any());
-        mTestPackageBroadcastReceiver = receiversCaptor.getAllValues().get(0);
-        mTestCarrierConfigReceiver = receiversCaptor.getAllValues().get(1);
-        mTestBootCompleteReceiver = receiversCaptor.getAllValues().get(2);
         mTestImsResolver.setSubscriptionManagerProxy(mTestSubscriptionManagerProxy);
         mTestImsResolver.setTelephonyManagerProxy(mTestTelephonyManagerProxy);
         when(mMockQueryManagerFactory.create(any(Context.class),
@@ -1720,6 +1923,12 @@ public class ImsResolverTest extends ImsTestBase {
      */
     private void startBindCarrierConfigAlreadySet() {
         mTestImsResolver.initialize();
+        ArgumentCaptor<BroadcastReceiver> receiversCaptor =
+                ArgumentCaptor.forClass(BroadcastReceiver.class);
+        verify(mMockContext, times(3)).registerReceiver(receiversCaptor.capture(), any());
+        mTestPackageBroadcastReceiver = receiversCaptor.getAllValues().get(0);
+        mTestCarrierConfigReceiver = receiversCaptor.getAllValues().get(1);
+        mTestBootCompleteReceiver = receiversCaptor.getAllValues().get(2);
         ArgumentCaptor<ImsServiceFeatureQueryManager.Listener> queryManagerCaptor =
                 ArgumentCaptor.forClass(ImsServiceFeatureQueryManager.Listener.class);
         verify(mMockQueryManagerFactory).create(any(Context.class), queryManagerCaptor.capture());
@@ -1735,6 +1944,12 @@ public class ImsResolverTest extends ImsTestBase {
      */
     private void startBindNoCarrierConfig(int numSlots) {
         mTestImsResolver.initialize();
+        ArgumentCaptor<BroadcastReceiver> receiversCaptor =
+                ArgumentCaptor.forClass(BroadcastReceiver.class);
+        verify(mMockContext, times(3)).registerReceiver(receiversCaptor.capture(), any());
+        mTestPackageBroadcastReceiver = receiversCaptor.getAllValues().get(0);
+        mTestCarrierConfigReceiver = receiversCaptor.getAllValues().get(1);
+        mTestBootCompleteReceiver = receiversCaptor.getAllValues().get(2);
         ArgumentCaptor<ImsServiceFeatureQueryManager.Listener> queryManagerCaptor =
                 ArgumentCaptor.forClass(ImsServiceFeatureQueryManager.Listener.class);
         verify(mMockQueryManagerFactory).create(any(Context.class), queryManagerCaptor.capture());

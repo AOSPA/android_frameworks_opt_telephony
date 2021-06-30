@@ -25,6 +25,7 @@ import static com.android.internal.telephony.TelephonyTestUtils.waitForMs;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -515,6 +516,28 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         } catch (CallStateException e) {
             fail();
         }
+    }
+
+    @Test
+    @SmallTest
+    public void testClirCs() {
+        mPhoneUT.mCi = mMockCi;
+        // Start out with no preference set and ensure CommandsInterface receives setClir with
+        // the default set.
+        mPhoneUT.sendEmptyMessage(Phone.EVENT_REGISTERED_TO_NETWORK);
+        processAllMessages();
+        verify(mMockCi).setCLIR(eq(CommandsInterface.CLIR_DEFAULT), any());
+        // Now set the CLIR mode explicitly
+        mPhoneUT.setOutgoingCallerIdDisplay(CommandsInterface.CLIR_SUPPRESSION, null);
+        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+        verify(mMockCi).setCLIR(eq(CommandsInterface.CLIR_SUPPRESSION), messageCaptor.capture());
+        Message message = messageCaptor.getValue();
+        assertNotNull(message);
+        message.obj = AsyncResult.forMessage(message);
+        // Now Call registered to network again and the CLIR mode sent should reflect the new value.
+        mPhoneUT.sendEmptyMessage(Phone.EVENT_REGISTERED_TO_NETWORK);
+        processAllMessages();
+        verify(mMockCi).setCLIR(eq(CommandsInterface.CLIR_SUPPRESSION), any());
     }
 
     @Test
@@ -1429,6 +1452,19 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         // Turn on radio for emergency call.
         mPhoneUT.setRadioPower(true, true, false, true);
         verify(mSST).setRadioPowerForReason(true, true, false, true, Phone.RADIO_POWER_REASON_USER);
+    }
+
+    @Test
+    @SmallTest
+    public void testSetRadioPowerOnForTestEmergencyCall() {
+        mPhoneUT.setRadioPower(false);
+        verify(mSST).setRadioPowerForReason(false, false, false, false,
+                Phone.RADIO_POWER_REASON_USER);
+
+        mPhoneUT.setRadioPowerOnForTestEmergencyCall(false);
+        verify(mSST).clearAllRadioOffReasons();
+        verify(mSST).setRadioPowerForReason(eq(true), eq(false), anyBoolean(), eq(false),
+                eq(Phone.RADIO_POWER_REASON_USER));
     }
 
     @Test
