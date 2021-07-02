@@ -4847,7 +4847,7 @@ public class DcTracker extends Handler {
         String operator = mPhone.getOperatorNumeric();
         //Add default apn setting for ia if no APN is present.
         if (mAllApnSettings.isEmpty()) {
-            mAllApnSettings.add(ApnSetting.makeApnSetting(-1, operator, "DEFAULT IA", "", null,
+            mAllApnSettings.add(ApnSetting.makeApnSetting(0, operator, "DEFAULT IA", "", null,
                     -1, null, null, -1, "", "", 0, ApnSetting.TYPE_IA, ApnSetting.PROTOCOL_IPV4V6,
                     ApnSetting.PROTOCOL_IPV4V6, true, 0, 0, false, 0, 0, 0, 0, -1, "",
                     Telephony.Carriers.MATCH_ALL_APN_SET_ID, TelephonyManager.UNKNOWN_CARRIER_ID,
@@ -4870,11 +4870,8 @@ public class DcTracker extends Handler {
 
         // Add default apn setting for emergency service if it is not present
         if (!isEmergencyApnConfigured) {
-            mAllApnSettings.add(ApnSetting.makeApnSetting(-1, operator, "DEFAULT EIMS", "", null,
-                    -1, null, null, -1, "", "", 0, ApnSetting.TYPE_EMERGENCY,
-                    ApnSetting.PROTOCOL_IPV4V6, ApnSetting.PROTOCOL_IPV4V6, true, 0, 0, false, 0,
-                    0, 0, 0, -1, "", Telephony.Carriers.MATCH_ALL_APN_SET_ID,
-                    TelephonyManager.UNKNOWN_CARRIER_ID, Telephony.Carriers.SKIP_464XLAT_DEFAULT));
+            mAllApnSettings.add(buildDefaultApnSetting(
+                    "DEFAULT EIMS", "sos", ApnSetting.TYPE_EMERGENCY));
             log("default emergency apn is created");
         }
 
