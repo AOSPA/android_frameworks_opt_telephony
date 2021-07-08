@@ -369,6 +369,10 @@ public class EcbmHandler extends Handler {
         return mIsPhoneInEcmState;
     }
 
+    public boolean isInImsEcm() {
+        return mIsEcbmOnIms;
+    }
+
     public void setIsInEcm(boolean isInEcm) {
         TelephonyProperties.in_ecm_mode(isInEcm);
         mIsPhoneInEcmState = isInEcm;

@@ -480,6 +480,7 @@ public class NetworkTypeController extends StateMachine {
             if (DBG) log("DefaultState: process " + getEventName(msg.what));
             switch (msg.what) {
                 case EVENT_UPDATE:
+                case EVENT_PREFERRED_NETWORK_MODE_CHANGED:
                     resetAllTimers();
                     transitionToCurrentState();
                     break;
@@ -538,11 +539,6 @@ public class NetworkTypeController extends StateMachine {
                 case EVENT_RADIO_OFF_OR_UNAVAILABLE:
                     resetAllTimers();
                     transitionTo(mLegacyState);
-                    break;
-                case EVENT_PREFERRED_NETWORK_MODE_CHANGED:
-                    resetAllTimers();
-                    // Don't transition to current state. If anything significant changes,
-                    // a new broadcast will be sent to update the state then.
                     break;
                 default:
                     throw new RuntimeException("Received invalid event: " + msg.what);
@@ -612,15 +608,14 @@ public class NetworkTypeController extends StateMachine {
                     // ignored
                     break;
                 case EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED:
-                    if (!mIsPhysicalChannelConfig16Supported) {
-                        // ignore
-                        break;
+                    if (mIsPhysicalChannelConfig16Supported) {
+                        mPhysicalLinkState = getPhysicalLinkStateFromPhysicalChannelConfig();
+                        if (mIsTimerResetEnabledForLegacyStateRRCIdle && !isPhysicalLinkActive()) {
+                            resetAllTimers();
+                        }
                     }
-                    mPhysicalLinkState = getPhysicalLinkStateFromPhysicalChannelConfig();
-                    if (mIsTimerResetEnabledForLegacyStateRRCIdle && !isPhysicalLinkActive()) {
-                        resetAllTimers();
-                        updateOverrideNetworkType();
-                    }
+                    // Update in case of LTE/LTE+ switch
+                    updateOverrideNetworkType();
                     break;
                 case EVENT_PHYSICAL_LINK_STATE_CHANGED:
                     AsyncResult ar = (AsyncResult) msg.obj;
@@ -685,20 +680,21 @@ public class NetworkTypeController extends StateMachine {
                     // ignore
                     break;
                 case EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED:
-                    if (!mIsPhysicalChannelConfig16Supported) {
-                        // ignore
-                        break;
-                    }
-                    mPhysicalLinkState = getPhysicalLinkStateFromPhysicalChannelConfig();
-                    if (isNrNotRestricted()) {
-                        // NOT_RESTRICTED_RRC_IDLE -> NOT_RESTRICTED_RRC_CON
-                        if (isPhysicalLinkActive()) {
-                            transitionWithTimerTo(mLteConnectedState);
+                    if (mIsPhysicalChannelConfig16Supported) {
+                        mPhysicalLinkState = getPhysicalLinkStateFromPhysicalChannelConfig();
+                        if (isNrNotRestricted()) {
+                            // NOT_RESTRICTED_RRC_IDLE -> NOT_RESTRICTED_RRC_CON
+                            if (isPhysicalLinkActive()) {
+                                transitionWithTimerTo(mLteConnectedState);
+                                break;
+                            }
+                        } else {
+                            log("NR state changed. Sending EVENT_NR_STATE_CHANGED");
+                            sendMessage(EVENT_NR_STATE_CHANGED);
                         }
-                    } else {
-                        log("NR state changed. Sending EVENT_NR_STATE_CHANGED");
-                        sendMessage(EVENT_NR_STATE_CHANGED);
                     }
+                    // Update in case of LTE/LTE+ switch
+                    updateOverrideNetworkType();
                     break;
                 case EVENT_PHYSICAL_LINK_STATE_CHANGED:
                     AsyncResult ar = (AsyncResult) msg.obj;
@@ -768,20 +764,21 @@ public class NetworkTypeController extends StateMachine {
                     // ignore
                     break;
                 case EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED:
-                    if (!mIsPhysicalChannelConfig16Supported) {
-                        // ignore
-                        break;
-                    }
-                    mPhysicalLinkState = getPhysicalLinkStateFromPhysicalChannelConfig();
-                    if (isNrNotRestricted()) {
-                        // NOT_RESTRICTED_RRC_CON -> NOT_RESTRICTED_RRC_IDLE
-                        if (!isPhysicalLinkActive()) {
-                            transitionWithTimerTo(mIdleState);
+                    if (mIsPhysicalChannelConfig16Supported) {
+                        mPhysicalLinkState = getPhysicalLinkStateFromPhysicalChannelConfig();
+                        if (isNrNotRestricted()) {
+                            // NOT_RESTRICTED_RRC_CON -> NOT_RESTRICTED_RRC_IDLE
+                            if (!isPhysicalLinkActive()) {
+                                transitionWithTimerTo(mIdleState);
+                                break;
+                            }
+                        } else {
+                            log("NR state changed. Sending EVENT_NR_STATE_CHANGED");
+                            sendMessage(EVENT_NR_STATE_CHANGED);
                         }
-                    } else {
-                        log("NR state changed. Sending EVENT_NR_STATE_CHANGED");
-                        sendMessage(EVENT_NR_STATE_CHANGED);
                     }
+                    // Update in case of LTE/LTE+ switch
+                    updateOverrideNetworkType();
                     break;
                 case EVENT_PHYSICAL_LINK_STATE_CHANGED:
                     AsyncResult ar = (AsyncResult) msg.obj;

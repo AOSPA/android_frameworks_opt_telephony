@@ -1869,6 +1869,17 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
+     * Check whether the radio is off for thermal reason.
+     *
+     * @return {@code true} only if thermal mitigation is one of the reason for which radio is off.
+     */
+    public boolean isRadioOffForThermalMitigation() {
+        ServiceStateTracker sst = getServiceStateTracker();
+        return sst != null && sst.getRadioPowerOffReasons()
+                .contains(Phone.RADIO_POWER_REASON_THERMAL);
+    }
+
+    /**
      * Retrieves the EmergencyNumberTracker of the phone instance.
      */
     public EmergencyNumberTracker getEmergencyNumberTracker() {
@@ -4659,6 +4670,15 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return null;
     }
 
+    /**
+     * Phone number of the current subscriber given by the IMS implementation.
+     * Applicable only on IMS; used in absence of line1number.
+     * @return phone number from SIP URIs aliased to the current subscriber
+     */
+    public String getSubscriberUriNumber() {
+        return null;
+    }
+
     public AppSmsManager getAppSmsManager() {
         return mAppSmsManager;
     }
@@ -4704,10 +4724,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         boolean isEmergencyCallOnly = false;
         for (Phone phone : PhoneFactory.getPhones()) {
             if (phone != null) {
-                ServiceState ss = phone.getServiceStateTracker().getServiceState();
-                // One of the phone is in service, hence the device is not emergency call only.
-                if (ss.getState() == ServiceState.STATE_IN_SERVICE
-                        || ss.getDataRegistrationState() == ServiceState.STATE_IN_SERVICE) {
+                ServiceStateTracker sst = phone.getServiceStateTracker();
+                ServiceState ss = sst.getServiceState();
+                // Combined reg state is in service, hence the device is not emergency call only.
+                if (sst.getCombinedRegState(ss) == ServiceState.STATE_IN_SERVICE) {
                     return false;
                 }
                 isEmergencyCallOnly |= ss.isEmergencyOnly();
