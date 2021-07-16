@@ -1660,7 +1660,12 @@ public class DcTracker extends Handler {
             if (DBG) log(str.toString());
             apnContext.requestLog(str.toString());
             if (requestType == REQUEST_TYPE_HANDOVER) {
-                sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false, false);
+                // If fails due to latest preference already changed back to source transport, then
+                // just fallback (will not attempt handover anymore, and will not tear down the
+                // data connection on source transport.
+                boolean fallback = dataConnectionReasons.contains(
+                        DataDisallowedReasonType.ON_OTHER_TRANSPORT);
+                sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false, fallback);
             }
             return;
         }
@@ -3742,7 +3747,15 @@ public class DcTracker extends Handler {
             if (mPreferredApn.getOperatorNumeric().equals(operator)) {
                 if (mPreferredApn.canSupportNetworkType(
                         ServiceState.rilRadioTechnologyToNetworkType(radioTech))) {
-                    apnList.add(mPreferredApn);
+                    // Create a new instance of ApnSetting for ENTERPRISE because each
+                    // DataConnection should have its own ApnSetting. ENTERPRISE uses the same
+                    // APN as DEFAULT but is a separate DataConnection
+                    if (ApnSetting.getApnTypesBitmaskFromString(requestedApnType)
+                            == ApnSetting.TYPE_ENTERPRISE) {
+                        apnList.add(ApnSetting.makeApnSetting(mPreferredApn));
+                    } else {
+                        apnList.add(mPreferredApn);
+                    }
                     if (DBG) log("buildWaitingApns: X added preferred apnList=" + apnList);
                     return apnList;
                 } else if (mTransportType == mPhone.getTransportManager()
@@ -3770,7 +3783,15 @@ public class DcTracker extends Handler {
                     if (apn.getApnSetId() == Telephony.Carriers.MATCH_ALL_APN_SET_ID
                             || preferredApnSetId == apn.getApnSetId()) {
                         if (VDBG) log("buildWaitingApns: adding apn=" + apn);
-                        apnList.add(apn);
+                        // Create a new instance of ApnSetting for ENTERPRISE because each
+                        // DataConnection should have its own ApnSetting. ENTERPRISE uses the same
+                        // APN as DEFAULT but is a separate DataConnection
+                        if (ApnSetting.getApnTypesBitmaskFromString(requestedApnType)
+                                == ApnSetting.TYPE_ENTERPRISE) {
+                            apnList.add(ApnSetting.makeApnSetting(apn));
+                        } else {
+                            apnList.add(apn);
+                        }
                     } else {
                         log("buildWaitingApns: APN set id " + apn.getApnSetId()
                                 + " does not match the preferred set id " + preferredApnSetId);

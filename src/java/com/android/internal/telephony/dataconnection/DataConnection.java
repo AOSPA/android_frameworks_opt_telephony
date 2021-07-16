@@ -314,6 +314,10 @@ public class DataConnection extends StateMachine {
     private boolean mUnmeteredOverride;
     private int mRilRat = ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
     private int mDataRegState = Integer.MAX_VALUE;
+    // Indicating data connection is suspended due to temporary reasons, for example, out of
+    // service, concurrency voice/data not supported, etc.. Note this flag is only meaningful when
+    // data is in active state. When data is in inactive, connecting, or disconnecting, this flag
+    // is unmeaningful.
     private boolean mIsSuspended;
     private int mDownlinkBandwidth = 14;
     private int mUplinkBandwidth = 14;
@@ -488,28 +492,6 @@ public class DataConnection extends StateMachine {
 
     LinkProperties getLinkProperties() {
         return new LinkProperties(mLinkProperties);
-    }
-
-    boolean isSuspended() {
-        // Data can only be (temporarily) suspended while data is in active state
-        if (getCurrentState() != mActiveState) return false;
-
-        // never set suspend for emergency apn
-        if (mApnSetting != null && mApnSetting.isEmergencyApn()) {
-            return false;
-        }
-
-        // if we are not in-service change to SUSPENDED
-        if (mDataRegState != ServiceState.STATE_IN_SERVICE) {
-            return true;
-        }
-
-        // check for voice call and concurrency issues
-        if (!mPhone.getServiceStateTracker().isConcurrentVoiceAndDataAllowed()) {
-            return mPhone.getCallTracker().getState() != PhoneConstants.State.IDLE;
-        }
-
-        return false;
     }
 
     boolean isDisconnecting() {
@@ -1437,6 +1419,7 @@ public class DataConnection extends StateMachine {
         } else if (cp.mApnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE
                 && !mDcController.isDefaultDataActive()) {
             if (DBG) log("No default data connection currently active");
+            mCid = response.getId();
             result = SetupResult.ERROR_NO_DEFAULT_CONNECTION;
             result.mFailCause = DataFailCause.NO_DEFAULT_DATA;
         } else {
@@ -2358,8 +2341,8 @@ public class DataConnection extends StateMachine {
                     mRilRat = drsRatPair.second;
                     if (DBG) {
                         log("DcDefaultState: EVENT_DATA_CONNECTION_DRS_OR_RAT_CHANGED"
-                                + " drs=" + mDataRegState
-                                + " mRilRat=" + mRilRat);
+                                + " regState=" + ServiceState.rilServiceStateToString(mDataRegState)
+                                + " RAT=" + ServiceState.rilRadioTechnologyToString(mRilRat));
                     }
                     mDataCallSessionStats.onDrsOrRatChanged(mRilRat);
                     break;
@@ -2442,12 +2425,28 @@ public class DataConnection extends StateMachine {
             Rlog.d(getName(), "Setting suspend state without a NetworkAgent");
         }
 
-        boolean suspended = isSuspended();
-        if (mIsSuspended != suspended) {
-            mIsSuspended = suspended;
+        boolean newSuspendedState = false;
+        // Data can only be (temporarily) suspended while data is in active state
+        if (getCurrentState() == mActiveState) {
+            // Never set suspended for emergency apn. Emergency data connection
+            // can work while device is not in service.
+            if (mApnSetting != null && mApnSetting.isEmergencyApn()) {
+                newSuspendedState = false;
+            // If we are not in service, change to suspended.
+            } else if (mDataRegState != ServiceState.STATE_IN_SERVICE) {
+                newSuspendedState = true;
+            // Check voice/data concurrency.
+            } else if (!mPhone.getServiceStateTracker().isConcurrentVoiceAndDataAllowed()) {
+                newSuspendedState = mPhone.getCallTracker().getState() != PhoneConstants.State.IDLE;
+            }
+        }
+
+        // Only notify when there is a change.
+        if (mIsSuspended != newSuspendedState) {
+            mIsSuspended = newSuspendedState;
 
             // If data connection is active, we need to notify the new data connection state
-            // changed event.
+            // changed event reflecting the latest suspended state.
             if (isActive()) {
                 notifyDataConnectionState();
             }
@@ -2939,6 +2938,11 @@ public class DataConnection extends StateMachine {
 
                 mDisabledApnTypeBitMask |= getDisallowedApnTypes();
                 updateLinkPropertiesHttpProxy();
+                // The suspended state is only meaningful when data is in active state. We need to
+                // make sure the suspended state is correct as soon as we enter active state.
+                // After this, the network agent will be created with the correct suspended state
+                // (i.e. NOT_SUSPENDED capability).
+                updateSuspendState();
                 mNetworkAgent = new DcNetworkAgent(DataConnection.this, mPhone, mScore,
                         configBuilder.build(), provider, mTransportType);
 
@@ -3959,7 +3963,7 @@ public class DataConnection extends StateMachine {
             return TelephonyManager.DATA_CONNECTING;
         } else if (isActive()) {
             // The data connection can only be suspended when it's in active state.
-            if (isSuspended()) {
+            if (mIsSuspended) {
                 return TelephonyManager.DATA_SUSPENDED;
             }
             return TelephonyManager.DATA_CONNECTED;
