@@ -1239,10 +1239,15 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     private boolean prepareForDialing(ImsPhone.ImsDialArgs dialArgs) throws CallStateException {
         boolean holdBeforeDial = false;
+        boolean isEmergencyNumber = dialArgs.isEmergency;
         // note that this triggers call state changed notif
         clearDisconnected();
         if (mImsManager == null) {
             throw new CallStateException("service not available");
+        }
+        // If an emergency call, hang up the ringing call before checking for dial issues
+        if (isEmergencyNumber && mRingingCall != null && mRingingCall.isRinging()) {
+            rejectCall();
         }
         // See if there are any issues which preclude placing a call; throw a CallStateException
         // if there is.
