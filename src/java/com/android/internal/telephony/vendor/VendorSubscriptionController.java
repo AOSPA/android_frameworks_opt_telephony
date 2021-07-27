@@ -57,7 +57,6 @@ public class VendorSubscriptionController extends SubscriptionController {
 
     private static int sNumPhones;
 
-    private static final int EVENT_UICC_APPS_ENABLEMENT_DONE = 101;
     protected static final int EVENT_RADIO_CAPABILITY_AVAILABLE = 102;
 
     private static final int PROVISIONED = 1;
@@ -148,38 +147,6 @@ public class VendorSubscriptionController extends SubscriptionController {
         return retVal;
     }
 
-    @Override
-    public int setUiccApplicationsEnabled(boolean enabled, int subId) {
-        if (DBG) logd("[setUiccApplicationsEnabled]+ enabled:" + enabled + " subId:" + subId);
-
-        enforceModifyPhoneState("setUiccApplicationsEnabled");
-
-        long identity = Binder.clearCallingIdentity();
-        try {
-            ContentValues value = new ContentValues(1);
-            value.put(SubscriptionManager.UICC_APPLICATIONS_ENABLED, enabled);
-
-            int result = mContext.getContentResolver().update(
-                    SubscriptionManager.getUriForSubscriptionId(subId), value, null, null);
-
-            // Refresh the Cache of Active Subscription Info List
-            refreshCachedActiveSubscriptionInfoList();
-
-            notifyUiccAppsEnableChanged();
-            notifySubscriptionInfoChanged();
-
-            if (isActiveSubId(subId)) {
-                Phone phone = PhoneFactory.getPhone(getPhoneId(subId));
-                phone.enableUiccApplications(enabled, Message.obtain(
-                        mSubscriptionHandler, EVENT_UICC_APPS_ENABLEMENT_DONE, enabled));
-            }
-
-            return result;
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
-    }
-
     /*
      * Handler Class
      */
@@ -187,16 +154,6 @@ public class VendorSubscriptionController extends SubscriptionController {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
-                case EVENT_UICC_APPS_ENABLEMENT_DONE: {
-                    logd("EVENT_UICC_APPS_ENABLEMENT_DONE");
-                    AsyncResult ar = (AsyncResult) msg.obj;
-                    if (ar.exception != null) {
-                        logd("Received exception: " + ar.exception);
-                        return;
-                    }
-                    updateUserPreferences();
-                    break;
-                }
                 case EVENT_RADIO_CAPABILITY_AVAILABLE: {
                     logd("EVENT_RADIO_CAPABILITY_AVAILABLE");
                     setRadioCapabilityIfRequired();
