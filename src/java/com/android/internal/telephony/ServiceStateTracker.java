@@ -444,7 +444,6 @@ public class ServiceStateTracker extends Handler {
                 mPhone.notifyServiceStateChanged(mSS);
             }
 
-            mPhone.loadAllowedNetworksFromSubscriptionDatabase();
             boolean restoreSelection = !context.getResources().getBoolean(
                     com.android.internal.R.bool.skip_restoring_network_selection);
             mPhone.sendSubscriptionSettings(restoreSelection);
