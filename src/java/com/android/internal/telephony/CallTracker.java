@@ -239,11 +239,13 @@ public abstract class CallTracker extends Handler {
      */
     protected boolean isPseudoDsdaCall() {
         TelephonyManager telephony = TelephonyManager.from(getPhone().getContext());
-        if (telephony.getActiveModemCount() > PhoneConstants.MAX_PHONE_COUNT_SINGLE_SIM) {
-            for (Phone phone: PhoneFactory.getPhones()) {
-                if (phone.getSubId() != getPhone().getSubId()) {
-                    return phone.getState() == PhoneConstants.State.OFFHOOK;
-                }
+        if (telephony.isConcurrentCallsPossible() ||
+            telephony.getActiveModemCount() <= PhoneConstants.MAX_PHONE_COUNT_SINGLE_SIM) {
+            return false;
+        }
+        for (Phone phone: PhoneFactory.getPhones()) {
+            if (phone.getSubId() != getPhone().getSubId()) {
+                return phone.getState() == PhoneConstants.State.OFFHOOK;
             }
         }
         return false;
