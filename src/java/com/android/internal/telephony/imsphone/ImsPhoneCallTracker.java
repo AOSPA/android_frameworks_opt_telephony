@@ -2966,7 +2966,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             case ImsReasonInfo.CODE_REJECT_ONGOING_HANDOVER:
             case ImsReasonInfo.CODE_REJECT_ONGOING_CALL_UPGRADE:
                 return DisconnectCause.INCOMING_AUTO_REJECTED;
-
+            case ImsReasonInfo.CODE_CONCURRENT_CALLS_NOT_POSSIBLE:
+                return DisconnectCause.CONCURRENT_CALLS_NOT_POSSIBLE;
             default:
         }
 
