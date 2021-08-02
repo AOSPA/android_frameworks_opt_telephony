@@ -58,6 +58,7 @@ import android.net.NetworkPolicyManager;
 import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.AsyncResult;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -68,7 +69,9 @@ import android.provider.Settings;
 import android.provider.Telephony;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
+import android.telephony.Annotation;
 import android.telephony.CarrierConfigManager;
+import android.telephony.DataFailCause;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
@@ -79,6 +82,7 @@ import android.telephony.SubscriptionPlan;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
+import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataProfile;
 import android.telephony.data.DataService;
 import android.telephony.data.TrafficDescriptor;
@@ -813,6 +817,18 @@ public class DcTrackerTest extends TelephonyTest {
         } catch (Exception e) {
             fail(e.toString());
             return false;
+        }
+    }
+
+    private void addHandoverCompleteMsg(Message onCompleteMsg,
+            @Annotation.ApnType int apnType) {
+        try {
+            Method method = DcTracker.class.getDeclaredMethod("addHandoverCompleteMsg",
+                    Message.class, int.class);
+            method.setAccessible(true);
+            method.invoke(mDct, onCompleteMsg, apnType);
+        } catch (Exception e) {
+            fail(e.toString());
         }
     }
 
@@ -2939,5 +2955,51 @@ public class DcTrackerTest extends TelephonyTest {
         for (PreciseDataConnectionState state : captor.getAllValues()) {
             assertEquals(TelephonyManager.DATA_DISCONNECTED, state.getState());
         }
+    }
+
+    /**
+     * There is a corresponding test {@link DataConnectionTest#testDataServiceTempUnavailable()} to
+     * test DataConnection behavior.
+     */
+    @Test
+    public void testDataServiceTempUnavailable() {
+        Handler handler = Mockito.mock(Handler.class);
+        Message handoverCompleteMessage = Message.obtain(handler);
+        addHandoverCompleteMsg(handoverCompleteMessage, ApnSetting.TYPE_IMS);
+        initApns(ApnSetting.TYPE_IMS_STRING, new String[]{ApnSetting.TYPE_IMS_STRING});
+        mDct.sendMessage(mDct.obtainMessage(DctConstants.EVENT_DATA_SETUP_COMPLETE,
+                DcTracker.REQUEST_TYPE_HANDOVER, DataCallResponse.HANDOVER_FAILURE_MODE_UNKNOWN,
+                new AsyncResult(Pair.create(mApnContext, 0),
+                        DataFailCause.SERVICE_TEMPORARILY_UNAVAILABLE, new Exception())));
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        // Ensure handover is not completed yet
+        verify(handler, never()).sendMessageDelayed(any(), anyLong());
+    }
+
+    @Test
+    public void testNormalRequestDoesNotFailHandoverRequest() {
+        Handler handler = Mockito.mock(Handler.class);
+        Message handoverCompleteMessage = Message.obtain(handler);
+        addHandoverCompleteMsg(handoverCompleteMessage, ApnSetting.TYPE_IMS);
+        initApns(ApnSetting.TYPE_IMS_STRING, new String[]{ApnSetting.TYPE_IMS_STRING});
+        mDct.enableApn(ApnSetting.TYPE_IMS, DcTracker.REQUEST_TYPE_NORMAL, null);
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        // Ensure handover is not completed yet
+        verify(handler, never()).sendMessageDelayed(any(), anyLong());
+    }
+
+    @Test
+    public void testPreferenceChangedFallback() {
+        Handler handler = Mockito.mock(Handler.class);
+        doReturn(AccessNetworkConstants.TRANSPORT_TYPE_WLAN).when(mTransportManager)
+                .getPreferredTransport(anyInt());
+        Message handoverCompleteMessage = Message.obtain(handler);
+        addHandoverCompleteMsg(handoverCompleteMessage, ApnSetting.TYPE_IMS);
+        initApns(ApnSetting.TYPE_IMS_STRING, new String[]{ApnSetting.TYPE_IMS_STRING});
+        mDct.enableApn(ApnSetting.TYPE_IMS, DcTracker.REQUEST_TYPE_HANDOVER,
+                handoverCompleteMessage);
+        waitForLastHandlerAction(mDcTrackerTestHandler.getThreadHandler());
+        Bundle bundle = handoverCompleteMessage.getData();
+        assertTrue(bundle.getBoolean("extra_handover_failure_fallback"));
     }
 }

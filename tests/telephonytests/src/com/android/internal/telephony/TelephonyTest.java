@@ -456,7 +456,7 @@ public abstract class TelephonyTest {
         TelephonyManager.disableServiceHandleCaching();
         SubscriptionController.disableCaching();
         // For testing do not allow Log.WTF as it can cause test process to crash
-        Log.setWtfHandler((tagString, what, system) -> logd("WTF captured, ignoring. Tag: "
+        Log.setWtfHandler((tagString, what, system) -> Log.d(TAG, "WTF captured, ignoring. Tag: "
                 + tagString + ", exception: " + what));
 
         mPhones = new Phone[] {mPhone};
@@ -471,6 +471,9 @@ public abstract class TelephonyTest {
                 BlockedNumberContract.AUTHORITY, mFakeBlockedNumberContentProvider);
         mPhone.mCi = mSimulatedCommands;
         mCT.mCi = mSimulatedCommands;
+        mCT.mForegroundCall = new GsmCdmaCall(mCT);
+        mCT.mBackgroundCall = new GsmCdmaCall(mCT);
+        mCT.mRingingCall = new GsmCdmaCall(mCT);
         doReturn(mUiccCard).when(mPhone).getUiccCard();
         doReturn(mUiccProfile).when(mUiccCard).getUiccProfile();
 

@@ -1659,7 +1659,14 @@ public class DcTracker extends Handler {
 
             if (DBG) log(str.toString());
             apnContext.requestLog(str.toString());
-            sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false, false);
+            if (requestType == REQUEST_TYPE_HANDOVER) {
+                // If fails due to latest preference already changed back to source transport, then
+                // just fallback (will not attempt handover anymore, and will not tear down the
+                // data connection on source transport.
+                boolean fallback = dataConnectionReasons.contains(
+                        DataDisallowedReasonType.ON_OTHER_TRANSPORT);
+                sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false, fallback);
+            }
             return;
         }
 
@@ -1694,8 +1701,10 @@ public class DcTracker extends Handler {
                 String str = "trySetupData: X No APN found retValue=false";
                 if (DBG) log(str);
                 apnContext.requestLog(str);
-                sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false,
-                        false);
+                if (requestType == REQUEST_TYPE_HANDOVER) {
+                    sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false,
+                            false);
+                }
                 return;
             } else {
                 apnContext.setWaitingApns(waitingApns);
@@ -1706,7 +1715,8 @@ public class DcTracker extends Handler {
             }
         }
 
-        if (!setupData(apnContext, radioTech, requestType)) {
+        if (!setupData(apnContext, radioTech, requestType)
+                && requestType == REQUEST_TYPE_HANDOVER) {
             sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false, false);
         }
     }
@@ -3116,7 +3126,8 @@ public class DcTracker extends Handler {
             Log.wtf(mLogTag, "bad failure mode: "
                     + DataCallResponse.failureModeToString(handoverFailureMode));
         } else if (handoverFailureMode
-                != DataCallResponse.HANDOVER_FAILURE_MODE_NO_FALLBACK_RETRY_HANDOVER) {
+                != DataCallResponse.HANDOVER_FAILURE_MODE_NO_FALLBACK_RETRY_HANDOVER
+                && cause != DataFailCause.SERVICE_TEMPORARILY_UNAVAILABLE) {
             sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), success,
                     fallbackOnFailedHandover);
         }
@@ -3736,7 +3747,15 @@ public class DcTracker extends Handler {
             if (mPreferredApn.getOperatorNumeric().equals(operator)) {
                 if (mPreferredApn.canSupportNetworkType(
                         ServiceState.rilRadioTechnologyToNetworkType(radioTech))) {
-                    apnList.add(mPreferredApn);
+                    // Create a new instance of ApnSetting for ENTERPRISE because each
+                    // DataConnection should have its own ApnSetting. ENTERPRISE uses the same
+                    // APN as DEFAULT but is a separate DataConnection
+                    if (ApnSetting.getApnTypesBitmaskFromString(requestedApnType)
+                            == ApnSetting.TYPE_ENTERPRISE) {
+                        apnList.add(ApnSetting.makeApnSetting(mPreferredApn));
+                    } else {
+                        apnList.add(mPreferredApn);
+                    }
                     if (DBG) log("buildWaitingApns: X added preferred apnList=" + apnList);
                     return apnList;
                 } else if (mTransportType == mPhone.getTransportManager()
@@ -3764,7 +3783,15 @@ public class DcTracker extends Handler {
                     if (apn.getApnSetId() == Telephony.Carriers.MATCH_ALL_APN_SET_ID
                             || preferredApnSetId == apn.getApnSetId()) {
                         if (VDBG) log("buildWaitingApns: adding apn=" + apn);
-                        apnList.add(apn);
+                        // Create a new instance of ApnSetting for ENTERPRISE because each
+                        // DataConnection should have its own ApnSetting. ENTERPRISE uses the same
+                        // APN as DEFAULT but is a separate DataConnection
+                        if (ApnSetting.getApnTypesBitmaskFromString(requestedApnType)
+                                == ApnSetting.TYPE_ENTERPRISE) {
+                            apnList.add(ApnSetting.makeApnSetting(apn));
+                        } else {
+                            apnList.add(apn);
+                        }
                     } else {
                         log("buildWaitingApns: APN set id " + apn.getApnSetId()
                                 + " does not match the preferred set id " + preferredApnSetId);
@@ -4847,7 +4874,7 @@ public class DcTracker extends Handler {
         String operator = mPhone.getOperatorNumeric();
         //Add default apn setting for ia if no APN is present.
         if (mAllApnSettings.isEmpty()) {
-            mAllApnSettings.add(ApnSetting.makeApnSetting(-1, operator, "DEFAULT IA", "", null,
+            mAllApnSettings.add(ApnSetting.makeApnSetting(0, operator, "DEFAULT IA", "", null,
                     -1, null, null, -1, "", "", 0, ApnSetting.TYPE_IA, ApnSetting.PROTOCOL_IPV4V6,
                     ApnSetting.PROTOCOL_IPV4V6, true, 0, 0, false, 0, 0, 0, 0, -1, "",
                     Telephony.Carriers.MATCH_ALL_APN_SET_ID, TelephonyManager.UNKNOWN_CARRIER_ID,
@@ -4870,11 +4897,8 @@ public class DcTracker extends Handler {
 
         // Add default apn setting for emergency service if it is not present
         if (!isEmergencyApnConfigured) {
-            mAllApnSettings.add(ApnSetting.makeApnSetting(-1, operator, "DEFAULT EIMS", "", null,
-                    -1, null, null, -1, "", "", 0, ApnSetting.TYPE_EMERGENCY,
-                    ApnSetting.PROTOCOL_IPV4V6, ApnSetting.PROTOCOL_IPV4V6, true, 0, 0, false, 0,
-                    0, 0, 0, -1, "", Telephony.Carriers.MATCH_ALL_APN_SET_ID,
-                    TelephonyManager.UNKNOWN_CARRIER_ID, Telephony.Carriers.SKIP_464XLAT_DEFAULT));
+            mAllApnSettings.add(buildDefaultApnSetting(
+                    "DEFAULT EIMS", "sos", ApnSetting.TYPE_EMERGENCY));
             log("default emergency apn is created");
         }
 

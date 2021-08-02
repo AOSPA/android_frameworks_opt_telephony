@@ -91,7 +91,7 @@ public class DcNetworkAgent extends NetworkAgent {
 
     public final DcKeepaliveTracker keepaliveTracker = new DcKeepaliveTracker();
 
-    private final QosCallbackTracker mQosCallbackTracker = new QosCallbackTracker(this);
+    private final QosCallbackTracker mQosCallbackTracker;
 
     private final Executor mQosCallbackExecutor = Executors.newSingleThreadExecutor();
 
@@ -139,6 +139,7 @@ public class DcNetworkAgent extends NetworkAgent {
         mInternalHandler = new InternalHandler(dc.getHandler().getLooper());
         mPhoneSwitcher.registerForActivePhoneSwitch(mInternalHandler, EVENT_ACTIVE_PHONE_SWITCH,
                 null);
+        mQosCallbackTracker = new QosCallbackTracker(this);
     }
 
     private class InternalHandler extends Handler {
