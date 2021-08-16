@@ -3187,7 +3187,9 @@ public class ServiceStateTracker extends Handler {
             log(tmpLog);
             mRadioPowerLog.log(tmpLog);
         }
-
+        boolean imsDeregDelay = mPhone.getContext().getResources().getBoolean(
+                com.android.internal.R.bool.
+                config_wait_for_ims_deregistration_before_radio_poweroff);
         // If we want it on and it's off, turn it on
         if (mDesiredPowerState && !mRadioDisabledByCarrier
                 && (forceApply || mCi.getRadioState() == TelephonyManager.RADIO_POWER_OFF)) {
@@ -3195,7 +3197,7 @@ public class ServiceStateTracker extends Handler {
         } else if ((!mDesiredPowerState || mRadioDisabledByCarrier) && mCi.getRadioState()
                 == TelephonyManager.RADIO_POWER_ON) {
             // If it's on and available and we want it off gracefully
-            if (mImsRegistrationOnOff) {
+            if (mImsRegistrationOnOff && imsDeregDelay) {
                 if (DBG) log("setPowerStateToDesired: delaying power off until IMS dereg.");
                 startDelayRadioOffWaitingForImsDeregTimeout();
                 // Return early here as we do not want to hit the cancel timeout code below.
