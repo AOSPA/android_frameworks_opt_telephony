@@ -4763,6 +4763,21 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
+     * Enable or disable Voice over NR (VoNR)
+     * @param enabled enable or disable VoNR.
+     **/
+    public void setVoNrEnabled(boolean enabled, Message result, WorkSource workSource) {
+        mCi.setVoNrEnabled(enabled, result, workSource);
+    }
+
+    /**
+     * Is voice over NR enabled
+     */
+    public void isVoNrEnabled(Message message, WorkSource workSource) {
+        mCi.isVoNrEnabled(message, workSource);
+    }
+
+    /**
      * Check if the device can only make the emergency call. The device is emergency call only if
      * none of the phone is in service, and one of them has the capability to make the emergency
      * call.
