@@ -1758,7 +1758,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
 
             // Override RTT mode as per operator requirements not supported by AOSP
-            if (isStartRttCall && canMakeRttCall(profile)) {
+            if (isStartRttCall && canMakeRttCall(profile, isEmergencyCall)) {
                 int mode = QtiImsUtils.getRttOperatingMode(
                         mPhone.getPhoneId(), mPhone.getContext());
                 if (DBG) log("dialInternal: set RTT operation mode: " + mode);
@@ -5416,9 +5416,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
      * RTT call is allowed if RTT is supported by carrier and RTT setting is ON
      * and call is not a video call or RTT is supported for video calls.
      * If device is roaming, either carrier should allow RTT while roaming
-     * or device needs to be registered on WIFI.
+     * or device needs to be registered on WIFI or it should be an emergency call.
      */
-    private boolean canMakeRttCall(ImsCallProfile profile) {
+    private boolean canMakeRttCall(ImsCallProfile profile, boolean isEmergency) {
         if (!isRttSupported() || !isRttOn()) {
             return false;
         }
@@ -5429,7 +5429,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         if (!mPhone.getDefaultPhone().getServiceState().getRoaming()
                 || mAllowRttWhileRoaming
                 || (mPhone.getImsRegistrationTech()
-                == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN)) {
+                == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN)
+                || isEmergency) {
             return true;
         }
         return false;
