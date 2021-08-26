@@ -2814,6 +2814,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
             case ImsReasonInfo.CODE_LOCAL_CALL_DECLINE:
             case ImsReasonInfo.CODE_REMOTE_CALL_DECLINE:
+            case ImsReasonInfo.CODE_REJECTED_ELSEWHERE:
                 // If the call has been declined locally (on this device), or on remotely (on
                 // another device using multiendpoint functionality), mark it as rejected.
                 return DisconnectCause.INCOMING_REJECTED;
@@ -2965,7 +2966,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             case ImsReasonInfo.CODE_REJECT_ONGOING_HANDOVER:
             case ImsReasonInfo.CODE_REJECT_ONGOING_CALL_UPGRADE:
                 return DisconnectCause.INCOMING_AUTO_REJECTED;
-
+            case ImsReasonInfo.CODE_CONCURRENT_CALLS_NOT_POSSIBLE:
+                return DisconnectCause.CONCURRENT_CALLS_NOT_POSSIBLE;
             default:
         }
 

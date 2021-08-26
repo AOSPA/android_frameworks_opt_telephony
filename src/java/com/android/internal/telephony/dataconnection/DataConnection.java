@@ -1057,6 +1057,8 @@ public class DataConnection extends StateMachine {
         }
 
         if (srcDc == null) {
+            loge("requestHandover: Cannot find source data connection.");
+            onRquestHandoverFailed(cp);
             return;
         }
 
@@ -1068,8 +1070,7 @@ public class DataConnection extends StateMachine {
         mHandoverSourceNetworkAgent = srcDc.getNetworkAgent();
         if (mHandoverSourceNetworkAgent == null) {
             loge("requestHandover: Cannot get network agent from the source dc " + srcDc.getName());
-            notifyConnectCompleted(cp, DataFailCause.UNKNOWN,
-                    DataCallResponse.HANDOVER_FAILURE_MODE_UNKNOWN, false);
+            onRquestHandoverFailed(cp);
             return;
         }
 
@@ -1109,7 +1110,8 @@ public class DataConnection extends StateMachine {
     /**
      * Called on the source data connection from the target data connection.
      */
-    private void startHandover(Consumer<Integer> onTargetDcComplete) {
+    @VisibleForTesting
+    public void startHandover(Consumer<Integer> onTargetDcComplete) {
         logd("startHandover: " + toStringSimple());
         // Set the handover state to being transferred on "this" data connection which is the src.
         setHandoverState(HANDOVER_STATE_BEING_TRANSFERRED);
@@ -2938,11 +2940,6 @@ public class DataConnection extends StateMachine {
 
                 mDisabledApnTypeBitMask |= getDisallowedApnTypes();
                 updateLinkPropertiesHttpProxy();
-                // The suspended state is only meaningful when data is in active state. We need to
-                // make sure the suspended state is correct as soon as we enter active state.
-                // After this, the network agent will be created with the correct suspended state
-                // (i.e. NOT_SUSPENDED capability).
-                updateSuspendState();
                 mNetworkAgent = new DcNetworkAgent(DataConnection.this, mPhone, mScore,
                         configBuilder.build(), provider, mTransportType);
 

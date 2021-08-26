@@ -398,18 +398,21 @@ public class UiccProfile extends IccCard {
     }
 
     private void setCurrentAppType(boolean isGsm) {
+        int primaryAppType;
+        int secondaryAppType;
+        if (isGsm) {
+            primaryAppType = UiccController.APP_FAM_3GPP;
+            secondaryAppType = UiccController.APP_FAM_3GPP2;
+        } else {
+            primaryAppType = UiccController.APP_FAM_3GPP2;
+            secondaryAppType = UiccController.APP_FAM_3GPP;
+        }
         synchronized (mLock) {
-            if (isGsm) {
-                mCurrentAppType = UiccController.APP_FAM_3GPP;
+            UiccCardApplication newApp = getApplication(primaryAppType);
+            if (newApp != null || getApplication(secondaryAppType) == null) {
+                mCurrentAppType = primaryAppType;
             } else {
-                //if CSIM application is not present, set current app to default app i.e 3GPP
-                UiccCardApplication newApp = null;
-                newApp = getApplication(UiccController.APP_FAM_3GPP2);
-                if (newApp != null || getApplication(UiccController.APP_FAM_3GPP) == null) {
-                    mCurrentAppType = UiccController.APP_FAM_3GPP2;
-                } else {
-                    mCurrentAppType = UiccController.APP_FAM_3GPP;
-                }
+                mCurrentAppType = secondaryAppType;
             }
         }
         log("setCurrentAppType to be " + mCurrentAppType);
@@ -527,6 +530,9 @@ public class UiccProfile extends IccCard {
         }
     }
 
+    /**
+     * ICC availability/state changed. Update corresponding fields and external state if needed.
+     */
     private void updateIccAvailability(boolean allAppsChanged) {
         synchronized (mLock) {
             UiccCardApplication newApp;
@@ -631,7 +637,7 @@ public class UiccProfile extends IccCard {
                 // If the PIN code is required and an available cached PIN is available, intercept
                 // the update of external state and perform an internal PIN verification.
                 if (lockedState == IccCardConstants.State.PIN_REQUIRED) {
-                    String pin = mPinStorage.getPin(mPhoneId);
+                    String pin = mPinStorage.getPin(mPhoneId, mIccRecords.getFullIccId());
                     if (!pin.isEmpty()) {
                         log("PIN_REQUIRED[" + mPhoneId + "] - Cache present");
                         mCi.supplyIccPin(pin, mHandler.obtainMessage(EVENT_SUPPLY_ICC_PIN_DONE));

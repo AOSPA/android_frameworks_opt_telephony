@@ -419,13 +419,8 @@ public class SubscriptionInfoUpdater extends Handler {
         UiccSlot uiccSlot = UiccController.getInstance().getUiccSlotForPhone(phoneId);
         String iccId = (uiccSlot != null) ? IccUtils.stripTrailingFs(uiccSlot.getIccId()) : null;
         if (!TextUtils.isEmpty(iccId)) {
-            // Call updateSubscriptionInfoByIccId() only if was
-            // not done earlier from SIM Locked event
-            if (sIccId[phoneId] == null) {
-                sIccId[phoneId] = iccId;
-
-                updateSubscriptionInfoByIccId(phoneId, true /* updateEmbeddedSubs */);
-            }
+            sIccId[phoneId] = iccId;
+            updateSubscriptionInfoByIccId(phoneId, true /* updateEmbeddedSubs */);
         }
 
         cardIds.add(getCardIdFromPhoneId(phoneId));
@@ -457,10 +452,10 @@ public class SubscriptionInfoUpdater extends Handler {
             // At this phase, the subscription list is accessible. Treating NOT_READY
             // as equivalent to ABSENT, once the rest of the system can handle it.
             sIccId[phoneId] = ICCID_STRING_FOR_NO_SIM;
+            updateSubscriptionInfoByIccId(phoneId, false /* updateEmbeddedSubs */);
         } else {
             sIccId[phoneId] = null;
         }
-        updateSubscriptionInfoByIccId(phoneId, false /* updateEmbeddedSubs */);
 
         broadcastSimStateChanged(phoneId, IccCardConstants.INTENT_VALUE_ICC_NOT_READY,
                 null);
@@ -792,8 +787,8 @@ public class SubscriptionInfoUpdater extends Handler {
             if (DBG) logd("SubInfo Initialized");
             sIsSubInfoInitialized = true;
             mSubscriptionController.notifySubInfoReady();
-            MultiSimSettingController.getInstance().notifyAllSubscriptionLoaded();
         }
+        MultiSimSettingController.getInstance().notifyAllSubscriptionLoaded();
     }
 
     /**

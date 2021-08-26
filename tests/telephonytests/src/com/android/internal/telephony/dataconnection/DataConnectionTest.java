@@ -30,6 +30,7 @@ import static com.android.internal.telephony.dataconnection.DcTrackerTest.FAKE_P
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Matchers.argThat;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyBoolean;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -46,6 +48,7 @@ import android.net.KeepalivePacketData;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.NattKeepalivePacketData;
+import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.AsyncResult;
 import android.os.Handler;
@@ -87,6 +90,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.function.Consumer;
 
 public class DataConnectionTest extends TelephonyTest {
     private static final int DEFAULT_DC_CID = 10;
@@ -1321,6 +1325,29 @@ public class DataConnectionTest extends TelephonyTest {
     }
 
     @Test
+    public void testDataCreatedWhenOutOfService() throws Exception {
+        serviceStateChangedEvent(ServiceState.STATE_OUT_OF_SERVICE,
+                ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN);
+        ArgumentCaptor<NetworkCapabilities> ncCaptor =
+                ArgumentCaptor.forClass(NetworkCapabilities.class);
+        doReturn(mock(Network.class)).when(mConnectivityManager).registerNetworkAgent(
+                any(), any(), any(), ncCaptor.capture(), any(), any(), anyInt());
+
+        doReturn(mApn1).when(mApnContext).getApnSetting();
+        doReturn(ApnSetting.TYPE_DEFAULT).when(mApnContext).getApnTypeBitmask();
+        doReturn(true).when(mSST).isConcurrentVoiceAndDataAllowed();
+        connectEvent(true);
+        waitForMs(100);
+
+        NetworkCapabilities nc = ncCaptor.getValue();
+        // The network must be created with NOT_SUSPENDED capability.
+        assertTrue(nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED));
+
+        // But it's final state must be suspended.
+        assertTrue(isSuspended());
+    }
+
+    @Test
     public void testDataServiceTempUnavailable() throws Exception {
         setFailedSetupDataResponse(DataServiceCallback.RESULT_ERROR_TEMPORARILY_UNAVAILABLE);
         replaceInstance(ConnectionParams.class, "mRequestType", mCp,
@@ -1333,5 +1360,24 @@ public class DataConnectionTest extends TelephonyTest {
         // retry timer).
         verify(mDataThrottler).setRetryTime(eq(ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_SUPL),
                 eq(RetryManager.NO_SUGGESTED_RETRY_DELAY), eq(DcTracker.REQUEST_TYPE_NORMAL));
+    }
+
+    @Test
+    public void testDataHandoverFailed() throws Exception {
+        doReturn(mDefaultDc).when(mDcTracker).getDataConnectionByApnType(anyString());
+
+        doAnswer(invocation -> {
+            final Consumer<Integer> consumer = (Consumer<Integer>) invocation.getArguments()[0];
+            consumer.accept(DataServiceCallback.RESULT_SUCCESS);
+            return null;
+        }).when(mDefaultDc).startHandover(any(Consumer.class));
+
+        replaceInstance(ConnectionParams.class, "mRequestType", mCp,
+                DcTracker.REQUEST_TYPE_HANDOVER);
+        assertTrue(mDc.isInactive());
+        connectEvent(false);
+
+        // Make sure the data connection is still in inactive state
+        assertTrue(mDc.isInactive());
     }
 }
