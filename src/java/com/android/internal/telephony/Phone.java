@@ -206,8 +206,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     // Single Radio Voice Call Continuity
     @VisibleForTesting
     protected static final int EVENT_SRVCC_STATE_CHANGED             = 31;
-    @VisibleForTesting
-    public static final int EVENT_INITIATE_SILENT_REDIAL           = 32;
+    private static final int EVENT_INITIATE_SILENT_REDIAL           = 32;
     private static final int EVENT_RADIO_NOT_AVAILABLE              = 33;
     private static final int EVENT_UNSOL_OEM_HOOK_RAW               = 34;
     protected static final int EVENT_GET_RADIO_CAPABILITY           = 35;
@@ -363,11 +362,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     private static final boolean LCE_PULL_MODE = true;
     private int mLceStatus = RILConstants.LCE_NOT_AVAILABLE;
     protected TelephonyComponentFactory mTelephonyComponentFactory;
-    /**
-     * Should ALWAYS be {@code true} in production code.  This is used only used in tests so that we
-     * can disable the read checks which interfer with unit testing.
-     */
-    private boolean mAreThreadChecksEnabled = true;
     protected EcbmHandler mEcbmHandler;
 
     //IMS
@@ -753,7 +747,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                 break;
 
             case EVENT_INITIATE_SILENT_REDIAL:
-                Rlog.i(LOG_TAG, "Event EVENT_INITIATE_SILENT_REDIAL Received");
+                // This is an ImsPhone -> GsmCdmaPhone redial
+                // See ImsPhone#initiateSilentRedial
+                Rlog.d(LOG_TAG, "Event EVENT_INITIATE_SILENT_REDIAL Received");
                 ar = (AsyncResult) msg.obj;
                 if ((ar.exception == null) && (ar.result != null)) {
                     SilentRedialParam result = (SilentRedialParam) ar.result;
@@ -763,12 +759,20 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                     if (TextUtils.isEmpty(dialString)) return;
                     try {
                         Connection cn = dialInternal(dialString, dialArgs);
-                        Rlog.i(LOG_TAG, "Notify redial connection changed cn: " + cn);
-                        notifyRedialConnectionChanged(cn);
+                        // The ImsPhoneConnection that is owned by the ImsPhone is currently the
+                        // one with a callback registered to TelephonyConnection. Notify the
+                        // redial happened over that Phone so that it can be replaced with the
+                        // new GSM/CDMA Connection.
+                        Rlog.d(LOG_TAG, "Notify redial connection changed cn: " + cn);
+                        if (mImsPhone != null) {
+                            // Don't care it is null or not.
+                            mImsPhone.notifyRedialConnectionChanged(cn);
+                        }
                     } catch (CallStateException e) {
-                        Rlog.e(LOG_TAG, "Notify redial connection changed - silent redial failed: "
-                                + e);
-                        notifyRedialConnectionChanged(null);
+                        Rlog.e(LOG_TAG, "silent redial failed: " + e);
+                        if (mImsPhone != null) {
+                            mImsPhone.notifyRedialConnectionChanged(null);
+                        }
                     }
                 }
                 break;
@@ -1785,9 +1789,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * the thread that originally obtained this Phone instance.
      */
     private void checkCorrectThread(Handler h) {
-        if (!mAreThreadChecksEnabled) {
-            return;
-        }
         if (h.getLooper() != mLooper) {
             throw new RuntimeException(
                     "com.android.internal.telephony.Phone must be used from within one thread");
@@ -2359,7 +2360,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * Loads the allowed network type from subscription database.
      */
     public void loadAllowedNetworksFromSubscriptionDatabase() {
-        mIsAllowedNetworkTypesLoadedFromDb = false;
         // Try to load ALLOWED_NETWORK_TYPES from SIMINFO.
         if (SubscriptionController.getInstance() == null) {
             return;
@@ -2368,6 +2368,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         String result = SubscriptionController.getInstance().getSubscriptionProperty(
                 getSubId(),
                 SubscriptionManager.ALLOWED_NETWORK_TYPES);
+        // After fw load network type from DB, do unlock if subId is valid.
+        mIsAllowedNetworkTypesLoadedFromDb = SubscriptionManager.isValidSubscriptionId(getSubId());
         if (result == null) {
             return;
         }
@@ -2399,7 +2401,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                     }
                 }
             }
-            mIsAllowedNetworkTypesLoadedFromDb = true;
         } catch (NumberFormatException e) {
             Rlog.e(LOG_TAG, "allowedNetworkTypes NumberFormat exception" + e);
         }
@@ -2470,12 +2471,18 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         int subId = getSubId();
         if (!TelephonyManager.isValidAllowedNetworkTypesReason(reason)) {
             loge("setAllowedNetworkTypes: Invalid allowed network type reason: " + reason);
+            AsyncResult.forMessage(response, null,
+                    new CommandException(CommandException.Error.INVALID_ARGUMENTS));
+            response.sendToTarget();
             return;
         }
         if (!SubscriptionManager.isUsableSubscriptionId(subId)
                 || !mIsAllowedNetworkTypesLoadedFromDb) {
             loge("setAllowedNetworkTypes: no sim or network type is not loaded. SubscriptionId: "
                     + subId + ", isNetworkTypeLoaded" + mIsAllowedNetworkTypesLoadedFromDb);
+            AsyncResult.forMessage(response, null,
+                    new CommandException(CommandException.Error.MISSING_RESOURCE));
+            response.sendToTarget();
             return;
         }
         String mapAsString = "";
@@ -5111,12 +5118,15 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     * Used in unit tests to disable the thread checks.  Should not be used otherwise.
-     * @param enabled {@code true} if thread checks are enabled, {@code false} otherwise.
+     * Used in unit tests to set whether the AllowedNetworkTypes is loaded from Db.  Should not
+     * be used otherwise.
+     *
+     * @return {@code true} if the AllowedNetworkTypes is loaded from Db,
+     * {@code false} otherwise.
      */
     @VisibleForTesting
-    public void setAreThreadChecksEnabled(boolean enabled) {
-        mAreThreadChecksEnabled = enabled;
+    public boolean isAllowedNetworkTypesLoadedFromDb() {
+        return mIsAllowedNetworkTypesLoadedFromDb;
     }
 
     public boolean isEmergencyNumber(String address) {
