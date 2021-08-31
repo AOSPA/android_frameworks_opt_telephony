@@ -42,7 +42,6 @@ import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
 import android.telephony.data.NrQosSessionAttributes;
 import android.telephony.data.QosBearerSession;
-import android.util.ArrayMap;
 import android.util.LocalLog;
 import android.util.SparseArray;
 
@@ -64,6 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -104,7 +104,7 @@ public class DcNetworkAgent extends NetworkAgent {
     private int mScore;
 
     // For interface duplicate detection. Key is the net id, value is the interface name in string.
-    private static Map<Integer, String> sInterfaceNames = new ArrayMap<>();
+    private static Map<Integer, String> sInterfaceNames = new ConcurrentHashMap<>();
 
     private final long NETWORK_LINGER_TIME_NON_DDS = 2000;      // In milliseconds
     private final int TEARDOWN_DELAY_TIMEOUT_NON_DDS = 3000;    // In milliseconds
