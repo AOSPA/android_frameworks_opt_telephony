@@ -2901,6 +2901,37 @@ public class DcTracker extends Handler {
             setupDataOnAllConnectableApns(Phone.REASON_SINGLE_PDN_ARBITRATION,
                     RetryFailures.ALWAYS);
         }
+
+        String apnString = ApnSetting.getApnTypeString(apnType);
+        ApnSetting setting = getActiveApnSetting(apnString);
+        if (setting == null) {
+            log("Apn setting is null");
+            return;
+        }
+
+        boolean allRequestsReleased = true;
+        boolean isApnTypeInternet = false;
+
+        for (int mApnType : setting.getApnTypes()) {
+            if (ApnSetting.TYPE_DEFAULT == mApnType) {
+                isApnTypeInternet = true;
+            }
+            if (mApnType != apnType) {
+                ApnContext mApnContext = mApnContextsByType.get(mApnType);
+                if (mApnContext != null && mApnContext.getNetworkRequests().size() > 0) {
+                    log("disableApn: Pending NetworkRequests on this ApnContext");
+                    allRequestsReleased = false;
+                }
+            }
+        }
+
+        if (allRequestsReleased && isApnTypeInternet) {
+            DataConnection dc = apnContext.getDataConnection();
+            if (dc != null && dc.getNetworkAgent() != null) {
+                if (DBG) log("unregister NetworkAgent");
+                dc.getNetworkAgent().unregister();
+            }
+        }
     }
 
     /**
