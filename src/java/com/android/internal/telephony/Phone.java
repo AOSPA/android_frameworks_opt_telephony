@@ -4446,13 +4446,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         }
     }
 
-    protected void setPreferredNetworkTypeIfSimLoaded() {
-        int subId = getSubId();
-        if (SubscriptionManager.from(mContext).isActiveSubId(subId)) {
-            updateAllowedNetworkTypes(null);
-        }
-    }
-
     /**
      * Registers the handler when phone radio  capability is changed.
      *
