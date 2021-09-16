@@ -2638,6 +2638,16 @@ public class DcTracker extends Handler {
         }
     }
 
+    private void onTrafficDescriptorsUpdated() {
+        for (ApnContext apnContext : mPrioritySortedApnContexts) {
+            if (apnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE
+                    && apnContext.getApnSetting().getPermanentFailed()) {
+                setupDataOnConnectableApn(
+                        apnContext, Phone.REASON_TRAFFIC_DESCRIPTORS_UPDATED, RetryFailures.ALWAYS);
+            }
+        }
+    }
+
     private DataConnection checkForCompatibleDataConnection(ApnContext apnContext,
             ApnSetting nextApn) {
         int apnType = apnContext.getApnTypeBitmask();
@@ -4357,6 +4367,9 @@ public class DcTracker extends Handler {
                 ar = (AsyncResult) msg.obj;
                 String apn = (String) ar.result;
                 onApnUnthrottled(apn);
+                break;
+            case DctConstants.EVENT_TRAFFIC_DESCRIPTORS_UPDATED:
+                onTrafficDescriptorsUpdated();
                 break;
             default:
                 Rlog.e("DcTracker", "Unhandled event=" + msg);
