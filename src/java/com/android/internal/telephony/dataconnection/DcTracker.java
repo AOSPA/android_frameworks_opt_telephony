@@ -1908,8 +1908,13 @@ public class DcTracker extends Handler {
         sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false, false);
 
         // Make sure reconnection alarm is cleaned up if there is no ApnContext
-        // associated to the connection.
-        if (dataConnection != null) {
+        // associated to the connection.The only exception is if APN is throttled.
+        boolean isApnThrottled = false;
+        long retryTime = mDataThrottler.getRetryTime(apnContext.getApnTypeBitmask());
+        if (retryTime > SystemClock.elapsedRealtime()) {
+            isApnThrottled = true;
+        }
+        if (dataConnection != null && !isApnThrottled) {
             cancelReconnect(apnContext);
         }
         str = "cleanUpConnectionInternal: X detach=" + detach + " reason="
@@ -3410,11 +3415,18 @@ public class DcTracker extends Handler {
             // This also helps in any external dependency to turn off the context.
             if (DBG) log("onDisconnectDone: attached, ready and retry after disconnect");
 
+            long remainingRetryTime = 0;
+            long retryTime = mDataThrottler.getRetryTime(apnContext.getApnTypeBitmask());
+            if (retryTime > SystemClock.elapsedRealtime()) {
+                remainingRetryTime = retryTime - SystemClock.elapsedRealtime();
+            }
             // See if there are still handover request pending that we need to retry handover
             // after previous data gets disconnected.
             if (isHandoverPending(apnContext.getApnTypeBitmask())) {
                 if (DBG) log("Handover request pending. Retry handover immediately.");
                 startReconnect(0, apnContext, REQUEST_TYPE_HANDOVER);
+            } else if (remainingRetryTime > 0) {
+                startReconnect(remainingRetryTime, apnContext, REQUEST_TYPE_NORMAL);
             } else {
                 long delay = apnContext.getRetryAfterDisconnectDelay();
                 if (delay > 0) {
