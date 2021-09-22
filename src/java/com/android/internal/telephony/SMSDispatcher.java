@@ -138,8 +138,8 @@ public abstract class SMSDispatcher extends Handler {
     /** Confirmation required for third-party apps sending to an SMS short code. */
     private static final int EVENT_CONFIRM_SEND_TO_PREMIUM_SHORT_CODE = 9;
 
-    /** Handle status report from {@code CdmaInboundSmsHandler}. */
-    protected static final int EVENT_HANDLE_STATUS_REPORT = 10;
+    /** New status report received. */
+    protected static final int EVENT_NEW_SMS_STATUS_REPORT = 10;
 
     // other
     protected static final int EVENT_NEW_ICC_SMS = 14;
@@ -161,7 +161,8 @@ public abstract class SMSDispatcher extends Handler {
     /** Maximum number of times to retry sending a failed SMS. */
     protected static final int MAX_SEND_RETRIES = 3;
     /** Delay before next send attempt on a failed SMS, in milliseconds. */
-    protected static final int SEND_RETRY_DELAY = 2000;
+    @VisibleForTesting
+    public static final int SEND_RETRY_DELAY = 2000;
     /** Message sending queue limit */
     private static final int MO_MSG_QUEUE_LIMIT = 5;
     /** SMS anomaly uuid -- CarrierMessagingService did not respond */
@@ -263,9 +264,11 @@ public abstract class SMSDispatcher extends Handler {
     protected abstract String getFormat();
 
     /**
-     * Pass the Message object to subclass to handle. Currently used to pass CDMA status reports
-     * from {@link com.android.internal.telephony.cdma.CdmaInboundSmsHandler}.
-     * @param o the SmsMessage containing the status report
+     * Called when a status report is received. This should correspond to a previously successful
+     * SEND.
+     *
+     * @param o AsyncResult object including a byte array for 3GPP status report PDU or SmsMessage
+     *          object for 3GPP2 status report.
      */
     protected void handleStatusReport(Object o) {
         Rlog.d(TAG, "handleStatusReport() called with no subclass.");
@@ -349,7 +352,7 @@ public abstract class SMSDispatcher extends Handler {
             break;
         }
 
-        case EVENT_HANDLE_STATUS_REPORT:
+        case EVENT_NEW_SMS_STATUS_REPORT:
             handleStatusReport(msg.obj);
             break;
 

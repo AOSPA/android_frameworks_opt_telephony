@@ -197,7 +197,7 @@ public class UiccController extends Handler {
     private final PinStorage mPinStorage;
 
     // LocalLog buffer to hold important SIM related events for debugging
-    private static LocalLog sLocalLog = new LocalLog(TelephonyUtils.IS_DEBUGGABLE ? 250 : 100);
+    private static LocalLog sLocalLog = new LocalLog(TelephonyUtils.IS_DEBUGGABLE ? 256 : 64);
 
     /**
      * API to make UiccController singleton if not already created.
@@ -520,6 +520,7 @@ public class UiccController extends Handler {
                     break;
                 case EVENT_RADIO_UNAVAILABLE:
                     if (DBG) log("EVENT_RADIO_UNAVAILABLE, dispose card");
+                    sLastSlotStatus = null;
                     UiccSlot uiccSlot = getUiccSlotForPhone(phoneId);
                     if (uiccSlot != null) {
                         uiccSlot.onRadioStateUnavailable();
@@ -1103,12 +1104,16 @@ public class UiccController extends Handler {
                 options.toBundle());
     }
 
-    private boolean slotStatusChanged(ArrayList<IccSlotStatus> slotStatusList) {
+    /**
+     * Check if slot status has changed from the last received one
+     */
+    @VisibleForTesting
+    public boolean slotStatusChanged(ArrayList<IccSlotStatus> slotStatusList) {
         if (sLastSlotStatus == null || sLastSlotStatus.size() != slotStatusList.size()) {
             return true;
         }
-        for (IccSlotStatus iccSlotStatus : slotStatusList) {
-            if (!sLastSlotStatus.contains(iccSlotStatus)) {
+        for (int i = 0; i < slotStatusList.size(); i++) {
+            if (!sLastSlotStatus.get(i).equals(slotStatusList.get(i))) {
                 return true;
             }
         }

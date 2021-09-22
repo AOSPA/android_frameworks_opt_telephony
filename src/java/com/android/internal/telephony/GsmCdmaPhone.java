@@ -44,6 +44,7 @@ import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.PowerManager;
@@ -258,6 +259,7 @@ public class GsmCdmaPhone extends Phone {
     private final SettingsObserver mSettingsObserver;
 
     private final ImsManagerFactory mImsManagerFactory;
+    private final CarrierPrivilegesTracker mCarrierPrivilegesTracker;
 
     // Constructors
 
@@ -322,6 +324,7 @@ public class GsmCdmaPhone extends Phone {
 
         mCarrierResolver = mTelephonyComponentFactory.inject(CarrierResolver.class.getName())
                 .makeCarrierResolver(this);
+        mCarrierPrivilegesTracker = new CarrierPrivilegesTracker(Looper.myLooper(), this, context);
 
         getCarrierActionAgent().registerForCarrierAction(
                 CarrierActionAgent.CARRIER_ACTION_SET_METERED_APNS_ENABLED, this,
@@ -1047,6 +1050,11 @@ public class GsmCdmaPhone extends Phone {
             return mCT.getRingingHandoverConnection().getCall();
         }
         return mCT.mRingingCall;
+    }
+
+    @Override
+    public CarrierPrivilegesTracker getCarrierPrivilegesTracker() {
+        return mCarrierPrivilegesTracker;
     }
 
     /**
@@ -3032,26 +3040,6 @@ public class GsmCdmaPhone extends Phone {
                             length <= MAX_VERSION_LEN ? version
                                 : version.substring(length - MAX_VERSION_LEN, length));
                 }
-            break;
-
-            case EVENT_GET_IMEI_DONE:
-                ar = (AsyncResult)msg.obj;
-
-                if (ar.exception != null) {
-                    break;
-                }
-
-                mImei = (String)ar.result;
-            break;
-
-            case EVENT_GET_IMEISV_DONE:
-                ar = (AsyncResult)msg.obj;
-
-                if (ar.exception != null) {
-                    break;
-                }
-
-                mImeiSv = (String)ar.result;
             break;
 
             case EVENT_USSD:

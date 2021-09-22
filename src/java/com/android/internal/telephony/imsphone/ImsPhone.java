@@ -100,6 +100,7 @@ import com.android.internal.telephony.CallFailCause;
 import com.android.internal.telephony.CallForwardInfo;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.CallTracker;
+import com.android.internal.telephony.CarrierPrivilegesTracker;
 import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.Connection;
@@ -263,7 +264,7 @@ public class ImsPhone extends ImsPhoneBase {
 
     private final RegistrantList mSilentRedialRegistrants = new RegistrantList();
 
-    private final LocalLog mRegLocalLog = new LocalLog(100);
+    private final LocalLog mRegLocalLog = new LocalLog(64);
     private TelephonyMetrics mMetrics;
 
     // The helper class to receive and store the MmTel registration status updated.
@@ -623,6 +624,11 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public boolean isImsAvailable() {
         return mCT.isImsServiceReady();
+    }
+
+    @Override
+    public CarrierPrivilegesTracker getCarrierPrivilegesTracker() {
+        return mDefaultPhone.getCarrierPrivilegesTracker();
     }
 
     /**

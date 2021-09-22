@@ -43,6 +43,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
@@ -266,14 +267,12 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         doReturn(dds).when(mPhone).getSubId();
         doReturn(true).when(mPhone).areAllDataDisconnected();
 
+        doReturn(true).when(mPackageManager)
+                .hasSystemFeature(PackageManager.FEATURE_TELEPHONY_CDMA);
+
         mSSTTestHandler = new ServiceStateTrackerTestHandler(getClass().getSimpleName());
         mSSTTestHandler.start();
         waitUntilReady();
-        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
-
-        Intent intent = new Intent(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
-        intent.putExtra(CarrierConfigManager.EXTRA_SLOT_INDEX, 0);
-        mContext.sendBroadcast(intent);
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
 
         // Override SPN related resource
@@ -336,6 +335,12 @@ public class ServiceStateTrackerTest extends TelephonyTest {
                     15, /* SIGNAL_STRENGTH_GOOD */
                     30  /* SIGNAL_STRENGTH_GREAT */
                 });
+
+        Intent intent = new Intent(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+        intent.putExtra(CarrierConfigManager.EXTRA_SLOT_INDEX, 0);
+        mContext.sendBroadcast(intent);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+
         logd("ServiceStateTrackerTest -Setup!");
     }
 
