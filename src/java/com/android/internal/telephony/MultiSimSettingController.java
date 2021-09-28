@@ -43,6 +43,8 @@ import android.os.Message;
 import android.os.ParcelUuid;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
+import android.telecom.PhoneAccountHandle;
+import android.telecom.TelecomManager;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
@@ -965,6 +967,23 @@ public class MultiSimSettingController extends Handler {
 
         if ((primarySubList.size() == 1) && !voiceSelected) {
             mSubController.setDefaultVoiceSubId(autoDefaultSubId);
+        } else if (!voiceSelected) {
+            final int defVoiceSubId = mSubController.getDefaultVoiceSubId();
+            TelecomManager telecomManager = mContext.getSystemService(TelecomManager.class);
+            TelephonyManager telephonyManager =
+                    mContext.getSystemService(TelephonyManager.class);
+            PhoneAccountHandle currentHandle =
+                    telecomManager.getUserSelectedOutgoingPhoneAccount();
+            int currentVoiceSubId = telephonyManager.getSubscriptionId(currentHandle);
+            if (DBG) log("defalutVoiceSubId = " + defVoiceSubId
+                    + " currentVoiceSubId = " + currentVoiceSubId);
+            if (defVoiceSubId != currentVoiceSubId) {
+                if (primarySubList.contains(currentVoiceSubId)) {
+                    mSubController.setDefaultVoiceSubId(currentVoiceSubId);
+                } else {
+                    mSubController.setDefaultVoiceSubId(defVoiceSubId);
+                }
+            }
         }
 
         int userPrefDataSubId = getUserPrefDataSubIdFromDB();
