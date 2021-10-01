@@ -40,7 +40,6 @@ import android.telephony.AnomalyReporter;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
-import android.telephony.data.NrQosSessionAttributes;
 import android.telephony.data.QosBearerSession;
 import android.util.ArrayMap;
 import android.util.LocalLog;
@@ -97,7 +96,7 @@ public class DcNetworkAgent extends NetworkAgent {
 
     private DataConnection mDataConnection;
 
-    private final LocalLog mNetCapsLocalLog = new LocalLog(50);
+    private final LocalLog mNetCapsLocalLog = new LocalLog(32);
 
     private PhoneSwitcher mPhoneSwitcher;
     private final Handler mInternalHandler;

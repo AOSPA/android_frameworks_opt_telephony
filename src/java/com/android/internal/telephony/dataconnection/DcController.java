@@ -308,16 +308,15 @@ public class DcController extends Handler {
                                             result.oldLp, result.newLp)) {
                                 // If the same address type was removed and
                                 // added we need to cleanup
-                                CompareOrUpdateResult<Integer, LinkAddress> car =
-                                        new CompareOrUpdateResult(
-                                                result.oldLp != null
-                                                        ? result.oldLp.getLinkAddresses() : null,
-                                                result.newLp != null
-                                                        ? result.newLp.getLinkAddresses() : null,
-                                                (la) -> Objects.hash(((LinkAddress) la)
-                                                                .getAddress(),
-                                                        ((LinkAddress) la).getPrefixLength(),
-                                                        ((LinkAddress) la).getScope()));
+                                CompareOrUpdateResult<Integer, LinkAddress> car
+                                    = new CompareOrUpdateResult(
+                                  result.oldLp != null ?
+                                    result.oldLp.getLinkAddresses() : null,
+                                  result.newLp != null ?
+                                    result.newLp.getLinkAddresses() : null,
+                                  (la) -> Objects.hash(((LinkAddress)la).getAddress(),
+                                                       ((LinkAddress)la).getPrefixLength(),
+                                                       ((LinkAddress)la).getScope()));
                                 if (DBG) {
                                     log("onDataStateChanged: oldLp=" + result.oldLp
                                             + " newLp=" + result.newLp + " car=" + car);

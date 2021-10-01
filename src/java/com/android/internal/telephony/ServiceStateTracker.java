@@ -385,11 +385,11 @@ public class ServiceStateTracker extends Handler {
 
     private final LocaleTracker mLocaleTracker;
 
-    private final LocalLog mRoamingLog = new LocalLog(10);
-    private final LocalLog mAttachLog = new LocalLog(10);
-    private final LocalLog mPhoneTypeLog = new LocalLog(10);
-    private final LocalLog mRatLog = new LocalLog(20);
-    private final LocalLog mRadioPowerLog = new LocalLog(20);
+    private final LocalLog mRoamingLog = new LocalLog(8);
+    private final LocalLog mAttachLog = new LocalLog(8);
+    private final LocalLog mPhoneTypeLog = new LocalLog(8);
+    private final LocalLog mRatLog = new LocalLog(16);
+    private final LocalLog mRadioPowerLog = new LocalLog(16);
     private final LocalLog mCdnrLogs = new LocalLog(64);
 
     private Pattern mOperatorNameStringPattern;
@@ -583,19 +583,17 @@ public class ServiceStateTracker extends Handler {
     private BroadcastReceiver mIntentReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (intent.getAction().equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
+            final String action = intent.getAction();
+            if (action.equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
                 int phoneId = intent.getExtras().getInt(CarrierConfigManager.EXTRA_SLOT_INDEX);
                 // Ignore the carrier config changed if the phoneId is not matched.
                 if (phoneId == mPhone.getPhoneId()) {
                     sendEmptyMessage(EVENT_CARRIER_CONFIG_CHANGED);
                 }
-                return;
-            }
-
-            if (intent.getAction().equals(Intent.ACTION_LOCALE_CHANGED)) {
+            } else if (action.equals(Intent.ACTION_LOCALE_CHANGED)) {
                 // Update emergency string or operator name, polling service state.
                 pollState();
-            } else if (intent.getAction().equals(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED)) {
+            } else if (action.equals(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED)) {
                 String lastKnownNetworkCountry = intent.getStringExtra(
                         TelephonyManager.EXTRA_LAST_KNOWN_NETWORK_COUNTRY);
                 if (!mLastKnownNetworkCountry.equals(lastKnownNetworkCountry)) {
@@ -678,8 +676,13 @@ public class ServiceStateTracker extends Handler {
 
         mCdnr = new CarrierDisplayNameResolver(mPhone);
 
-        mEriManager = TelephonyComponentFactory.getInstance().inject(EriManager.class.getName())
-                .makeEriManager(mPhone, EriManager.ERI_FROM_XML);
+        // Create EriManager only if phone supports CDMA
+        if (UiccController.isCdmaSupported(mPhone.getContext())) {
+            mEriManager = TelephonyComponentFactory.getInstance().inject(EriManager.class.getName())
+                    .makeEriManager(mPhone, EriManager.ERI_FROM_XML);
+        } else {
+            mEriManager = null;
+        }
 
         mRatRatcheter = new RatRatcheter(mPhone);
         mVoiceCapable = ((TelephonyManager) mPhone.getContext()
@@ -2153,11 +2156,13 @@ public class ServiceStateTracker extends Handler {
                     }
                 }
 
-                int roamingIndicator = mNewSS.getCdmaRoamingIndicator();
-                mNewSS.setCdmaEriIconIndex(mEriManager.getCdmaEriIconIndex(roamingIndicator,
-                        mDefaultRoamingIndicator));
-                mNewSS.setCdmaEriIconMode(mEriManager.getCdmaEriIconMode(roamingIndicator,
-                        mDefaultRoamingIndicator));
+                if (mEriManager != null) {
+                    int roamingIndicator = mNewSS.getCdmaRoamingIndicator();
+                    mNewSS.setCdmaEriIconIndex(mEriManager.getCdmaEriIconIndex(roamingIndicator,
+                            mDefaultRoamingIndicator));
+                    mNewSS.setCdmaEriIconMode(mEriManager.getCdmaEriIconMode(roamingIndicator,
+                            mDefaultRoamingIndicator));
+                }
 
                 // NOTE: Some operator may require overriding mCdmaRoaming
                 // (set by the modem), depending on the mRoamingIndicator.
@@ -3986,7 +3991,7 @@ public class ServiceStateTracker extends Handler {
             boolean hasBrandOverride = mUiccController.getUiccCard(getPhoneId()) != null &&
                     mUiccController.getUiccCard(getPhoneId()).getOperatorBrandOverride() != null;
             if (!hasBrandOverride && (mCi.getRadioState() == TelephonyManager.RADIO_POWER_ON)
-                    && (mEriManager.isEriFileLoaded())
+                    && (mEriManager != null && mEriManager.isEriFileLoaded())
                     && (!ServiceState.isPsOnlyTech(mSS.getRilVoiceRadioTechnology())
                     || mPhone.getContext().getResources().getBoolean(com.android.internal.R
                     .bool.config_LTE_eri_for_network_name)) && (!mIsSubscriptionFromRuim)) {
@@ -5196,8 +5201,10 @@ public class ServiceStateTracker extends Handler {
         log("CarrierConfigChange " + config);
 
         // Load the ERI based on carrier config. Carrier might have their specific ERI.
-        mEriManager.loadEriFile();
-        mCdnr.updateEfForEri(getOperatorNameFromEri());
+        if (mEriManager != null) {
+            mEriManager.loadEriFile();
+            mCdnr.updateEfForEri(getOperatorNameFromEri());
+        }
 
         mCarrierConfigLoaded = true;
         pollState();
@@ -6070,7 +6077,7 @@ public class ServiceStateTracker extends Handler {
     }
 
     String getCdmaEriText(int roamInd, int defRoamInd) {
-        return mEriManager.getCdmaEriText(roamInd, defRoamInd);
+        return mEriManager != null ? mEriManager.getCdmaEriText(roamInd, defRoamInd) : "no ERI";
     }
 
     private void updateOperatorNamePattern(PersistableBundle config) {
