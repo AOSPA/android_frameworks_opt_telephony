@@ -136,7 +136,7 @@ public class DataEnabledSettings {
     private final RegistrantList mOverallDataEnabledOverrideChangedRegistrants =
             new RegistrantList();
 
-    private final LocalLog mSettingChangeLocalLog = new LocalLog(50);
+    private final LocalLog mSettingChangeLocalLog = new LocalLog(32);
 
     private DataEnabledOverride mDataEnabledOverride;
 
