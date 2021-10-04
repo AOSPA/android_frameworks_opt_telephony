@@ -168,11 +168,18 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     public static class ImsDialArgs extends DialArgs {
+        public enum DeferDial {
+            INVALID, //Default value. Used for non DSDA and same sub dial cases
+            ENABLE,  //Defer DIAL until ACTIVE call on other sub is held
+            DISABLE, //Used when hold has completed on other sub. Go ahead and DIAL
+        }
+
         public static class Builder extends DialArgs.Builder<ImsDialArgs.Builder> {
             private android.telecom.Connection.RttTextStream mRttTextStream;
             private int mRetryCallFailCause = ImsReasonInfo.CODE_UNSPECIFIED;
             private int mRetryCallFailNetworkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
             private boolean mIsWpsCall = false;
+            private DeferDial mDeferDial = DeferDial.INVALID;
 
             public static ImsDialArgs.Builder from(DialArgs dialArgs) {
                 if (dialArgs instanceof ImsDialArgs) {
@@ -186,7 +193,8 @@ public class ImsPhone extends ImsPhoneBase {
                             .setRetryCallFailCause(((ImsDialArgs)dialArgs).retryCallFailCause)
                             .setRetryCallFailNetworkType(
                                     ((ImsDialArgs)dialArgs).retryCallFailNetworkType)
-                            .setIsWpsCall(((ImsDialArgs)dialArgs).isWpsCall);
+                            .setIsWpsCall(((ImsDialArgs)dialArgs).isWpsCall)
+                            .setDeferDial(((ImsDialArgs)dialArgs).deferDial);
                 }
                 return new ImsDialArgs.Builder()
                         .setUusInfo(dialArgs.uusInfo)
@@ -217,6 +225,11 @@ public class ImsPhone extends ImsPhoneBase {
                 return this;
             }
 
+            public ImsDialArgs.Builder setDeferDial(DeferDial deferDial) {
+                this.mDeferDial = deferDial;
+                return this;
+            }
+
             public ImsDialArgs build() {
                 return new ImsDialArgs(this);
             }
@@ -234,12 +247,15 @@ public class ImsPhone extends ImsPhoneBase {
         /** Indicates the call is Wireless Priority Service call */
         public final boolean isWpsCall;
 
+        public final DeferDial deferDial;
+
         private ImsDialArgs(ImsDialArgs.Builder b) {
             super(b);
             this.rttTextStream = b.mRttTextStream;
             this.retryCallFailCause = b.mRetryCallFailCause;
             this.retryCallFailNetworkType = b.mRetryCallFailNetworkType;
             this.isWpsCall = b.mIsWpsCall;
+            this.deferDial = b.mDeferDial;
         }
     }
 
@@ -640,12 +656,29 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     /**
+     * Holds the active call and does not perform swapping even if there is a HELD call
+     * @throws CallStateException
+     */
+    public void holdActiveCallOnly() throws CallStateException {
+        mCT.holdActiveCallOnly();
+    }
+
+    /**
      * Unhold the currently active call, possibly holding a currently active call.
      * If the call tracker is already in the middle of a hold operation, this is a noop.
      * @throws CallStateException
      */
     public void unholdHeldCall() throws CallStateException {
         mCT.unholdHeldCall();
+    }
+
+    /**
+     * Unhold a particular HELD connection
+     * If the call tracker is already in the middle of a hold operation, this is a noop.
+     * @throws CallStateException
+     */
+    public void unholdHeldCall(ImsPhoneConnection connection) throws CallStateException {
+        mCT.unholdHeldCall(connection);
     }
 
     private boolean handleCallDeflectionIncallSupplementaryService(
