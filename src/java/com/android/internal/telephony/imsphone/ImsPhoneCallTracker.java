@@ -119,6 +119,7 @@ import com.android.internal.telephony.dataconnection.DataEnabledSettings.DataEna
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
 import com.android.internal.telephony.imsphone.ImsPhone.ImsDialArgs;
+import com.android.internal.telephony.imsphone.ImsPhone.ImsDialArgs.DeferDial;
 import com.android.internal.telephony.metrics.CallQualityMetrics;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession;
@@ -181,6 +182,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     private static final boolean VERBOSE_STATE_LOGGING = FORCE_VERBOSE_STATE_LOGGING ||
             Rlog.isLoggable(VERBOSE_STATE_TAG, Log.VERBOSE);
     private static final int CONNECTOR_RETRY_DELAY_MS = 5000; // 5 seconds.
+
+    private static final int MAX_BACKGROUND_CALLS_DSDA = 2;
 
     private MmTelFeature.MmTelCapabilities mMmTelCapabilities =
             new MmTelFeature.MmTelCapabilities();
@@ -450,6 +453,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         HOLDING_TO_DIAL_OUTGOING,
         // Pending ending a call to dial another outgoing call (possibly emergency call)
         ENDING_TO_DIAL_OUTGOING,
+        // Pending 2nd call getting held, when one is already HELD
+        PENDING_DOUBLE_CALL_HOLD,
+        // Pending call getting unheld, when 2 calls are HELD
+        PENDING_DOUBLE_CALL_UNHOLD,
     }
 
     //***** Instance Variables
@@ -1249,6 +1256,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         if (isEmergencyNumber && mRingingCall != null && mRingingCall.isRinging()) {
             rejectCall();
         }
+        // Make room for emergency call
+        if (isEmergencyNumber && hasMaximumLiveCalls()) {
+            hangupFirstHeldCall();
+        }
         // See if there are any issues which preclude placing a call; throw a CallStateException
         // if there is.
         checkForDialIssues();
@@ -1261,7 +1272,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         // That call must be idle, so place anything that's
         // there on hold
         if (mForegroundCall.getState() == ImsPhoneCall.State.ACTIVE) {
-            if (mBackgroundCall.getState() != ImsPhoneCall.State.IDLE) {
+            if (mBackgroundCall.getState().isAlive()) {
                 //we should have failed in checkForDialIssues above before we get here
                 throw new CallStateException(CallStateException.ERROR_TOO_MANY_CALLS,
                         "Already too many ongoing calls.");
@@ -1357,6 +1368,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         int clirMode = dialArgs.clirMode;
         int videoState = dialArgs.videoState;
+        DeferDial deferDial = dialArgs.deferDial;
 
         if (DBG) log("dial clirMode=" + clirMode);
         mOperationLocalLog.log("dial requested.");
@@ -1389,8 +1401,26 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         synchronized (mSyncHold) {
             mLastDialString = dialString;
             mLastDialArgs = dialArgs;
-            mPendingMO = new ImsPhoneConnection(mPhone, dialString, this, mForegroundCall,
-                    isEmergencyNumber, isWpsCall);
+            log("dial: deferDial = " + deferDial);
+            if (deferDial != DeferDial.DISABLE) {
+                // deferDial will be set to ENABLE if extra handling is required on the other sub,
+                // ex:holding active call on the other sub, before dial request can be
+                // instantiated. The flag tells ImsPhoneCallTracker to create the connection without
+                // submitting the DIAL request to lower layers. Once extra handling has been
+                // completed, deferDial will be set to DISABLE and DIAL request can be sent.
+                // For legacy non DSDA use case, deferDial is INVALID
+                mPendingMO = new ImsPhoneConnection(mPhone, dialString, this, mForegroundCall,
+                        isEmergencyNumber, isWpsCall);
+            } else if (mPendingMO == null) {
+                // If HoldAndDialHandler sent deferDial as DISABLE, pendingMO should already have
+                // been created
+                throw new CallStateException("mPendingMo cannot be null. Incorrect dialargs");
+            } else {
+                // HoldAndDialHandler sent deferDial as DISABLE. Reset it to default value INVALID
+                // and dial as usual
+                deferDial = DeferDial.INVALID;
+            }
+            mPendingMO.setDeferDialStatus(deferDial);
             if (isEmergencyNumber && dialArgs != null && dialArgs.intentExtras != null) {
                 Rlog.i(LOG_TAG, "dial ims emergency dialer: " + dialArgs.intentExtras.getBoolean(
                         TelecomManager.EXTRA_IS_USER_INTENT_EMERGENCY_CALL));
@@ -1403,7 +1433,14 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 mPendingMO.setCurrentRttTextStream(dialArgs.rttTextStream);
             }
         }
-        addConnection(mPendingMO);
+
+        if (deferDial == DeferDial.INVALID) {
+            // mPendingMO needs to be added to the internal list of connections only once.For DSDA
+            // across sub dial, this can be done at the time of creation of mPendingMO or when the
+            // 2nd dial request comes. We are adding the connection when the 2nd dial request
+            // comes as the defer flag gets reset to INVALID thus keeping legacy behavior the same
+            addConnection(mPendingMO);
+        }
 
         if (!holdBeforeDial) {
             if ((!isPhoneInEcmMode) || (isPhoneInEcmMode && isEmergencyNumber)) {
@@ -1649,11 +1686,11 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     private void dialInternal(ImsPhoneConnection conn, int clirMode, int videoState,
             int retryCallFailCause, int retryCallFailNetworkType, Bundle intentExtras) {
-
-        if (conn == null) {
+        if (conn == null || conn.getDeferDialStatus() == DeferDial.ENABLE) {
+            // do not dial if deferDial is enabled
             return;
         }
-
+        log("dialInternal: conn.getDeferDialStatus " + conn.getDeferDialStatus());
         if (!conn.isAdhocConference() &&
                 (conn.getAddress()== null || conn.getAddress().length() == 0
                 || conn.getAddress().indexOf(PhoneNumberUtils.WILD) >= 0)) {
@@ -1797,9 +1834,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         if (DBG) log("acceptCall");
         mOperationLocalLog.log("accepted incoming call");
 
-        if (mForegroundCall.getState().isAlive()
-                && mBackgroundCall.getState().isAlive()) {
+        if (!isInDsdaMode() && (mForegroundCall.getState().isAlive()
+                && mBackgroundCall.getState().isAlive())) {
             throw new CallStateException("cannot accept call");
+        } else if (hasMaximumLiveCalls()) {
+            // Scenario: ACTIVE + HELD or HELD + HELD
+            // Create room to accept incoming call
+            hangupFirstHeldCall();
         }
 
         ImsStreamMediaProfile mediaProfile = new ImsStreamMediaProfile();
@@ -1891,7 +1932,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     private void holdActiveCallForPendingMo() throws CallStateException {
         if (mHoldSwitchingState == HoldSwapState.PENDING_SINGLE_CALL_HOLD
-                || mHoldSwitchingState == HoldSwapState.SWAPPING_ACTIVE_AND_HELD) {
+                || mHoldSwitchingState == HoldSwapState.SWAPPING_ACTIVE_AND_HELD
+                || mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_HOLD) {
             logi("Ignoring hold request while already holding or swapping");
             return;
         }
@@ -1920,7 +1962,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     public void holdActiveCall() throws CallStateException {
         if (mForegroundCall.getState() == ImsPhoneCall.State.ACTIVE) {
             if (mHoldSwitchingState == HoldSwapState.PENDING_SINGLE_CALL_HOLD
-                    || mHoldSwitchingState == HoldSwapState.SWAPPING_ACTIVE_AND_HELD) {
+                    || mHoldSwitchingState == HoldSwapState.SWAPPING_ACTIVE_AND_HELD
+                    || mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_HOLD) {
                 logi("Ignoring hold request while already holding or swapping");
                 return;
             }
@@ -1944,6 +1987,41 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 logHoldSwapState("holdActiveCall - fail");
                 throw new CallStateException(e.getMessage());
             }
+        }
+    }
+
+    /**
+     * Holds the active call and does not perform swapping even if there is an ACTIVE call
+     * @throws CallStateException
+     */
+    public void holdActiveCallOnly() throws CallStateException {
+        if (mForegroundCall.getState() != ImsPhoneCall.State.ACTIVE) {
+            return;
+        }
+        if (mHoldSwitchingState == HoldSwapState.PENDING_SINGLE_CALL_HOLD
+                || mHoldSwitchingState == HoldSwapState.SWAPPING_ACTIVE_AND_HELD
+                || mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_HOLD) {
+            logi("Ignoring hold request while already holding or swapping");
+            return;
+        }
+        if (!mBackgroundCall.getState().isAlive()) {
+            // there is only one ACTIVE call, legacy single hold use case
+            holdActiveCall();
+            return;
+        }
+        // case: ACTIVE + HELD, trying to hold active call
+        HoldSwapState oldHoldState = mHoldSwitchingState;
+        ImsCall callToHold = mForegroundCall.getImsCall();
+        mHoldSwitchingState = HoldSwapState.PENDING_DOUBLE_CALL_HOLD;
+        logHoldSwapState("holdActiveCallOnly");
+        try {
+            callToHold.hold();
+            mMetrics.writeOnImsCommand(mPhone.getPhoneId(), callToHold.getSession(),
+                    ImsCommand.IMS_CMD_HOLD);
+        } catch (ImsException e) {
+            mHoldSwitchingState = oldHoldState;
+            logHoldSwapState("holdActiveCall - fail");
+            throw new CallStateException(e.getMessage());
         }
     }
 
@@ -1982,7 +2060,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     public void unholdHeldCall() throws CallStateException {
         ImsCall imsCall = mBackgroundCall.getImsCall();
         if (mHoldSwitchingState == HoldSwapState.PENDING_SINGLE_CALL_UNHOLD
-                || mHoldSwitchingState == HoldSwapState.SWAPPING_ACTIVE_AND_HELD) {
+                || mHoldSwitchingState == HoldSwapState.SWAPPING_ACTIVE_AND_HELD
+                || mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_HOLD) {
             logi("Ignoring unhold request while already unholding or swapping");
             return;
         }
@@ -1998,6 +2077,40 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                         ImsCommand.IMS_CMD_RESUME);
             } catch (ImsException e) {
                 mForegroundCall.switchWith(mBackgroundCall);
+                mHoldSwitchingState = oldHoldState;
+                logHoldSwapState("unholdCurrentCall - fail");
+                throw new CallStateException(e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Unhold a particular held connection in DSDA use case
+     */
+    public void unholdHeldCall(ImsPhoneConnection connection) throws CallStateException {
+        if (mHoldSwitchingState == HoldSwapState.PENDING_SINGLE_CALL_UNHOLD
+                || mHoldSwitchingState == HoldSwapState.SWAPPING_ACTIVE_AND_HELD
+                || mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_HOLD) {
+            logi("Ignoring unhold request while already unholding or swapping");
+            return;
+        }
+        if (getBackgroundCallCount() < MAX_BACKGROUND_CALLS_DSDA) {
+            // legacy use case where there is only one HELD call
+            unholdHeldCall();
+            return;
+        }
+        ImsCall imsCall = connection.getImsCall();
+        if (imsCall != null) {
+            mCallExpectedToResume = imsCall;
+            // case: HELD + HELD, trying to unhold one of the calls
+            HoldSwapState oldHoldState = mHoldSwitchingState;
+            mHoldSwitchingState = HoldSwapState.PENDING_DOUBLE_CALL_UNHOLD;
+            logHoldSwapState("unholdCurrentCall");
+            try {
+                imsCall.resume();
+                mMetrics.writeOnImsCommand(mPhone.getPhoneId(), imsCall.getSession(),
+                        ImsCommand.IMS_CMD_RESUME);
+            } catch (ImsException e) {
                 mHoldSwitchingState = oldHoldState;
                 logHoldSwapState("unholdCurrentCall - fail");
                 throw new CallStateException(e.getMessage());
@@ -2242,7 +2355,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             throw new CallStateException(CallStateException.ERROR_CALLING_DISABLED,
                     "ro.telephony.disable-call has been used to disable calling.");
         }
-        if (mPendingMO != null) {
+        if (mPendingMO != null && mPendingMO.getDeferDialStatus() != DeferDial.ENABLE) {
             throw new CallStateException(CallStateException.ERROR_ALREADY_DIALING,
                     "Another outgoing call is already being dialed.");
         }
@@ -2250,7 +2363,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             throw new CallStateException(CallStateException.ERROR_CALL_RINGING,
                     "Can't place a call while another is ringing.");
         }
-        if (mForegroundCall.getState().isAlive() & mBackgroundCall.getState().isAlive()) {
+        if (hasMaximumLiveCalls()) {
             throw new CallStateException(CallStateException.ERROR_TOO_MANY_CALLS,
                     "Already an active foreground and background call.");
         }
@@ -2450,14 +2563,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     //***** Called from ImsPhoneConnection
 
     public void hangup (ImsPhoneConnection conn) throws CallStateException {
-        if (DBG) log("hangup connection");
+        if (DBG) log("hangup connection" + conn.getImsCall());
 
         if (conn.getOwner() != this) {
             throw new CallStateException ("ImsPhoneConnection " + conn
                     + "does not belong to ImsPhoneCallTracker " + this);
         }
-
-        hangup(conn.getCall());
+        hangup(conn, android.telecom.Call.REJECT_REASON_DECLINED);
     }
 
     //***** Called from ImsPhoneCall
@@ -2468,13 +2580,17 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     public void hangup (ImsPhoneCall call, @android.telecom.Call.RejectReason int rejectReason)
             throws CallStateException {
+        hangup(call.getFirstConnection(), rejectReason);
+    }
+
+    private void hangup (ImsPhoneConnection conn,
+            @android.telecom.Call.RejectReason int rejectReason) throws CallStateException {
         if (DBG) log("hangup call - reason=" + rejectReason);
 
+        ImsPhoneCall call = conn.getCall();
         if (call.getConnectionsCount() == 0) {
             throw new CallStateException("no connections");
         }
-
-        ImsCall imsCall = call.getImsCall();
         boolean rejectCall = false;
 
         if (call == mRingingCall) {
@@ -2505,6 +2621,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         }
 
         call.onHangupLocal();
+        ImsCall imsCall = conn.getImsCall();
 
         try {
             if (imsCall != null) {
@@ -2535,6 +2652,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         }
 
         mPhone.notifyPreciseCallStateChanged();
+
     }
 
     void callEndCleanupHandOverCallIfAny() {
@@ -3324,7 +3442,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 mCallExpectedToResume = null;
                 logHoldSwapState("onCallTerminated swap active and hold case");
             } else if (mHoldSwitchingState == HoldSwapState.PENDING_SINGLE_CALL_UNHOLD
-                    || mHoldSwitchingState == HoldSwapState.PENDING_SINGLE_CALL_HOLD) {
+                    || mHoldSwitchingState == HoldSwapState.PENDING_SINGLE_CALL_HOLD
+                    || mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_UNHOLD
+                    || mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_HOLD) {
                 mCallExpectedToResume = null;
                 mHoldSwitchingState = HoldSwapState.INACTIVE;
                 logHoldSwapState("onCallTerminated single call case");
@@ -3458,6 +3578,20 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                         mCallExpectedToResume = null;
                         logHoldSwapState("onCallHeld premature termination of other call");
                     }
+                } else if (mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_HOLD) {
+                    // Foreground call can have only one connection
+                    ImsPhoneConnection connToHold = mForegroundCall.getFirstConnection();
+                    if (imsCall == connToHold.getImsCall()) {
+                        // In two call hold use case, we did not switch background and foreground
+                        // connection. So do it now
+                        mForegroundCall.detach(connToHold);
+                        mBackgroundCall.attach(connToHold);
+                        connToHold.changeParent(mBackgroundCall);
+                        mHoldSwitchingState = HoldSwapState.INACTIVE;
+                        logHoldSwapState("onCallHeld DOUBLE HOLD");
+                    } else {
+                        log ("onCallHeld DOUBLE HOLD: some other call got HELD");
+                    }
                 }
             }
             mMetrics.writeOnImsCallHeld(mPhone.getPhoneId(), imsCall.getCallSession());
@@ -3505,6 +3639,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                         mCallExpectedToResume = null;
                     }
                     mHoldSwitchingState = HoldSwapState.INACTIVE;
+                } else if (mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_HOLD) {
+                    mHoldSwitchingState = HoldSwapState.INACTIVE;
                 }
                 ImsPhoneConnection conn = findConnection(imsCall);
                 if (conn != null && conn.getState() != ImsPhoneCall.State.DISCONNECTED) {
@@ -3541,6 +3677,27 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                         log("onCallResumed : expected call resumed.");
                     }
                 }
+                mHoldSwitchingState = HoldSwapState.INACTIVE;
+                mCallExpectedToResume = null;
+                logHoldSwapState("onCallResumed");
+            } else if (mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_UNHOLD) {
+                if (imsCall != mCallExpectedToResume) {
+                    if (DBG) {
+                        log("onCallResumed : another call resumed while in DOUBLE_HOLD");
+                    }
+                } else {
+                    // The call which resumed is the one we expected to resume, so remove resumed
+                    // call from bg call and add to fg call
+                    if (DBG) {
+                        log("onCallResumed : expected call resumed.");
+                    }
+                }
+                ImsPhoneConnection conn = findConnection(imsCall);
+                // In two call unhold use case, we did not switch background and foreground
+                // connection. So do it now
+                mBackgroundCall.detach(conn);
+                mForegroundCall.attach(conn);
+                conn.changeParent(mForegroundCall);
                 mHoldSwitchingState = HoldSwapState.INACTIVE;
                 mCallExpectedToResume = null;
                 logHoldSwapState("onCallResumed");
@@ -3598,6 +3755,25 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     log("onCallResumeFailed: resume failed. switch fg and bg calls");
                 }
                 mForegroundCall.switchWith(mBackgroundCall);
+            } else if (mHoldSwitchingState == HoldSwapState.PENDING_DOUBLE_CALL_UNHOLD) {
+                if (imsCall == mCallExpectedToResume) {
+                    if (DBG) {
+                        log("onCallResumeFailed: double call unhold case");
+                    }
+                    mCallExpectedToResume = null;
+                    mHoldSwitchingState = HoldSwapState.INACTIVE;
+                    logHoldSwapState("onCallResumeFailed: double call");
+                } else {
+                    Rlog.w(LOG_TAG, "onCallResumeFailed: got a resume failed for a different call"
+                            + " in the double call unhold case");
+                }
+            }
+            ImsPhoneConnection conn = findConnection(imsCall);
+            if (conn != null && conn.getState() != ImsPhoneCall.State.DISCONNECTED) {
+                // New event to send RESUME fail status to HoldHandlers handling across sub use
+                // case. For same sub use case, this event will not be acted upon by any listener
+                conn.onConnectionEvent(
+                        android.telecom.Connection.EVENT_CALL_RESUME_FAILED, null);
             }
             mPhone.notifySuppServiceFailed(Phone.SuppService.RESUME);
             mMetrics.writeOnImsCallResumeFailed(mPhone.getPhoneId(), imsCall.getCallSession(),
@@ -4617,6 +4793,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             case HOLDING_TO_DIAL_OUTGOING:
                 holdSwapState = "HOLDING_TO_DIAL_OUTGOING";
                 break;
+            case PENDING_DOUBLE_CALL_HOLD:
+                holdSwapState = "PENDING_DOUBLE_CALL_HOLD";
+                break;
+            case PENDING_DOUBLE_CALL_UNHOLD:
+                holdSwapState = "PENDING_DOUBLE_CALL_UNHOLD";
+                break;
         }
         logi("holdSwapState set to " + holdSwapState + " at " + loc);
     }
@@ -5517,5 +5699,38 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             return true;
         }
         return false;
+    }
+
+    private int getBackgroundCallCount() {
+        return mBackgroundCall.getConnectionsCount();
+    }
+
+    /** For DSDA, background call may have two conenctions, hangup the first one */
+    private void hangupFirstHeldCall() throws CallStateException {
+        logi("hangupFirstHeldCall");
+        mBackgroundCall.getFirstConnection().hangup(); //hangup first held call
+    }
+
+    private boolean isInDsdaMode() {
+        return TelephonyManager.isConcurrentCallsPossible();
+    }
+
+    /* For non-DSDA, max call limit is reached if there is a foreground and a background call.
+     * For DSDA, in addtion, it is reached if there are two background connections
+     */
+    private boolean hasMaximumLiveCalls() {
+        if (!mBackgroundCall.getState().isAlive()) {
+            return false;
+        }
+        boolean maxLiveCalls = false;
+        if (getBackgroundCallCount() == MAX_BACKGROUND_CALLS_DSDA ||
+                (mForegroundCall.getState().isAlive() &&
+                (mPendingMO == null || mPendingMO.getDeferDialStatus() != DeferDial.ENABLE))) {
+            // If there is a foregroundcall (ACTIVE+HELD) .Do not account for the pendingMO in
+            // deferred state
+            maxLiveCalls = true;
+        }
+        Log.d(LOG_TAG, "hasMaximumLiveCalls: " + maxLiveCalls);
+        return maxLiveCalls;
     }
 }

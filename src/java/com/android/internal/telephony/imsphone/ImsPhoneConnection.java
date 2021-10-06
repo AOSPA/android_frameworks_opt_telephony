@@ -56,6 +56,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
+import com.android.internal.telephony.imsphone.ImsPhone.ImsDialArgs.DeferDial;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.telephony.Rlog;
 
@@ -149,6 +150,10 @@ public class ImsPhoneConnection extends Connection implements
      * associated with the disconnection, if known.
      */
     private ImsReasonInfo mImsReasonInfo;
+
+    // Indicates whether dial needs to be deferred. By default, value
+    // is INVALID meaning do not defer dial
+    private DeferDial mDeferDial = DeferDial.INVALID;
 
     //***** Event Constants
     private static final int EVENT_DTMF_DONE = 1;
@@ -1667,5 +1672,13 @@ public class ImsPhoneConnection extends Connection implements
             return 1;
         }
         return 0;
+    }
+
+    public void setDeferDialStatus(DeferDial deferDial) {
+        mDeferDial = deferDial;
+    }
+
+    public DeferDial getDeferDialStatus() {
+        return mDeferDial;
     }
 }
