@@ -662,6 +662,7 @@ public class ServiceStateTracker extends Handler {
 
     /* Last known TAC/LAC */
     private int mLastKnownAreaCode = CellInfo.UNAVAILABLE;
+    private boolean mImsDeregDelay;
 
     public ServiceStateTracker(GsmCdmaPhone phone, CommandsInterface ci) {
         mNitzState = TelephonyComponentFactory.getInstance()
@@ -669,6 +670,9 @@ public class ServiceStateTracker extends Handler {
                 .makeNitzStateMachine(phone);
         mPhone = phone;
         mCi = ci;
+        mImsDeregDelay = mPhone.getContext().getResources().getBoolean(
+                com.android.internal.R.bool.
+                config_wait_for_ims_deregistration_before_radio_poweroff);
 
         mServiceStateStats = new ServiceStateStats(mPhone);
 
@@ -1552,8 +1556,9 @@ public class ServiceStateTracker extends Handler {
 
             case EVENT_CHANGE_IMS_STATE:
                 if (DBG) log("EVENT_CHANGE_IMS_STATE:");
-
-                setPowerStateToDesired();
+                if (mImsDeregDelay) {
+                    setPowerStateToDesired();
+                }
                 break;
 
             case EVENT_IMS_CAPABILITY_CHANGED:
@@ -3187,9 +3192,6 @@ public class ServiceStateTracker extends Handler {
             log(tmpLog);
             mRadioPowerLog.log(tmpLog);
         }
-        boolean imsDeregDelay = mPhone.getContext().getResources().getBoolean(
-                com.android.internal.R.bool.
-                config_wait_for_ims_deregistration_before_radio_poweroff);
         // If we want it on and it's off, turn it on
         if (mDesiredPowerState && !mRadioDisabledByCarrier
                 && (forceApply || mCi.getRadioState() == TelephonyManager.RADIO_POWER_OFF)) {
@@ -3197,7 +3199,7 @@ public class ServiceStateTracker extends Handler {
         } else if ((!mDesiredPowerState || mRadioDisabledByCarrier) && mCi.getRadioState()
                 == TelephonyManager.RADIO_POWER_ON) {
             // If it's on and available and we want it off gracefully
-            if (mImsRegistrationOnOff && imsDeregDelay) {
+            if (mImsRegistrationOnOff && mImsDeregDelay) {
                 if (DBG) log("setPowerStateToDesired: delaying power off until IMS dereg.");
                 startDelayRadioOffWaitingForImsDeregTimeout();
                 // Return early here as we do not want to hit the cancel timeout code below.

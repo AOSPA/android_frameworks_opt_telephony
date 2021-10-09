@@ -94,6 +94,7 @@ import android.telephony.data.ApnSetting;
 import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataCallResponse.HandoverFailureMode;
 import android.telephony.data.DataProfile;
+import android.telephony.data.ThrottleStatus;
 import android.telephony.gsm.GsmCellLocation;
 import android.text.TextUtils;
 import android.util.EventLog;
@@ -451,6 +452,19 @@ public class DcTracker extends Handler {
         }
     };
 
+    private class ThrottleStatusChangedCallback implements DataThrottler.Callback {
+        @Override
+        public void onThrottleStatusChanged(List<ThrottleStatus> throttleStatuses) {
+            for (ThrottleStatus status : throttleStatuses) {
+                if (status.getThrottleType() == ThrottleStatus.THROTTLE_TYPE_NONE) {
+                    setupDataOnConnectableApn(mApnContextsByType.get(status.getApnType()),
+                            Phone.REASON_DATA_UNTHROTTLED,
+                            RetryFailures.ALWAYS);
+                }
+            }
+        }
+    }
+
     private NetworkPolicyManager mNetworkPolicyManager;
     private final NetworkPolicyManager.SubscriptionCallback mSubscriptionCallback =
             new NetworkPolicyManager.SubscriptionCallback() {
@@ -722,6 +736,8 @@ public class DcTracker extends Handler {
 
     private final DataThrottler mDataThrottler;
 
+    private final ThrottleStatusChangedCallback mThrottleStatusCallback;
+
     /**
      * Request network completion message map. Key is the APN type, value is the list of completion
      * messages to be sent. Using a list because there might be multiple network requests for
@@ -797,6 +813,9 @@ public class DcTracker extends Handler {
 
         mSettingsObserver = new SettingsObserver(mPhone.getContext(), this);
         registerSettingsObserver();
+
+        mThrottleStatusCallback = new ThrottleStatusChangedCallback();
+        mDataThrottler.registerForThrottleStatusChanges(mThrottleStatusCallback);
     }
 
     @VisibleForTesting
@@ -811,6 +830,7 @@ public class DcTracker extends Handler {
         mTransportType = 0;
         mDataServiceManager = null;
         mDataThrottler = null;
+        mThrottleStatusCallback = null;
     }
 
     public void registerServiceStateTrackerEvents() {
@@ -1908,8 +1928,13 @@ public class DcTracker extends Handler {
         sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false, false);
 
         // Make sure reconnection alarm is cleaned up if there is no ApnContext
-        // associated to the connection.
-        if (dataConnection != null) {
+        // associated to the connection.The only exception is if APN is throttled.
+        boolean isApnThrottled = false;
+        long retryTime = mDataThrottler.getRetryTime(apnContext.getApnTypeBitmask());
+        if (retryTime > SystemClock.elapsedRealtime()) {
+            isApnThrottled = true;
+        }
+        if (dataConnection != null && !isApnThrottled) {
             cancelReconnect(apnContext);
         }
         str = "cleanUpConnectionInternal: X detach=" + detach + " reason="
@@ -2604,9 +2629,6 @@ public class DcTracker extends Handler {
                 @ApnType int apnTypes = apnSetting.getApnTypeBitmask();
                 mDataThrottler.setRetryTime(apnTypes, RetryManager.NO_SUGGESTED_RETRY_DELAY,
                         REQUEST_TYPE_NORMAL);
-                // After data unthrottled, we should see if it's possible to bring up the data
-                // again.
-                setupDataOnAllConnectableApns(Phone.REASON_DATA_UNTHROTTLED, RetryFailures.ALWAYS);
             } else {
                 loge("EVENT_APN_UNTHROTTLED: Invalid APN passed: " + apn);
             }
@@ -3410,11 +3432,18 @@ public class DcTracker extends Handler {
             // This also helps in any external dependency to turn off the context.
             if (DBG) log("onDisconnectDone: attached, ready and retry after disconnect");
 
+            long remainingRetryTime = 0;
+            long retryTime = mDataThrottler.getRetryTime(apnContext.getApnTypeBitmask());
+            if (retryTime > SystemClock.elapsedRealtime()) {
+                remainingRetryTime = retryTime - SystemClock.elapsedRealtime();
+            }
             // See if there are still handover request pending that we need to retry handover
             // after previous data gets disconnected.
             if (isHandoverPending(apnContext.getApnTypeBitmask())) {
                 if (DBG) log("Handover request pending. Retry handover immediately.");
                 startReconnect(0, apnContext, REQUEST_TYPE_HANDOVER);
+            } else if (remainingRetryTime > 0) {
+                startReconnect(remainingRetryTime, apnContext, REQUEST_TYPE_NORMAL);
             } else {
                 long delay = apnContext.getRetryAfterDisconnectDelay();
                 if (delay > 0) {
