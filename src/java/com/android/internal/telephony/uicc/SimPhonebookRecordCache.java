@@ -426,7 +426,7 @@ public class SimPhonebookRecordCache extends Handler {
         AdnCapacity oldCapacity = mAdnCapacity.get();
         mAdnCapacity.set(newCapacity);
         if (oldCapacity == null && newCapacity != null) {
-            if (newCapacity.getMaxAdnCount() > 0){
+            if (newCapacity.getUsedAdnCount() > 0){
                 mSimPbRecords.clear();
                 inflateWithEmptyRecords(newCapacity);
                 fillCacheWithoutWaiting();
@@ -436,7 +436,7 @@ public class SimPhonebookRecordCache extends Handler {
             mIsInitialized.set(true); // Let's say the whole process is ready
         } else {
             // There is nothing from PB, so notify waiters directly if any
-            if (newCapacity != null && newCapacity.getMaxAdnCount() == 0) {
+            if (newCapacity != null && newCapacity.getUsedAdnCount() == 0) {
                 notifyAdnLoadingWaiters();
             } else if (!mIsUpdateDone) {
                 invalidateSimPbCache();
