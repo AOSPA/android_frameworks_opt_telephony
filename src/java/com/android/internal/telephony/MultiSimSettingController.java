@@ -987,12 +987,15 @@ public class MultiSimSettingController extends Handler {
         }
 
         int userPrefDataSubId = getUserPrefDataSubIdFromDB();
+        final boolean isSmartDdsEnabled = Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.SMART_DDS_SWITCH, 0) != 0;
 
         if (DBG) log("User pref subId = " + userPrefDataSubId + " current dds " + defaultDataSubId
-                 + " next active subId " + autoDefaultSubId);
+                 + " next active subId " + autoDefaultSubId + " smart dds enabled "
+                 + isSmartDdsEnabled);
 
         // If earlier user selected DDS is now available, set that as DDS subId.
-        if (primarySubList.contains(userPrefDataSubId) &&
+        if (!isSmartDdsEnabled && primarySubList.contains(userPrefDataSubId) &&
                 SubscriptionManager.isValidSubscriptionId(userPrefDataSubId) &&
                 (defaultDataSubId != userPrefDataSubId)) {
             mSubController.setDefaultDataSubId(userPrefDataSubId);
