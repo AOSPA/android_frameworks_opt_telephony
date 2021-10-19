@@ -269,6 +269,13 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     // Integer used to let the calling application know that the we are ignoring auto mode switch.
     private static final int ALREADY_IN_AUTO_SELECTION = 1;
 
+    //Used to indicate smart DDS switch during voice call is supported or not.
+    protected boolean mSmartTempDdsSwitchSupported = false;
+
+    //Used to indicate telephony temp DDS switch during voice call is enabled or not
+    //when smart DDS switch is enabled in modem.
+    protected boolean mTelephonyTempDdsSwitch = true;
+
     /**
      * This method is invoked when the Phone exits Emergency Callback Mode.
      */
@@ -4013,6 +4020,36 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo) {
         return;
+    }
+
+    /**
+     * Sets smart DDS switch is supported.
+     */
+    public void setSmartTempDdsSwitchSupported(boolean smartDdsSwitch) {
+    }
+
+    /**
+     * Returns smart DDS switch during voice call is supported or not.
+     */
+    public boolean getSmartTempDdsSwitchSupported() {
+        return false;
+    }
+
+    /**
+     * Sets telephony temp DDS switch logic during voice call is enabled or not.
+     * Telephony temp DDS switch logic could be disabled if smart DDS switch
+     * capability is supported by modem.
+     * If its disabled, DDS switch during voice call is performed based on modem
+     * recommendations.
+     */
+    public void setTelephonyTempDdsSwitch(boolean telephonyTempDdsSwitch) {
+    }
+
+    /**
+     * Returns telephony temp DDS switch logic during voice call is enabled or not.
+     */
+    public boolean getTelephonyTempDdsSwitch() {
+        return true;
     }
 
     /**
