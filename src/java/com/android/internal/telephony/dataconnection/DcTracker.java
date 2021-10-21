@@ -4959,11 +4959,17 @@ public class DcTracker extends Handler {
         String operator = mPhone.getOperatorNumeric();
         //Add default apn setting for ia if no APN is present.
         if (mAllApnSettings.isEmpty()) {
-            mAllApnSettings.add(ApnSetting.makeApnSetting(0, operator, "DEFAULT IA", "", null,
-                    -1, null, null, -1, "", "", 0, ApnSetting.TYPE_IA, ApnSetting.PROTOCOL_IPV4V6,
-                    ApnSetting.PROTOCOL_IPV4V6, true, 0, 0, false, 0, 0, 0, 0, -1, "",
-                    Telephony.Carriers.MATCH_ALL_APN_SET_ID, TelephonyManager.UNKNOWN_CARRIER_ID,
-                    Telephony.Carriers.SKIP_464XLAT_DEFAULT));
+            mAllApnSettings.add(new ApnSetting.Builder()
+                .setOperatorNumeric(operator)
+                .setEntryName("DEFAULT IA")
+                .setAuthType(ApnSetting.TYPE_IA)
+                .setProtocol(ApnSetting.PROTOCOL_IPV4V6)
+                .setRoamingProtocol(ApnSetting.PROTOCOL_IPV4V6)
+                .setCarrierEnabled(true)
+                .setApnSetId(Telephony.Carriers.MATCH_ALL_APN_SET_ID)
+                .setCarrierId(TelephonyManager.UNKNOWN_CARRIER_ID)
+                .setSkip464Xlat(Telephony.Carriers.SKIP_464XLAT_DEFAULT)
+                .build());
             log("default IA empty(null) apn is created");
         }
 
