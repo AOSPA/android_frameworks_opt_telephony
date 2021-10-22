@@ -426,6 +426,15 @@ public class DcNetworkAgent extends NetworkAgent {
         super.unregister();
     }
 
+    /**
+     * Reset the network agent
+     * Currently, only reset teardown delay time.
+     */
+
+    public synchronized void reset() {
+        setTeardownDelayMillis(0);
+    }
+
     @Override
     public synchronized void onStartSocketKeepalive(int slot, @NonNull Duration interval,
             @NonNull KeepalivePacketData packet) {

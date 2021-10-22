@@ -3000,6 +3000,7 @@ public class DataConnection extends StateMachine {
             if (mNetworkAgent != null) {
                 syncQosToNetworkAgent();
                 if (mHandoverState == HANDOVER_STATE_IDLE) {
+                    mNetworkAgent.reset();
                     mNetworkAgent.unregister(DataConnection.this);
                 }
                 mNetworkAgent.releaseOwnership(DataConnection.this);
