@@ -30,6 +30,7 @@ import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -272,7 +273,6 @@ public class TelephonyRegistryTest extends TelephonyTest {
         processAllMessages();
         assertEquals(phoneCapability, mPhoneCapability);
     }
-
 
     @Test @SmallTest
     public void testActiveDataSubChanged() {
@@ -616,9 +616,13 @@ public class TelephonyRegistryTest extends TelephonyTest {
         int[] events = {TelephonyCallback.EVENT_DISPLAY_INFO_CHANGED};
         mTelephonyRegistry.listenWithEventList(2, mContext.getOpPackageName(),
                 mContext.getAttributionTag(), mTelephonyCallback.callback, events, false);
+        when(mMockConfigurationProvider.isDisplayInfoNrAdvancedSupported(
+                anyString(), any())).thenReturn(true);
+        TelephonyDisplayInfo displayInfo = new TelephonyDisplayInfo(
+                TelephonyManager.NETWORK_TYPE_LTE,
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED);
 
         // Notify with invalid subId on default phone. Should NOT trigger callback.
-        TelephonyDisplayInfo displayInfo = new TelephonyDisplayInfo(0, 0);
         mTelephonyRegistry.notifyDisplayInfoChanged(0, INVALID_SUBSCRIPTION_ID, displayInfo);
         processAllMessages();
         assertEquals(null, mTelephonyDisplayInfo);
@@ -627,6 +631,82 @@ public class TelephonyRegistryTest extends TelephonyTest {
         mTelephonyRegistry.notifyDisplayInfoChanged(0, 2, displayInfo);
         processAllMessages();
         assertEquals(displayInfo, mTelephonyDisplayInfo);
+    }
+
+    @Test
+    public void testDisplayInfoCompatibility() {
+        mContext.sendBroadcast(new Intent(ACTION_DEFAULT_SUBSCRIPTION_CHANGED)
+                .putExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, 12)
+                .putExtra(SubscriptionManager.EXTRA_SLOT_INDEX, 0));
+        processAllMessages();
+        int[] events = {TelephonyCallback.EVENT_DISPLAY_INFO_CHANGED};
+        mTelephonyRegistry.listenWithEventList(2, mContext.getOpPackageName(),
+                mContext.getAttributionTag(), mTelephonyCallback.callback, events, false);
+        when(mMockConfigurationProvider.isDisplayInfoNrAdvancedSupported(
+                anyString(), any())).thenReturn(false);
+        TelephonyDisplayInfo displayInfo = new TelephonyDisplayInfo(
+                TelephonyManager.NETWORK_TYPE_LTE,
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED);
+        TelephonyDisplayInfo expectDisplayInfo = new TelephonyDisplayInfo(
+                TelephonyManager.NETWORK_TYPE_LTE,
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE);
+
+        // Notify with invalid subId on default phone. Should NOT trigger callback.
+        mTelephonyRegistry.notifyDisplayInfoChanged(0, INVALID_SUBSCRIPTION_ID, displayInfo);
+        processAllMessages();
+        assertEquals(null, mTelephonyDisplayInfo);
+
+        // Notify with the matching subId on default phone. Should trigger callback.
+        mTelephonyRegistry.notifyDisplayInfoChanged(0, 2, displayInfo);
+        processAllMessages();
+        assertEquals(expectDisplayInfo, mTelephonyDisplayInfo);
+    }
+
+    @Test
+    public void testDisplayInfoCompatibility_moreCallingPackages() {
+        mContext.sendBroadcast(new Intent(ACTION_DEFAULT_SUBSCRIPTION_CHANGED)
+                .putExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, 12)
+                .putExtra(SubscriptionManager.EXTRA_SLOT_INDEX, 0));
+        processAllMessages();
+        int[] events = {TelephonyCallback.EVENT_DISPLAY_INFO_CHANGED};
+        TelephonyDisplayInfo displayInfo = new TelephonyDisplayInfo(
+                TelephonyManager.NETWORK_TYPE_LTE,
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED);
+        TelephonyDisplayInfo expectDisplayInfo = new TelephonyDisplayInfo(
+                TelephonyManager.NETWORK_TYPE_LTE,
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE);
+        TelephonyCallback telephonyCallback2 = new TelephonyCallbackWrapper() {
+            @Override
+            public void onDisplayInfoChanged(TelephonyDisplayInfo displayInfoNotify) {
+                assertEquals(displayInfo, displayInfoNotify);
+            }
+        };
+        Executor mSimpleExecutor2 = new Executor() {
+            @Override
+            public void execute(Runnable r) {
+                r.run();
+            }
+        };
+        telephonyCallback2.init(mSimpleExecutor2);
+        mTelephonyRegistry.listenWithEventList(2, "pkg1",
+                mContext.getAttributionTag(), mTelephonyCallback.callback, events, false);
+        mTelephonyRegistry.listenWithEventList(2, "pkg2",
+                mContext.getAttributionTag(), telephonyCallback2.callback, events, false);
+        when(mMockConfigurationProvider.isDisplayInfoNrAdvancedSupported(
+                eq("pkg1"), any())).thenReturn(false);
+        when(mMockConfigurationProvider.isDisplayInfoNrAdvancedSupported(
+                eq("pkg2"), any())).thenReturn(true);
+
+
+        // Notify with invalid subId on default phone. Should NOT trigger callback.
+        mTelephonyRegistry.notifyDisplayInfoChanged(0, INVALID_SUBSCRIPTION_ID, displayInfo);
+        processAllMessages();
+        assertEquals(null, mTelephonyDisplayInfo);
+
+        // Notify with the matching subId on default phone. Should trigger callback.
+        mTelephonyRegistry.notifyDisplayInfoChanged(0, 2, displayInfo);
+        processAllMessages();
+        assertEquals(expectDisplayInfo, mTelephonyDisplayInfo);
     }
 
     @Test
@@ -723,5 +803,68 @@ public class TelephonyRegistryTest extends TelephonyTest {
         mTelephonyRegistry.notifyLinkCapacityEstimateChanged(0, 2, lceList);
         processAllMessages();
         assertEquals(lceList, mLinkCapacityEstimateList);
+    }
+
+    @Test
+    public void testPreciseDataConnectionStateChangedForInvalidSubId() {
+        //set dual sim
+        doReturn(2).when(mTelephonyManager).getActiveModemCount();
+        mContext.sendBroadcast(new Intent(ACTION_MULTI_SIM_CONFIG_CHANGED));
+        // set default slot
+        mContext.sendBroadcast(new Intent(ACTION_DEFAULT_SUBSCRIPTION_CHANGED)
+                .putExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, 2)
+                .putExtra(SubscriptionManager.EXTRA_SLOT_INDEX, 0));
+        processAllMessages();
+
+        final int subId = 1;
+        int[] events = {TelephonyCallback.EVENT_PRECISE_DATA_CONNECTION_STATE_CHANGED};
+        doReturn(mMockSubInfo).when(mSubscriptionManager).getActiveSubscriptionInfo(anyInt());
+        doReturn(1).when(mMockSubInfo).getSimSlotIndex();
+
+        mTelephonyRegistry.listenWithEventList(subId, mContext.getOpPackageName(),
+                mContext.getAttributionTag(), mTelephonyCallback.callback, events, true);
+        processAllMessages();
+
+        // notify data connection with invalid sub id and default phone id
+        mTelephonyRegistry.notifyDataConnectionForSubscriber(
+                /*default phoneId*/ 0, /*invalid subId*/ -1,
+                new PreciseDataConnectionState.Builder()
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .setId(1)
+                        .setState(TelephonyManager.DATA_CONNECTED)
+                        .setNetworkType(TelephonyManager.NETWORK_TYPE_LTE)
+                        .setApnSetting(new ApnSetting.Builder()
+                                .setApnTypeBitmask(ApnSetting.TYPE_IMS)
+                                .setApnName("ims")
+                                .setEntryName("ims")
+                                .build())
+                        .setLinkProperties(new LinkProperties())
+                        .setFailCause(0)
+                        .build());
+
+        processAllMessages();
+
+        assertEquals(0, mTelephonyCallback.invocationCount.get());
+
+        // notify data connection with invalid sub id and default phone id
+        mTelephonyRegistry.notifyDataConnectionForSubscriber(
+                /*target phoneId*/ 1, /*invalid subId*/ -1,
+                new PreciseDataConnectionState.Builder()
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .setId(2)
+                        .setState(TelephonyManager.DATA_SUSPENDED)
+                        .setNetworkType(TelephonyManager.NETWORK_TYPE_LTE)
+                        .setApnSetting(new ApnSetting.Builder()
+                                .setApnTypeBitmask(ApnSetting.TYPE_IMS)
+                                .setApnName("ims")
+                                .setEntryName("ims")
+                                .build())
+                        .setLinkProperties(new LinkProperties())
+                        .setFailCause(0)
+                        .build());
+
+        processAllMessages();
+
+        assertEquals(1, mTelephonyCallback.invocationCount.get());
     }
 }
