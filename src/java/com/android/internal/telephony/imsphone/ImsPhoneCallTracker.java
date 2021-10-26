@@ -1390,7 +1390,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     public synchronized Connection dial(String dialString, ImsPhone.ImsDialArgs dialArgs)
             throws CallStateException {
-        boolean isPhoneInEcmMode = isPhoneInEcbMode();
+        boolean isPhoneInEcmMode = isPhoneInEcbm();
+        boolean isPhoneInEmergencyMode = isPhoneInEmergencyMode();
         boolean isEmergencyNumber = dialArgs.isEmergency;
         boolean isWpsCall = dialArgs.isWpsCall;
 
@@ -1476,12 +1477,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         }
 
         if (!holdBeforeDial) {
-            if ((!isPhoneInEcmMode) || (isPhoneInEcmMode && isEmergencyNumber)) {
+            if ((!isPhoneInEmergencyMode) || (isPhoneInEmergencyMode && isEmergencyNumber)) {
                 dialInternal(mPendingMO, clirMode, videoState, dialArgs.retryCallFailCause,
                         dialArgs.retryCallFailNetworkType, dialArgs.intentExtras);
             } else {
                 try {
-                    EcbmHandler.getInstance().exitEmergencyCallbackMode();
+                    exitEmergencyMode();
                 } catch (Exception e) {
                     e.printStackTrace();
                     throw new CallStateException("service not available");
@@ -3138,8 +3139,42 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     /**
      * @return true if the phone is in Emergency Callback mode, otherwise false
      */
-    private boolean isPhoneInEcbMode() {
+    private boolean isPhoneInEcbm() {
         return EcbmHandler.getInstance() != null && EcbmHandler.getInstance().isInEcm();
+    }
+
+    /**
+     * @return true if the phone is in SMS callback mode and
+     * exit SCBM supported, otherwise false
+     */
+    private boolean canExitScbm() {
+        return mPhone.mDefaultPhone.isInScbm() &&
+                mPhone.mDefaultPhone.isExitScbmFeatureSupported();
+    }
+
+    private boolean isPhoneInEmergencyMode() {
+        return isPhoneInEcbm() || canExitScbm();
+    }
+
+    private void exitEmergencyMode() throws Exception {
+        boolean isPhoneInEcbm = isPhoneInEcbm();
+        if (isPhoneInEcbm) {
+            try {
+                EcbmHandler.getInstance().exitEmergencyCallbackMode();
+            } catch (Exception e) {
+                throw e;
+            }
+            EcbmHandler.getInstance().setOnEcbModeExitResponse(this,
+                    EVENT_EXIT_ECM_RESPONSE_CDMA, null);
+        } else {
+            try {
+                mPhone.mDefaultPhone.exitScbm();
+            } catch (Exception e) {
+                throw e;
+            }
+            mPhone.mDefaultPhone.setOnScbmExitResponse(this,
+              EVENT_EXIT_SCBM_RESPONSE_CDMA, null);
+        }
     }
 
     /**
@@ -3148,9 +3183,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void dialPendingMO() {
-        boolean isPhoneInEcmMode = isPhoneInEcbMode();
+        boolean isPhoneInEmergencyMode = isPhoneInEmergencyMode();
         boolean isEmergencyNumber = mPendingMO.isEmergency();
-        if ((!isPhoneInEcmMode) || (isPhoneInEcmMode && isEmergencyNumber)) {
+        if ((!isPhoneInEmergencyMode()) || (isPhoneInEmergencyMode() && isEmergencyNumber)) {
             sendEmptyMessage(EVENT_DIAL_PENDINGMO);
         } else {
             sendEmptyMessage(EVENT_EXIT_ECBM_BEFORE_PENDINGMO);
@@ -4496,6 +4531,15 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         return mHoldSwitchingState != HoldSwapState.INACTIVE;
     }
 
+    private void handlePendingMoCall() {
+        if (pendingCallInEcm) {
+            dialInternal(mPendingMO, pendingCallClirMode,
+                    mPendingCallVideoState, mPendingIntentExtras);
+            mPendingIntentExtras = null;
+            pendingCallInEcm = false;
+        }
+    }
+
     //****** Overridden from Handler
 
     @Override
@@ -4542,9 +4586,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 if (mPendingMO != null) {
                     //Send ECBM exit request
                     try {
-                        EcbmHandler.getInstance().exitEmergencyCallbackMode();
-                        EcbmHandler.getInstance().setOnEcbModeExitResponse(this,
-                                EVENT_EXIT_ECM_RESPONSE_CDMA, null);
+                        exitEmergencyMode();
                         pendingCallClirMode = mClirMode;
                         pendingCallInEcm = true;
                     } catch (Exception e) {
@@ -4556,14 +4598,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 break;
 
             case EVENT_EXIT_ECM_RESPONSE_CDMA:
-                // no matter the result, we still do the same here
-                if (pendingCallInEcm) {
-                    dialInternal(mPendingMO, pendingCallClirMode,
-                            mPendingCallVideoState, mPendingIntentExtras);
-                    mPendingIntentExtras = null;
-                    pendingCallInEcm = false;
-                }
+                handlePendingMoCall();
                 EcbmHandler.getInstance().unsetOnEcbModeExitResponse(this);
+                break;
+
+            case EVENT_EXIT_SCBM_RESPONSE_CDMA:
+                handlePendingMoCall();
+                mPhone.mDefaultPhone.unsetOnScbmExitResponse(this);
                 break;
             case EVENT_VT_DATA_USAGE_UPDATE:
                 ar = (AsyncResult) msg.obj;

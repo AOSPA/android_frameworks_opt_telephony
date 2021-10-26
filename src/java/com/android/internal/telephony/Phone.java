@@ -5125,4 +5125,40 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public boolean isEmergencyNumber(String address) {
         return PhoneNumberUtils.isEmergencyNumber(getSubId(), address);
     }
+
+    public void exitScbm() {
+    }
+
+    public void setOnScbmExitResponse(Handler h, int what, Object obj) {
+        Registrant registrant = new Registrant(h, what, obj);
+        registrant.notifyRegistrant();
+    }
+
+    public void unsetOnScbmExitResponse(Handler h) {
+    }
+
+    public void registerForScbmTimerReset(Handler h, int what, Object obj) {
+    }
+
+    public void unregisterForScbmTimerReset(Handler h) {
+    }
+
+    public boolean isInScbm(int subId) {
+        return false;
+    }
+
+    public boolean isInScbm() {
+        return false;
+    }
+
+    public boolean isExitScbmFeatureSupported() {
+        return false;
+    }
+
+    public void handleTimerInScbm(int action) {
+    }
+
+    public boolean isScbmTimerCanceledForEmergency() {
+        return false;
+    }
 }
