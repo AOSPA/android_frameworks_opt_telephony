@@ -233,7 +233,7 @@ public class DcTracker extends Handler {
     private int mRequestedApnType = ApnSetting.TYPE_DEFAULT;
 
     // All data enabling/disabling related settings
-    private final DataEnabledSettings mDataEnabledSettings;
+    protected final DataEnabledSettings mDataEnabledSettings;
 
     /**
      * After detecting a potential connection problem, this is the max number
