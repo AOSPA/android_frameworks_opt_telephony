@@ -54,6 +54,7 @@ import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
+import android.provider.Telephony;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
 import android.telephony.CarrierConfigManager;
@@ -118,173 +119,75 @@ public class DataConnectionTest extends TelephonyTest {
     private DataConnectionTestHandler mDataConnectionTestHandler;
     private DcController mDcc;
 
-    private ApnSetting mApn1 = ApnSetting.makeApnSetting(
-            2163,                   // id
-            "44010",                // numeric
-            "sp-mode",              // name
-            "spmode.ne.jp",         // apn
-            null,                   // proxy
-            -1,                     // port
-            null,                   // mmsc
-            null,                   // mmsproxy
-            -1,                     // mmsport
-            "",                     // user
-            "",                     // password
-            -1,                     // authtype
-            ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_SUPL, // types
-            ApnSetting.PROTOCOL_IP, // protocol
-            ApnSetting.PROTOCOL_IP, // roaming_protocol
-            true,                   // carrier_enabled
-            0,                      // networktype_bitmask
-            0,                      // profile_id
-            false,                  // modem_cognitive
-            0,                      // max_conns
-            0,                      // wait_time
-            0,                      // max_conns_time
-            0,                      // mtu
-            -1,                     // mvno_type
-            "");                    // mnvo_match_data
+    private ApnSetting mApn1 = new ApnSetting.Builder()
+            .setId(2163)
+            .setOperatorNumeric("44010")
+            .setEntryName("sp-mode")
+            .setApnName("spmode.ne.jp")
+            .setApnTypeBitmask(ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_SUPL)
+            .setProtocol(ApnSetting.PROTOCOL_IP)
+            .setRoamingProtocol(ApnSetting.PROTOCOL_IP)
+            .setCarrierEnabled(true)
+            .build();
 
-    private ApnSetting mApn2 = ApnSetting.makeApnSetting(
-            2164,                   // id
-            "44010",                // numeric
-            "sp-mode",              // name
-            "spmode.ne.jp",         // apn
-            null,                   // proxy
-            -1,                     // port
-            null,                   // mmsc
-            null,                   // mmsproxy
-            -1,                     // mmsport
-            "",                     // user
-            "",                     // password
-            -1,                     // authtype
-            ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_DUN, // types
-            ApnSetting.PROTOCOL_IP, // protocol
-            ApnSetting.PROTOCOL_IP, // roaming_protocol
-            true,                   // carrier_enabled
-            0,                      // networktype_bitmask
-            0,                      // profile_id
-            false,                  // modem_cognitive
-            0,                      // max_conns
-            0,                      // wait_time
-            0,                      // max_conns_time
-            0,                      // mtu
-            -1,                     // mvno_type
-            "");                    // mnvo_match_data
+    private ApnSetting mApn2 = new ApnSetting.Builder()
+            .setId(2164)
+            .setOperatorNumeric("44010")
+            .setEntryName("sp-mode")
+            .setApnName("spmode.ne.jp")
+            .setApnTypeBitmask(ApnSetting.TYPE_DEFAULT | ApnSetting.TYPE_DUN)
+            .setProtocol(ApnSetting.PROTOCOL_IP)
+            .setRoamingProtocol(ApnSetting.PROTOCOL_IP)
+            .setCarrierEnabled(true)
+            .build();
 
-    private ApnSetting mApn3 = ApnSetting.makeApnSetting(
-            2165,                   // id
-            "44010",                // numeric
-            "sp-mode",              // name
-            "spmode.ne.jp",         // apn
-            null,                   // proxy
-            -1,                     // port
-            null,                   // mmsc
-            null,                   // mmsproxy
-            -1,                     // mmsport
-            "",                     // user
-            "",                     // password
-            -1,                     // authtype
-            ApnSetting.TYPE_DEFAULT, // types
-            ApnSetting.PROTOCOL_IPV6, // protocol
-            ApnSetting.PROTOCOL_IP, // roaming_protocol
-            true,                   // carrier_enabled
-            0,                      // networktype_bitmask
-            0,                      // profile_id
-            false,                  // modem_cognitive
-            0,                      // max_conns
-            0,                      // wait_time
-            0,                      // max_conns_time
-            0,                      // mtu
-            -1,                     // mvno_type
-            "",                     // mnvo_match_data
-            0,                      // apn_set_id
-            -1,                     // carrier_id
-            1);                     // skip_464xlat
+    private ApnSetting mApn3 = new ApnSetting.Builder()
+            .setId(2165)
+            .setOperatorNumeric("44010")
+            .setEntryName("sp-mode")
+            .setApnName("spmode.ne.jp")
+            .setApnTypeBitmask(ApnSetting.TYPE_DEFAULT)
+            .setProtocol(ApnSetting.PROTOCOL_IPV6)
+            .setRoamingProtocol(ApnSetting.PROTOCOL_IP)
+            .setNetworkTypeBitmask(0)
+            .setCarrierEnabled(true)
+            .setCarrierId(1)
+            .setSkip464Xlat(1)
+            .build();
 
-    private ApnSetting mApn4 = ApnSetting.makeApnSetting(
-            2166,                   // id
-            "44010",                // numeric
-            "sp-mode",              // name
-            "spmode.ne.jp",         // apn
-            null,                   // proxy
-            -1,                     // port
-            null,                   // mmsc
-            null,                   // mmsproxy
-            -1,                     // mmsport
-            "",                     // user
-            "",                     // password
-            -1,                     // authtype
-            ApnSetting.TYPE_IMS,    // types
-            ApnSetting.PROTOCOL_IPV6, // protocol
-            ApnSetting.PROTOCOL_IP, // roaming_protocol
-            true,                   // carrier_enabled
-            0,                      // networktype_bitmask
-            0,                      // profile_id
-            false,                  // modem_cognitive
-            0,                      // max_conns
-            0,                      // wait_time
-            0,                      // max_conns_time
-            0,                      // mtu
-            -1,                     // mvno_type
-            "");                    // mnvo_match_data
+    private ApnSetting mApn4 = new ApnSetting.Builder()
+            .setId(2166)
+            .setOperatorNumeric("44010")
+            .setEntryName("sp-mode")
+            .setApnName("spmode.ne.jp")
+            .setApnTypeBitmask(ApnSetting.TYPE_IMS)
+            .setProtocol(ApnSetting.PROTOCOL_IPV6)
+            .setRoamingProtocol(ApnSetting.PROTOCOL_IP)
+            .setCarrierEnabled(true)
+            .build();
 
-    private ApnSetting mApn5 = ApnSetting.makeApnSetting(
-            2167,                   // id
-            "44010",                // numeric
-            "sp-mode",              // name
-            "spmode.ne.jp",         // apn
-            null,                   // proxy
-            -1,                     // port
-            null,                   // mmsc
-            null,                   // mmsproxy
-            -1,                     // mmsport
-            "",                     // user
-            "",                     // password
-            -1,                     // authtype
-            ApnSetting.TYPE_IMS,    // types
-            ApnSetting.PROTOCOL_IPV6, // protocol
-            ApnSetting.PROTOCOL_IP, // roaming_protocol
-            true,                   // carrier_enabled
-            0,                      // networktype_bitmask
-            0,                      // profile_id
-            false,                  // modem_cognitive
-            0,                      // max_conns
-            0,                      // wait_time
-            0,                      // max_conns_time
-            0,                      // mtu
-            -1,                     // mvno_type
-            "",                     // mnvo_match_data
-            0,                      // apn_set_id
-            -1,                     // carrier_id
-            0);                     // skip_464xlat
+    private ApnSetting mApn5 = new ApnSetting.Builder()
+            .setId(2167)
+            .setOperatorNumeric("44010")
+            .setEntryName("sp-mode")
+            .setApnName("spmode.ne.jp")
+            .setApnTypeBitmask(ApnSetting.TYPE_IMS)
+            .setProtocol(ApnSetting.PROTOCOL_IPV6)
+            .setRoamingProtocol(ApnSetting.PROTOCOL_IP)
+            .setCarrierEnabled(true)
+            .setSkip464Xlat(Telephony.Carriers.SKIP_464XLAT_DISABLE)
+            .build();
 
-    private ApnSetting mApn6 = ApnSetting.makeApnSetting(
-            2168,                   // id
-            "44010",                // numeric
-            "sp-mode",              // name
-            "spmode.ne.jp",         // apn
-            null,                   // proxy
-            -1,                     // port
-            null,                   // mmsc
-            null,                   // mmsproxy
-            -1,                     // mmsport
-            "",                     // user
-            "",                     // password
-            -1,                     // authtype
-            ApnSetting.TYPE_EMERGENCY, // types
-            ApnSetting.PROTOCOL_IP, // protocol
-            ApnSetting.PROTOCOL_IP, // roaming_protocol
-            true,                   // carrier_enabled
-            0,                      // networktype_bitmask
-            0,                      // profile_id
-            false,                  // modem_cognitive
-            0,                      // max_conns
-            0,                      // wait_time
-            0,                      // max_conns_time
-            0,                      // mtu
-            -1,                     // mvno_type
-            "");                    // mnvo_match_data
+    private ApnSetting mApn6 = new ApnSetting.Builder()
+            .setId(2168)
+            .setOperatorNumeric("44010")
+            .setEntryName("sp-mode")
+            .setApnName("spmode.ne.jp")
+            .setApnTypeBitmask(ApnSetting.TYPE_EMERGENCY)
+            .setProtocol(ApnSetting.PROTOCOL_IP)
+            .setRoamingProtocol(ApnSetting.PROTOCOL_IP)
+            .setCarrierEnabled(true)
+            .build();
 
     private class DataConnectionTestHandler extends HandlerThread {
 
@@ -297,7 +200,7 @@ public class DataConnectionTest extends TelephonyTest {
             Handler h = new Handler();
             mDcc = DcController.makeDcc(mPhone, mDcTracker, mDataServiceManager, h.getLooper(), "");
             mDc = DataConnection.makeDataConnection(mPhone, 0, mDcTracker, mDataServiceManager,
-                    mDcTesterFailBringUpAll, mDcc, true);
+                    mDcTesterFailBringUpAll, mDcc);
         }
     }
 
@@ -482,6 +385,63 @@ public class DataConnectionTest extends TelephonyTest {
                 eq(false), eq(DataService.REQUEST_REASON_NORMAL), any(),
                 anyInt(), any(), tdCaptor.capture(), anyBoolean(), any(Message.class));
 
+        verify(mSimulatedCommandsVerifier, times(0))
+                .allocatePduSessionId(any());
+
+        assertEquals("spmode.ne.jp", dpCaptor.getValue().getApn());
+        if (tdCaptor.getValue() != null) {
+            if (mApnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE) {
+                assertEquals(null, tdCaptor.getValue().getDataNetworkName());
+                assertTrue(Arrays.equals(DataConnection.getEnterpriseOsAppId(),
+                        tdCaptor.getValue().getOsAppId()));
+            } else {
+                assertEquals("spmode.ne.jp", tdCaptor.getValue().getDataNetworkName());
+                assertEquals(null, tdCaptor.getValue().getOsAppId());
+            }
+        }
+        assertTrue(mDc.isActive());
+
+        assertEquals(1, mDc.getPduSessionId());
+        assertEquals(3, mDc.getPcscfAddresses().length);
+        assertTrue(Arrays.stream(mDc.getPcscfAddresses()).anyMatch("fd00:976a:c305:1d::8"::equals));
+        assertTrue(Arrays.stream(mDc.getPcscfAddresses()).anyMatch("fd00:976a:c202:1d::7"::equals));
+        assertTrue(Arrays.stream(mDc.getPcscfAddresses()).anyMatch("fd00:976a:c305:1d::5"::equals));
+    }
+
+    @Test
+    @SmallTest
+    public void testConnectOnIwlan() throws Exception {
+        assertTrue(mDc.isInactive());
+        Field field = DataConnection.class.getDeclaredField("mTransportType");
+        field.setAccessible(true);
+        field.setInt(mDc, AccessNetworkConstants.TRANSPORT_TYPE_WLAN);
+        connectEvent(true);
+
+        verify(mCT, times(1)).registerForVoiceCallStarted(any(Handler.class),
+                eq(DataConnection.EVENT_DATA_CONNECTION_VOICE_CALL_STARTED), eq(null));
+        verify(mCT, times(1)).registerForVoiceCallEnded(any(Handler.class),
+                eq(DataConnection.EVENT_DATA_CONNECTION_VOICE_CALL_ENDED), eq(null));
+        verify(mSimulatedCommandsVerifier, times(0))
+                .registerForNattKeepaliveStatus(any(Handler.class),
+                        eq(DataConnection.EVENT_KEEPALIVE_STATUS), eq(null));
+        verify(mSimulatedCommandsVerifier, times(0))
+                .registerForLceInfo(any(Handler.class),
+                        eq(DataConnection.EVENT_LINK_CAPACITY_CHANGED), eq(null));
+        verify(mVcnManager, atLeastOnce())
+                .applyVcnNetworkPolicy(
+                        argThat(caps ->
+                                caps.hasCapability(
+                                        NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED)),
+                        any());
+
+        ArgumentCaptor<DataProfile> dpCaptor = ArgumentCaptor.forClass(DataProfile.class);
+        ArgumentCaptor<TrafficDescriptor> tdCaptor =
+                ArgumentCaptor.forClass(TrafficDescriptor.class);
+        verify(mDataServiceManager, times(1)).setupDataCall(
+                eq(AccessNetworkType.UTRAN), dpCaptor.capture(), eq(false),
+                eq(false), eq(DataService.REQUEST_REASON_NORMAL), any(),
+                anyInt(), any(), tdCaptor.capture(), anyBoolean(), any(Message.class));
+
         verify(mSimulatedCommandsVerifier, times(1))
                 .allocatePduSessionId(any());
 
@@ -498,7 +458,7 @@ public class DataConnectionTest extends TelephonyTest {
         }
         assertTrue(mDc.isActive());
 
-        assertEquals(mDc.getPduSessionId(), 1);
+        assertEquals(1, mDc.getPduSessionId());
         assertEquals(3, mDc.getPcscfAddresses().length);
         assertTrue(Arrays.stream(mDc.getPcscfAddresses()).anyMatch("fd00:976a:c305:1d::8"::equals));
         assertTrue(Arrays.stream(mDc.getPcscfAddresses()).anyMatch("fd00:976a:c202:1d::7"::equals));
@@ -572,6 +532,28 @@ public class DataConnectionTest extends TelephonyTest {
 
         verify(mSimulatedCommandsVerifier, times(1)).unregisterForLceInfo(any(Handler.class));
         verify(mSimulatedCommandsVerifier, times(1))
+                .unregisterForNattKeepaliveStatus(any(Handler.class));
+        verify(mDataServiceManager, times(1)).deactivateDataCall(eq(DEFAULT_DC_CID),
+                eq(DataService.REQUEST_REASON_NORMAL), any(Message.class));
+        verify(mSimulatedCommandsVerifier, times(0))
+                .releasePduSessionId(any(), eq(5));
+
+        assertTrue(mDc.isInactive());
+    }
+
+    @Test
+    @SmallTest
+    public void testDisconnectOnIwlan() throws Exception {
+        testConnectEvent();
+
+        Field field = DataConnection.class.getDeclaredField("mTransportType");
+        field.setAccessible(true);
+        field.setInt(mDc, AccessNetworkConstants.TRANSPORT_TYPE_WLAN);
+        mDc.setPduSessionId(5);
+        disconnectEvent();
+
+        verify(mSimulatedCommandsVerifier, times(0)).unregisterForLceInfo(any(Handler.class));
+        verify(mSimulatedCommandsVerifier, times(0))
                 .unregisterForNattKeepaliveStatus(any(Handler.class));
         verify(mDataServiceManager, times(1)).deactivateDataCall(eq(DEFAULT_DC_CID),
                 eq(DataService.REQUEST_REASON_NORMAL), any(Message.class));

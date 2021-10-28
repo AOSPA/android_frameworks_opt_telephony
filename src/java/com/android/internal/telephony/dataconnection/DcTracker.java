@@ -94,6 +94,7 @@ import android.telephony.data.ApnSetting;
 import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataCallResponse.HandoverFailureMode;
 import android.telephony.data.DataProfile;
+import android.telephony.data.ThrottleStatus;
 import android.telephony.gsm.GsmCellLocation;
 import android.text.TextUtils;
 import android.util.EventLog;
@@ -451,6 +452,19 @@ public class DcTracker extends Handler {
         }
     };
 
+    private class ThrottleStatusChangedCallback implements DataThrottler.Callback {
+        @Override
+        public void onThrottleStatusChanged(List<ThrottleStatus> throttleStatuses) {
+            for (ThrottleStatus status : throttleStatuses) {
+                if (status.getThrottleType() == ThrottleStatus.THROTTLE_TYPE_NONE) {
+                    setupDataOnConnectableApn(mApnContextsByType.get(status.getApnType()),
+                            Phone.REASON_DATA_UNTHROTTLED,
+                            RetryFailures.ALWAYS);
+                }
+            }
+        }
+    }
+
     private NetworkPolicyManager mNetworkPolicyManager;
     private final NetworkPolicyManager.SubscriptionCallback mSubscriptionCallback =
             new NetworkPolicyManager.SubscriptionCallback() {
@@ -722,6 +736,8 @@ public class DcTracker extends Handler {
 
     private final DataThrottler mDataThrottler;
 
+    private final ThrottleStatusChangedCallback mThrottleStatusCallback;
+
     /**
      * Request network completion message map. Key is the APN type, value is the list of completion
      * messages to be sent. Using a list because there might be multiple network requests for
@@ -797,6 +813,9 @@ public class DcTracker extends Handler {
 
         mSettingsObserver = new SettingsObserver(mPhone.getContext(), this);
         registerSettingsObserver();
+
+        mThrottleStatusCallback = new ThrottleStatusChangedCallback();
+        mDataThrottler.registerForThrottleStatusChanges(mThrottleStatusCallback);
     }
 
     @VisibleForTesting
@@ -811,6 +830,7 @@ public class DcTracker extends Handler {
         mTransportType = 0;
         mDataServiceManager = null;
         mDataThrottler = null;
+        mThrottleStatusCallback = null;
     }
 
     public void registerServiceStateTrackerEvents() {
@@ -2027,14 +2047,6 @@ public class DcTracker extends Handler {
         ArrayList<ApnSetting> dunCandidates = new ArrayList<ApnSetting>();
         ArrayList<ApnSetting> retDunSettings = new ArrayList<ApnSetting>();
 
-        // Places to look for tether APN in order: TETHER_DUN_APN setting (to be deprecated soon),
-        // APN database
-        String apnData = Settings.Global.getString(mResolver, Settings.Global.TETHER_DUN_APN);
-        if (!TextUtils.isEmpty(apnData)) {
-            dunCandidates.addAll(ApnSetting.arrayFromString(apnData));
-            if (VDBG) log("fetchDunApns: dunCandidates from Setting: " + dunCandidates);
-        }
-
         if (dunCandidates.isEmpty()) {
             if (!ArrayUtils.isEmpty(mAllApnSettings)) {
                 for (ApnSetting apn : mAllApnSettings) {
@@ -2334,8 +2346,10 @@ public class DcTracker extends Handler {
             if (DBG) log("setInitialAttachApn: X There in no available apn.");
         } else {
             if (DBG) log("setInitialAttachApn: X selected APN=" + apnSetting);
-            mDataServiceManager.setInitialAttachApn(createDataProfile(apnSetting,
-                    apnSetting.equals(getPreferredApn())),
+            mDataServiceManager.setInitialAttachApn(new DataProfile.Builder()
+                    .setApnSetting(apnSetting)
+                    .setPreferred(apnSetting.equals(getPreferredApn()))
+                    .build(),
                     mPhone.getServiceState().getDataRoamingFromRegistration(), null);
         }
     }
@@ -2590,6 +2604,7 @@ public class DcTracker extends Handler {
         /*After SIM REFRESH, SIM records might get disposed so APNs need to be reset.*/
             cleanUpConnectionsAndClearApnSettings();
         } else if (mSimState == TelephonyManager.SIM_STATE_LOADED) {
+            mDataThrottler.reset();
             if (mConfigReady) {
                 createAllApnList();
                 setDataProfilesAsNeeded();
@@ -2611,9 +2626,6 @@ public class DcTracker extends Handler {
                 @ApnType int apnTypes = apnSetting.getApnTypeBitmask();
                 mDataThrottler.setRetryTime(apnTypes, RetryManager.NO_SUGGESTED_RETRY_DELAY,
                         REQUEST_TYPE_NORMAL);
-                // After data unthrottled, we should see if it's possible to bring up the data
-                // again.
-                setupDataOnAllConnectableApns(Phone.REASON_DATA_UNTHROTTLED, RetryFailures.ALWAYS);
             } else {
                 loge("EVENT_APN_UNTHROTTLED: Invalid APN passed: " + apn);
             }
@@ -3556,7 +3568,10 @@ public class DcTracker extends Handler {
         for (ApnSetting apn : mAllApnSettings) {
             if (apn.getApnSetId() == Telephony.Carriers.MATCH_ALL_APN_SET_ID
                     || preferredApnSetId == apn.getApnSetId()) {
-                DataProfile dp = createDataProfile(apn, apn.equals(getPreferredApn()));
+                DataProfile dp = new DataProfile.Builder()
+                        .setApnSetting(apn)
+                        .setPreferred(apn.equals(getPreferredApn()))
+                        .build();
                 if (!dataProfileList.contains(dp)) {
                     dataProfileList.add(dp);
                 }
@@ -3702,25 +3717,45 @@ public class DcTracker extends Handler {
         int networkTypeBitmask = (dest.getNetworkTypeBitmask() == 0
                 || src.getNetworkTypeBitmask() == 0)
                 ? 0 : (dest.getNetworkTypeBitmask() | src.getNetworkTypeBitmask());
-
-        return ApnSetting.makeApnSetting(id, dest.getOperatorNumeric(), dest.getEntryName(),
-            dest.getApnName(), proxy, port, mmsc, mmsProxy, mmsPort, dest.getUser(),
-            dest.getPassword(), dest.getAuthType(), resultApnType, protocol, roamingProtocol,
-            dest.isEnabled(), networkTypeBitmask, dest.getProfileId(),
-            (dest.isPersistent() || src.isPersistent()), dest.getMaxConns(),
-            dest.getWaitTime(), dest.getMaxConnsTime(), dest.getMtu(), dest.getMvnoType(),
-            dest.getMvnoMatchData(), dest.getApnSetId(), dest.getCarrierId(),
-            dest.getSkip464Xlat());
+        return new ApnSetting.Builder()
+                .setId(id)
+                .setOperatorNumeric(dest.getOperatorNumeric())
+                .setEntryName(dest.getEntryName())
+                .setApnName(dest.getApnName())
+                .setProxyAddress(proxy)
+                .setProxyPort(port)
+                .setMmsc(mmsc)
+                .setMmsProxyAddress(mmsProxy)
+                .setMmsProxyPort(mmsPort)
+                .setUser(dest.getUser())
+                .setPassword(dest.getPassword())
+                .setAuthType(dest.getAuthType())
+                .setApnTypeBitmask(resultApnType)
+                .setProtocol(protocol)
+                .setRoamingProtocol(roamingProtocol)
+                .setCarrierEnabled(dest.isEnabled())
+                .setNetworkTypeBitmask(networkTypeBitmask)
+                .setProfileId(dest.getProfileId())
+                .setModemCognitive(dest.isPersistent() || src.isPersistent())
+                .setMaxConns(dest.getMaxConns())
+                .setWaitTime(dest.getWaitTime())
+                .setMaxConnsTime(dest.getMaxConnsTime())
+                .setMtuV4(dest.getMtuV4())
+                .setMtuV6(dest.getMtuV6())
+                .setMvnoType(dest.getMvnoType())
+                .setMvnoMatchData(dest.getMvnoMatchData())
+                .setApnSetId(dest.getApnSetId())
+                .setCarrierId(dest.getCarrierId())
+                .setSkip464Xlat(dest.getSkip464Xlat())
+                .build();
     }
 
     protected DataConnection createDataConnection() {
         if (DBG) log("createDataConnection E");
 
         int id = mUniqueIdGenerator.getAndIncrement();
-        boolean doAllocatePduSessionId =
-                mTransportType == AccessNetworkConstants.TRANSPORT_TYPE_WLAN;
         DataConnection dataConnection = DataConnection.makeDataConnection(mPhone, id, this,
-                mDataServiceManager, mDcTesterFailBringUpAll, mDcc, doAllocatePduSessionId);
+                mDataServiceManager, mDcTesterFailBringUpAll, mDcc);
         mDataConnections.put(id, dataConnection);
         if (DBG) log("createDataConnection() X id=" + id + " dc=" + dataConnection);
         return dataConnection;
@@ -4924,11 +4959,17 @@ public class DcTracker extends Handler {
         String operator = mPhone.getOperatorNumeric();
         //Add default apn setting for ia if no APN is present.
         if (mAllApnSettings.isEmpty()) {
-            mAllApnSettings.add(ApnSetting.makeApnSetting(0, operator, "DEFAULT IA", "", null,
-                    -1, null, null, -1, "", "", 0, ApnSetting.TYPE_IA, ApnSetting.PROTOCOL_IPV4V6,
-                    ApnSetting.PROTOCOL_IPV4V6, true, 0, 0, false, 0, 0, 0, 0, -1, "",
-                    Telephony.Carriers.MATCH_ALL_APN_SET_ID, TelephonyManager.UNKNOWN_CARRIER_ID,
-                    Telephony.Carriers.SKIP_464XLAT_DEFAULT));
+            mAllApnSettings.add(new ApnSetting.Builder()
+                .setOperatorNumeric(operator)
+                .setEntryName("DEFAULT IA")
+                .setAuthType(ApnSetting.TYPE_IA)
+                .setProtocol(ApnSetting.PROTOCOL_IPV4V6)
+                .setRoamingProtocol(ApnSetting.PROTOCOL_IPV4V6)
+                .setCarrierEnabled(true)
+                .setApnSetId(Telephony.Carriers.MATCH_ALL_APN_SET_ID)
+                .setCarrierId(TelephonyManager.UNKNOWN_CARRIER_ID)
+                .setSkip464Xlat(Telephony.Carriers.SKIP_464XLAT_DEFAULT)
+                .build());
             log("default IA empty(null) apn is created");
         }
 
@@ -5626,50 +5667,6 @@ public class DcTracker extends Handler {
     private void stopWatchdogAlarm() {
         removeMessages(DctConstants.EVENT_NR_TIMER_WATCHDOG);
         mWatchdog = false;
-    }
-
-    private static DataProfile createDataProfile(ApnSetting apn, boolean isPreferred) {
-        return createDataProfile(apn, apn.getProfileId(), isPreferred);
-    }
-
-    @VisibleForTesting
-    public static DataProfile createDataProfile(ApnSetting apn, int profileId,
-                                                boolean isPreferred) {
-        int profileType;
-
-        int networkTypeBitmask = apn.getNetworkTypeBitmask();
-
-        if (networkTypeBitmask == 0) {
-            profileType = DataProfile.TYPE_COMMON;
-        } else if ((networkTypeBitmask & TelephonyManager.NETWORK_STANDARDS_FAMILY_BITMASK_3GPP2)
-                == networkTypeBitmask) {
-            profileType = DataProfile.TYPE_3GPP2;
-        } else if ((networkTypeBitmask & TelephonyManager.NETWORK_STANDARDS_FAMILY_BITMASK_3GPP)
-                == networkTypeBitmask) {
-            profileType = DataProfile.TYPE_3GPP;
-        } else {
-            profileType = DataProfile.TYPE_COMMON;
-        }
-
-        return new DataProfile.Builder()
-                .setProfileId(profileId)
-                .setApn(apn.getApnName())
-                .setProtocolType(apn.getProtocol())
-                .setAuthType(apn.getAuthType())
-                .setUserName(apn.getUser() == null ? "" : apn.getUser())
-                .setPassword(apn.getPassword() == null ? "" : apn.getPassword())
-                .setType(profileType)
-                .setMaxConnectionsTime(apn.getMaxConnsTime())
-                .setMaxConnections(apn.getMaxConns())
-                .setWaitTime(apn.getWaitTime())
-                .enable(apn.isEnabled())
-                .setSupportedApnTypesBitmask(apn.getApnTypeBitmask())
-                .setRoamingProtocolType(apn.getRoamingProtocol())
-                .setBearerBitmask(networkTypeBitmask)
-                .setMtu(apn.getMtu())
-                .setPersistent(apn.isPersistent())
-                .setPreferred(isPreferred)
-                .build();
     }
 
     private void onDataServiceBindingChanged(boolean bound) {
