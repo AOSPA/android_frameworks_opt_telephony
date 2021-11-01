@@ -1176,6 +1176,16 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         });
     }
 
+    /* Hang up all connections of the call
+     * Throws CallStateException if hangup fails
+     */
+    public void hangupAllConnections(ImsPhoneCall call) throws CallStateException {
+        List<Connection> connections = call.getConnections();
+        for (Connection conn : connections) {
+            conn.hangup();
+        }
+    }
+
     private void sendImsServiceStateIntent(String intentAction) {
         Intent intent = new Intent(intentAction);
         intent.putExtra(ImsManager.EXTRA_PHONE_ID, mPhone.getPhoneId());
@@ -1309,29 +1319,53 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         int clirMode = dialArgs.clirMode;
         int videoState = dialArgs.videoState;
-
-        if (DBG) log("dial clirMode=" + clirMode);
+        DeferDial deferDial = dialArgs.deferDial;
+        if (DBG) log("dial clirMode=" + clirMode + " deferDial =" + deferDial);
         boolean holdBeforeDial = prepareForDialing(dialArgs);
 
         mClirMode = clirMode;
         ImsPhoneConnection pendingConnection;
         synchronized (mSyncHold) {
             mLastDialArgs = dialArgs;
-            pendingConnection = new ImsPhoneConnection(mPhone,
-                    participantsToDial, this, mForegroundCall,
-                    false);
-            // Don't rely on the mPendingMO in this method; if the modem calls back through
-            // onCallProgressing, we'll end up nulling out mPendingMO, which means that
-            // TelephonyConnectionService would treat this call as an MMI code, which it is not,
-            // which would mean that the MMI code dialog would crash.
-            mPendingMO = pendingConnection;
-            pendingConnection.setVideoState(videoState);
-            if (dialArgs.rttTextStream != null) {
-                log("startConference: setting RTT stream on mPendingMO");
-                pendingConnection.setCurrentRttTextStream(dialArgs.rttTextStream);
+            if (deferDial == DeferDial.INVALID || deferDial == DeferDial.ENABLE) {
+                // deferDial will be set to ENABLE if extra handling is required on the other sub,
+                // ex:holding active call on the other sub, before dial request can be
+                // instantiated. The flag tells ImsPhoneCallTracker to create the connection without
+                // submitting the DIAL request to lower layers. Once extra handling has been
+                // completed, deferDial will be set to DISABLE and DIAL request can be sent.
+                // For legacy non DSDA use case, deferDial is INVALID
+                pendingConnection = new ImsPhoneConnection(mPhone,
+                        participantsToDial, this, mForegroundCall,
+                        false);
+                // Don't rely on the mPendingMO in this method; if the modem calls back through
+                // onCallProgressing, we'll end up nulling out mPendingMO, which means that
+                // TelephonyConnectionService would treat this call as an MMI code, which it is not,
+                // which would mean that the MMI code dialog would error out.
+                mPendingMO = pendingConnection;
+                pendingConnection.setVideoState(videoState);
+                if (dialArgs.rttTextStream != null) {
+                    log("startConference: setting RTT stream on mPendingMO");
+                    pendingConnection.setCurrentRttTextStream(dialArgs.rttTextStream);
+                }
+            } else {
+                if (mPendingMO == null) {
+                    // If deferDial is DISABLE, pendingMO should already have been created
+                    throw new CallStateException("mPendingMo cannot be null. Incorrect dialargs");
+                }
+                // Reset DeferDial to default value INVALID and dial as usual
+                deferDial = DeferDial.INVALID;
+                pendingConnection = mPendingMO;
             }
         }
-        addConnection(pendingConnection);
+        pendingConnection.setDeferDialStatus(deferDial);
+
+        if (deferDial == DeferDial.INVALID) {
+            // mPendingMO needs to be added to the internal list of connections only once.For DSDA
+            // across sub dial, this can be done at the time of creation of mPendingMO or when the
+            // 2nd dial request comes. We are adding the connection when the 2nd dial request
+            // comes as the defer flag gets reset to INVALID thus keeping legacy behavior the same
+            addConnection(pendingConnection);
+        }
 
         if (!holdBeforeDial) {
             dialInternal(pendingConnection, clirMode, videoState, dialArgs.intentExtras);
@@ -1402,7 +1436,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             mLastDialString = dialString;
             mLastDialArgs = dialArgs;
             log("dial: deferDial = " + deferDial);
-            if (deferDial != DeferDial.DISABLE) {
+            if (deferDial == DeferDial.INVALID || deferDial == DeferDial.ENABLE) {
                 // deferDial will be set to ENABLE if extra handling is required on the other sub,
                 // ex:holding active call on the other sub, before dial request can be
                 // instantiated. The flag tells ImsPhoneCallTracker to create the connection without
@@ -1411,13 +1445,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 // For legacy non DSDA use case, deferDial is INVALID
                 mPendingMO = new ImsPhoneConnection(mPhone, dialString, this, mForegroundCall,
                         isEmergencyNumber, isWpsCall);
-            } else if (mPendingMO == null) {
-                // If HoldAndDialHandler sent deferDial as DISABLE, pendingMO should already have
-                // been created
-                throw new CallStateException("mPendingMo cannot be null. Incorrect dialargs");
             } else {
-                // HoldAndDialHandler sent deferDial as DISABLE. Reset it to default value INVALID
-                // and dial as usual
+                if (mPendingMO == null) {
+                    // If deferDial is DISABLE, pendingMO should already have been created
+                    throw new CallStateException("mPendingMo cannot be null. Incorrect dialargs");
+                }
+                // Reset DeferDial to default value INVALID and dial as usual
                 deferDial = DeferDial.INVALID;
             }
             mPendingMO.setDeferDialStatus(deferDial);
