@@ -4974,6 +4974,7 @@ public class DcTracker extends Handler {
         }
 
         for (ApnSetting apn : mAllApnSettings) {
+            if (apn == null) continue;
             if (apn.canHandleType(ApnSetting.TYPE_EMERGENCY)) {
                 isEmergencyApnConfigured = true;
             }
