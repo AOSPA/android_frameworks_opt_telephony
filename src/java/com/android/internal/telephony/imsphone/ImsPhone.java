@@ -34,6 +34,7 @@ import static com.android.internal.telephony.CommandsInterface.CF_ACTION_ERASURE
 import static com.android.internal.telephony.CommandsInterface.CF_ACTION_REGISTRATION;
 import static com.android.internal.telephony.CommandsInterface.CF_REASON_ALL;
 import static com.android.internal.telephony.CommandsInterface.CF_REASON_ALL_CONDITIONAL;
+import static com.android.internal.telephony.CommandsInterface.CF_REASON_NOT_LOGGED_IN;
 import static com.android.internal.telephony.CommandsInterface.CF_REASON_BUSY;
 import static com.android.internal.telephony.CommandsInterface.CF_REASON_NOT_REACHABLE;
 import static com.android.internal.telephony.CommandsInterface.CF_REASON_NO_REPLY;
@@ -1126,6 +1127,7 @@ public class ImsPhone extends ImsPhoneBase {
         case CF_REASON_NOT_REACHABLE:
         case CF_REASON_ALL:
         case CF_REASON_ALL_CONDITIONAL:
+        case CF_REASON_NOT_LOGGED_IN:
             return true;
         default:
             return false;
@@ -1159,6 +1161,7 @@ public class ImsPhone extends ImsPhoneBase {
             case CF_REASON_NOT_REACHABLE: return ImsUtInterface.CDIV_CF_NOT_REACHABLE;
             case CF_REASON_ALL: return ImsUtInterface.CDIV_CF_ALL;
             case CF_REASON_ALL_CONDITIONAL: return ImsUtInterface.CDIV_CF_ALL_CONDITIONAL;
+            case CF_REASON_NOT_LOGGED_IN: return ImsUtInterface.CDIV_CF_NOT_LOGGED_IN;
             default:
                 break;
         }
@@ -1174,6 +1177,7 @@ public class ImsPhone extends ImsPhoneBase {
             case ImsUtInterface.CDIV_CF_NOT_REACHABLE: return CF_REASON_NOT_REACHABLE;
             case ImsUtInterface.CDIV_CF_ALL: return CF_REASON_ALL;
             case ImsUtInterface.CDIV_CF_ALL_CONDITIONAL: return CF_REASON_ALL_CONDITIONAL;
+            case ImsUtInterface.CDIV_CF_NOT_LOGGED_IN: return CF_REASON_NOT_LOGGED_IN;
             default:
                 break;
         }
