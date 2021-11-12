@@ -47,6 +47,7 @@ import android.content.SharedPreferences;
 import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.database.Cursor;
+import android.hardware.radio.V1_5.ApnTypes;
 import android.net.ConnectivityManager;
 import android.net.LinkProperties;
 import android.net.NetworkAgent;
@@ -4961,6 +4962,8 @@ public class DcTracker extends Handler {
         if (mAllApnSettings.isEmpty()) {
             mAllApnSettings.add(new ApnSetting.Builder()
                 .setOperatorNumeric(operator)
+                .setApnName("default")
+                .setApnTypeBitmask(ApnTypes.DEFAULT)
                 .setEntryName("DEFAULT IA")
                 .setAuthType(ApnSetting.TYPE_IA)
                 .setProtocol(ApnSetting.PROTOCOL_IPV4V6)
