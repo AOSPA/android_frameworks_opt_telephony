@@ -466,7 +466,7 @@ public class SubscriptionInfoUpdater extends Handler {
         }
     }
 
-    private boolean areUiccAppsDisabledOnCard(int phoneId) {
+    protected boolean areUiccAppsDisabledOnCard(int phoneId) {
         // When uicc apps are disabled(supported in IRadio 1.5), we will still get IccId from
         // cardStatus (since IRadio 1.2). Amd upon cardStatus change we'll receive another
         // handleSimNotReady so this will be evaluated again.
