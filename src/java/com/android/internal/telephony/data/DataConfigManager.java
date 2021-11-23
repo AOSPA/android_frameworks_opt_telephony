@@ -33,10 +33,15 @@ import android.telephony.SubscriptionManager;
 import android.util.IndentingPrintWriter;
 
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.data.DataRetryManager.DataRetryRule;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -59,6 +64,8 @@ public class DataConfigManager extends Handler {
     /** The network capability priority map */
     private final Map<Integer, Integer> mNetworkCapabilityPriorityMap = new ConcurrentHashMap<>();
 
+    private final List<DataRetryRule> mDataRetryRules = new ArrayList<>();
+
     private @Nullable PersistableBundle mCarrierConfig = null;
     private @Nullable Resources mResources = null;
 
@@ -73,6 +80,7 @@ public class DataConfigManager extends Handler {
         super(looper);
         mPhone = phone;
         mLogTag = "DCM-" + mPhone.getPhoneId();
+        log("DataConfigManager created.");
 
         mCarrierConfigManager = mPhone.getContext().getSystemService(CarrierConfigManager.class);
 
@@ -96,17 +104,28 @@ public class DataConfigManager extends Handler {
         }
         mResources = SubscriptionManager.getResourcesForSubId(mPhone.getContext(),
                 mPhone.getSubId());
+        updateConfig();
     }
 
     @Override
     public void handleMessage(Message msg) {
         switch (msg.what) {
             case EVENT_CARRIER_CONFIG_CHANGED:
+                log("EVENT_CARRIER_CONFIG_CHANGED");
                 updateConfig();
                 break;
             default:
                 loge("Unexpected message " + msg.what);
         }
+    }
+
+    /**
+     * @return {@code true} if the configuration is carrier specific. {@code false} if the
+     * configuration is the default (i.e. SIM not inserted).
+     */
+    public boolean isConfigCarrierSpecific() {
+        return mCarrierConfig != null
+                && mCarrierConfig.getBoolean(CarrierConfigManager.KEY_CARRIER_CONFIG_APPLIED_BOOL);
     }
 
     /**
@@ -118,8 +137,12 @@ public class DataConfigManager extends Handler {
         }
         mResources = SubscriptionManager.getResourcesForSubId(mPhone.getContext(),
                 mPhone.getSubId());
+
         updateNetworkCapabilityPriority();
-        log("Data config updated.");
+        updateDataRetryRules();
+
+        log("Data config updated. Config is " + (isConfigCarrierSpecific() ? "" : "not ")
+                + "carrier specific.");
 
         mConfigUpdateRegistrants.notifyRegistrants();
     }
@@ -128,9 +151,9 @@ public class DataConfigManager extends Handler {
      * Update the network capability priority from carrier config.
      */
     private void updateNetworkCapabilityPriority() {
+        if (mCarrierConfig == null) return;
         String[] capabilityPriorityStrings = mCarrierConfig.getStringArray(
-                // TODO: Add carrier config manager change
-                ""/*CarrierConfigManager.KEY_NETWORK_CAPABILITY_PRIORITY_STRING_ARRAY*/);
+                CarrierConfigManager.KEY_TELEPHONY_NETWORK_CAPABILITY_PRIORITIES_STRING_ARRAY);
         if (capabilityPriorityStrings != null) {
             for (String capabilityPriorityString : capabilityPriorityStrings) {
                 capabilityPriorityString = capabilityPriorityString.trim().toUpperCase();
@@ -163,6 +186,28 @@ public class DataConfigManager extends Handler {
             return mNetworkCapabilityPriorityMap.get(capability);
         }
         return 0;
+    }
+
+    /**
+     * Update the data retry rules from the carrier config.
+     */
+    private void updateDataRetryRules() {
+        mDataRetryRules.clear();
+        if (mCarrierConfig == null) return;
+        String[] dataRetryRulesStrings = mCarrierConfig.getStringArray(
+                CarrierConfigManager.KEY_TELEPHONY_DATA_RETRY_RULES_STRING_ARRAY);
+        if (dataRetryRulesStrings != null) {
+            Arrays.stream(dataRetryRulesStrings)
+                    .map(DataRetryRule::new)
+                    .forEach(mDataRetryRules::add);
+        }
+    }
+
+    /**
+     * @return The data retry rules from carrier config.
+     */
+    public @NonNull List<DataRetryRule> getDataRetryRules() {
+        return Collections.unmodifiableList(mDataRetryRules);
     }
 
     /**
@@ -213,9 +258,16 @@ public class DataConfigManager extends Handler {
         pw.println("Network capability priority:");
         pw.increaseIndent();
         for (Map.Entry<Integer, Integer> entry : mNetworkCapabilityPriorityMap.entrySet()) {
-            pw.println(DataUtils.networkCapabilityToString(entry.getKey()) + ": "
-                    + entry.getValue());
+            pw.print(DataUtils.networkCapabilityToString(entry.getKey()) + ":"
+                    + entry.getValue() + " ");
         }
+        pw.println();
+        pw.println("Data retry rules:");
+        pw.increaseIndent();
+        for (DataRetryRule rule : mDataRetryRules) {
+            pw.println(rule);
+        }
+        pw.decreaseIndent();
         pw.decreaseIndent();
         pw.decreaseIndent();
     }

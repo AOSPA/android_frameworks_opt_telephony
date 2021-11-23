@@ -363,6 +363,8 @@ public class ImsPhoneConnection extends Connection implements
         Rlog.w(LOG_TAG, "applyRemoteCallCapabilities - remoteProfile = "+remoteProfile);
         capabilities = removeCapability(capabilities,
                 Connection.Capability.SUPPORTS_VT_REMOTE_BIDIRECTIONAL);
+        capabilities = removeCapability(capabilities,
+                Connection.Capability.SUPPORTS_RTT_REMOTE);
 
         switch (remoteProfile.mCallType) {
             case ImsCallProfile.CALL_TYPE_VT:
@@ -375,6 +377,10 @@ public class ImsPhoneConnection extends Connection implements
                 capabilities = removeCapability(capabilities,
                         Connection.Capability.SUPPORTS_DOWNGRADE_TO_VOICE_REMOTE);
                 break;
+        }
+
+        if (remoteProfile.getMediaProfile().getRttMode() == ImsStreamMediaProfile.RTT_MODE_FULL) {
+            capabilities = addCapability(capabilities, Connection.Capability.SUPPORTS_RTT_REMOTE);
         }
 
         if (remoteProfile.getMediaProfile().getRttMode() == ImsStreamMediaProfile.RTT_MODE_FULL) {
