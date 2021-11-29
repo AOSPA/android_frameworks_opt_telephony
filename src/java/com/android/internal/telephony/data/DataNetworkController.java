@@ -97,7 +97,8 @@ public class DataNetworkController extends Handler {
     /** Event for setup a data network. */
     private static final int EVENT_SETUP_DATA_NETWORK = 5;
 
-
+    /** Event for data stall action reestablish. */
+    private static final int EVENT_DATA_STALL_ACTION_REESTABLISH = 6;
 
     private final Phone mPhone;
     private final String mLogTag;
@@ -106,7 +107,7 @@ public class DataNetworkController extends Handler {
     private final @NonNull DataConfigManager mDataConfigManager;
     private final @NonNull DataSettingsManager mDataSettingsManager;
     private final @NonNull DataProfileManager mDataProfileManager;
-    private final @NonNull DataStallMonitor mDataStallMonitor;
+    private final @NonNull DataStallRecoveryManager mDataStallRecoveryManager;
     private final @NonNull DataTaskManager mDataTaskManager;
     private final @NonNull SparseArray<DataServiceManager> mDataServiceManagers =
             new SparseArray<>();
@@ -218,7 +219,7 @@ public class DataNetworkController extends Handler {
         mDataConfigManager = new DataConfigManager(mPhone, looper);
         mDataSettingsManager = new DataSettingsManager(mPhone, looper);
         mDataProfileManager = new DataProfileManager(mPhone, looper);
-        mDataStallMonitor = new DataStallMonitor(mPhone, this, mDataServiceManagers
+        mDataStallRecoveryManager = new DataStallRecoveryManager(mPhone, this, mDataServiceManagers
                 .get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN), looper);
         mDataTaskManager = new DataTaskManager(mPhone, looper);
 
@@ -230,6 +231,8 @@ public class DataNetworkController extends Handler {
      */
     private void registerAllEvents() {
         mDataConfigManager.registerForConfigUpdate(this, EVENT_DATA_CONFIG_UPDATED);
+        mDataStallRecoveryManager.registerForDataStallReestablishEvent(this,
+                EVENT_DATA_STALL_ACTION_REESTABLISH);
     }
 
     @Override
@@ -249,6 +252,9 @@ public class DataNetworkController extends Handler {
                 break;
             case EVENT_SETUP_DATA_NETWORK:
                 onSetupDataNetwork((DataProfile) msg.obj);
+                break;
+            case EVENT_DATA_STALL_ACTION_REESTABLISH:
+                onDataStallActionReestablish();
                 break;
             default:
                 loge("Unexpected event " + msg.what);
@@ -384,6 +390,12 @@ public class DataNetworkController extends Handler {
     }
 
     /**
+     * Handle data stall action reestablish event.
+     */
+    private void onDataStallActionReestablish() {
+    }
+
+    /**
      * @return Data config manager instance.
      */
     public @NonNull DataConfigManager getDataConfigManager() {
@@ -499,7 +511,7 @@ public class DataNetworkController extends Handler {
         pw.println("-------------------------------------");
         mDataSettingsManager.dump(fd, pw, args);
         pw.println("-------------------------------------");
-        mDataStallMonitor.dump(fd, pw, args);
+        mDataStallRecoveryManager.dump(fd, pw, args);
         pw.println("-------------------------------------");
         mDataConfigManager.dump(fd, pw, args);
 
