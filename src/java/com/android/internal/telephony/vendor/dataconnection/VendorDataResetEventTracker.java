@@ -70,8 +70,7 @@ public class VendorDataResetEventTracker {
                     AsyncResult ar = (AsyncResult) msg.obj;
                     Pair<Integer, Integer> result = (Pair<Integer, Integer>) ar.result;
                     if (result != null) {
-                        if (mPreviousRAT > 0 && result.second > 0
-                                && mPreviousRAT != result.second) {
+                        if (mPreviousRAT > 0 && mPreviousRAT != result.second) {
                             if (DBG) log("RAT CHANGED, " + mPreviousRAT
                                      + "->" + result.second);
                             notifyResetEvent("DATA_RAT_CHANGED", false);
