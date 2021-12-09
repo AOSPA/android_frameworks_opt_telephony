@@ -4963,7 +4963,7 @@ public class DcTracker extends Handler {
             mAllApnSettings.add(new ApnSetting.Builder()
                 .setOperatorNumeric(operator)
                 .setApnName("default")
-                .setApnTypeBitmask(ApnTypes.DEFAULT)
+                .setApnTypeBitmask(ApnTypes.IA)
                 .setEntryName("DEFAULT IA")
                 .setAuthType(ApnSetting.TYPE_IA)
                 .setProtocol(ApnSetting.PROTOCOL_IPV4V6)
