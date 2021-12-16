@@ -5198,4 +5198,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public boolean isScbmTimerCanceledForEmergency() {
         return false;
     }
+
+    public void onCarrierConfigLoadedForEssentialRecords() {}
 }
