@@ -860,6 +860,14 @@ public class ContextFixture implements TestFixture<Context> {
         }
     }
 
+    public void addCallingOrSelfPermissionToCurrentPermissions(String permission) {
+        synchronized (mPermissionTable) {
+            if (mPermissionTable != null && permission != null) {
+                mPermissionTable.add(permission);
+            }
+        }
+    }
+
     public void removeCallingOrSelfPermission(String permission) {
         synchronized (mPermissionTable) {
             if (mPermissionTable != null && permission != null) {

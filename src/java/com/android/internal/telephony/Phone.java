@@ -80,6 +80,7 @@ import com.android.ims.ImsManager;
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.data.DataNetworkController;
+import com.android.internal.telephony.dataconnection.AccessNetworksManager;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
@@ -240,8 +241,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected static final int EVENT_BARRING_INFO_CHANGED = 58;
     protected static final int EVENT_LINK_CAPACITY_CHANGED = 59;
     protected static final int EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION = 60;
+    protected static final int EVENT_SET_VONR_ENABLED_DONE = 61;
 
-    protected static final int EVENT_LAST = EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION;
+    protected static final int EVENT_LAST = EVENT_SET_VONR_ENABLED_DONE;
 
     // For shared prefs.
     private static final String GSM_ROAMING_LIST_OVERRIDE_PREFIX = "gsm_roaming_list_";
@@ -355,6 +357,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected DeviceStateMonitor mDeviceStateMonitor;
     protected DisplayInfoController mDisplayInfoController;
     protected TransportManager mTransportManager;
+    protected AccessNetworksManager mAccessNetworksManager;
     protected DataEnabledSettings mDataEnabledSettings;
     // Used for identify the carrier of current subscription
     protected CarrierResolver mCarrierResolver;
@@ -1910,9 +1913,16 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     * @return The instance of transport manager
+     * @return The instance of transport manager.
      */
     public TransportManager getTransportManager() {
+        return null;
+    }
+
+    /**
+     * @return The instance of access networks manager.
+     */
+    public AccessNetworksManager getAccessNetworksManager() {
         return null;
     }
 
@@ -2252,11 +2262,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * @return Current signal strength as SignalStrength
      */
     public SignalStrength getSignalStrength() {
-        ServiceStateTracker sst = getServiceStateTracker();
-        if (sst == null) {
+        SignalStrengthController ssc = getSignalStrengthController();
+        if (ssc == null) {
             return new SignalStrength();
         } else {
-            return sst.getSignalStrength();
+            return ssc.getSignalStrength();
         }
     }
 
