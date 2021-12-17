@@ -299,7 +299,8 @@ public class SubscriptionController extends ISub.Stub {
             SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES,
             SubscriptionManager.UICC_APPLICATIONS_ENABLED,
             SubscriptionManager.IMS_RCS_UCE_ENABLED,
-            SubscriptionManager.CROSS_SIM_CALLING_ENABLED
+            SubscriptionManager.CROSS_SIM_CALLING_ENABLED,
+            SubscriptionManager.NR_ADVANCED_CALLING_ENABLED
     ));
 
     public static SubscriptionController init(Context c) {
@@ -2277,6 +2278,7 @@ public class SubscriptionController extends ISub.Stub {
             case SubscriptionManager.DATA_ROAMING:
             case SubscriptionManager.IMS_RCS_UCE_ENABLED:
             case SubscriptionManager.CROSS_SIM_CALLING_ENABLED:
+            case SubscriptionManager.NR_ADVANCED_CALLING_ENABLED:
                 values.put(propKey, cursor.getInt(columnIndex));
                 break;
             case SubscriptionManager.DISPLAY_NAME:
@@ -3097,26 +3099,33 @@ public class SubscriptionController extends ISub.Stub {
      */
     @Override
     public int[] getActiveSubIdList(boolean visibleOnly) {
-        List<Integer> allSubs = getActiveSubIdArrayList();
+        enforceReadPrivilegedPhoneState("getActiveSubIdList");
 
-        if (visibleOnly) {
-            // Grouped opportunistic subscriptions should be hidden.
-            allSubs = allSubs.stream().filter(subId -> isSubscriptionVisible(subId))
-                    .collect(Collectors.toList());
-        }
+        final long token = Binder.clearCallingIdentity();
+        try {
+            List<Integer> allSubs = getActiveSubIdArrayList();
 
-        int[] subIdArr = new int[allSubs.size()];
-        int i = 0;
-        for (int sub : allSubs) {
-            subIdArr[i] = sub;
-            i++;
-        }
+            if (visibleOnly) {
+                // Grouped opportunistic subscriptions should be hidden.
+                allSubs = allSubs.stream().filter(subId -> isSubscriptionVisible(subId))
+                        .collect(Collectors.toList());
+            }
 
-        if (VDBG) {
-            logdl("[getActiveSubIdList] allSubs=" + allSubs + " subIdArr.length="
-                    + subIdArr.length);
+            int[] subIdArr = new int[allSubs.size()];
+            int i = 0;
+            for (int sub : allSubs) {
+                subIdArr[i] = sub;
+                i++;
+            }
+
+            if (VDBG) {
+                logdl("[getActiveSubIdList] allSubs=" + allSubs + " subIdArr.length="
+                        + subIdArr.length);
+            }
+            return subIdArr;
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
-        return subIdArr;
     }
 
     @Override
@@ -3238,6 +3247,7 @@ public class SubscriptionController extends ISub.Stub {
             case SubscriptionManager.IMS_RCS_UCE_ENABLED:
             case SubscriptionManager.CROSS_SIM_CALLING_ENABLED:
             case SubscriptionManager.VOIMS_OPT_IN_STATUS:
+            case SubscriptionManager.NR_ADVANCED_CALLING_ENABLED:
                 value.put(propKey, Integer.parseInt(propValue));
                 break;
             case SubscriptionManager.ALLOWED_NETWORK_TYPES:
@@ -3318,6 +3328,7 @@ public class SubscriptionController extends ISub.Stub {
                         case SubscriptionManager.D2D_STATUS_SHARING:
                         case SubscriptionManager.VOIMS_OPT_IN_STATUS:
                         case SubscriptionManager.D2D_STATUS_SHARING_SELECTED_CONTACTS:
+                        case SubscriptionManager.NR_ADVANCED_CALLING_ENABLED:
                             resultValue = cursor.getString(0);
                             break;
                         default:
