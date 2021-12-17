@@ -2608,6 +2608,7 @@ public class DcTracker extends Handler {
         /*After SIM REFRESH, SIM records might get disposed so APNs need to be reset.*/
             cleanUpConnectionsAndClearApnSettings();
         } else if (mSimState == TelephonyManager.SIM_STATE_LOADED) {
+            mDataThrottler.reset();
             if (mConfigReady) {
                 createAllApnList();
                 setDataProfilesAsNeeded();
