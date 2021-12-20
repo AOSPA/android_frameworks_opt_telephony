@@ -256,6 +256,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
     final Integer mPhoneId;
 
+    private static final String PROPERTY_IS_VONR_ENABLED = "persist.radio.is_vonr_enabled_";
+
     /**
      * A set that records if radio service is disabled in hal for
      * a specific phone id slot to avoid further getService request.
@@ -3588,6 +3590,46 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
+    private void setVoNrEnabled(boolean enabled) {
+        SystemProperties.set(PROPERTY_IS_VONR_ENABLED + mPhoneId, String.valueOf(enabled));
+    }
+
+    private boolean isVoNrEnabled() {
+        return SystemProperties.getBoolean(PROPERTY_IS_VONR_ENABLED + mPhoneId, true);
+    }
+
+    /**
+     * Is voice over NR enabled
+     */
+    @Override
+    public void isVoNrEnabled(Message result, WorkSource workSource) {
+        boolean isEnabled = isVoNrEnabled();
+        if (result != null) {
+            AsyncResult.forMessage(result, isEnabled, null);
+            result.sendToTarget();
+        }
+    }
+
+    /**
+     * Enable or disable Voice over NR (VoNR)
+     * @param enabled enable or disable VoNR.
+     */
+    @Override
+    public void setVoNrEnabled(boolean enabled, Message result, WorkSource workSource) {
+        setVoNrEnabled(enabled);
+        /* calling a query api to let HAL know that VoNREnabled state is updated.
+           This is a temporary work around as new HIDL API is not allowed.
+           HAL can check the value of PROPERTY_IS_VONR_ENABLED property to determine
+           if there is any change whenever it receives isNrDualConnectivityEnabled request.
+           This behavior will be removed in Android T.
+         */
+        isNrDualConnectivityEnabled(null, workSource);
+        if (result != null) {
+            AsyncResult.forMessage(result, null, null);
+            result.sendToTarget();
+        }
+    }
+
     @Override
     public void setCdmaSubscriptionSource(int cdmaSubscription , Message result) {
         IRadio radioProxy = getRadioProxy(result);
@@ -4672,6 +4714,19 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 handleRadioProxyExceptionForRR(rr, "setUiccSubscription", e);
             }
         }
+    }
+
+    /**
+     * Whether the device modem supports reporting the EID in either the slot or card status or
+     * through ATR.
+     * @return true if the modem supports EID.
+     */
+    @Override
+    public boolean supportsEid() {
+        // EID should be supported as long as HAL >= 1.2.
+        //  - in HAL 1.2 we have EID through ATR
+        //  - in later HAL versions we also have EID through slot / card status.
+        return mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_1_2);
     }
 
     @Override
