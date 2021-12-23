@@ -3053,7 +3053,7 @@ public class DcTracker extends Handler {
     // This method is called
     // 1. When the data roaming status changes from non-roaming to roaming.
     // 2. When allowed data roaming settings is changed by the user.
-    private void onDataRoamingOnOrSettingsChanged(int messageType) {
+    protected void onDataRoamingOnOrSettingsChanged(int messageType) {
         if (DBG) log("onDataRoamingOnOrSettingsChanged");
         // Used to differentiate data roaming turned on vs settings changed.
         boolean settingChanged = (messageType == DctConstants.EVENT_ROAMING_SETTING_CHANGE);
@@ -3733,10 +3733,8 @@ public class DcTracker extends Handler {
         if (DBG) log("createDataConnection E");
 
         int id = mUniqueIdGenerator.getAndIncrement();
-        boolean doAllocatePduSessionId =
-                mTransportType == AccessNetworkConstants.TRANSPORT_TYPE_WLAN;
         DataConnection dataConnection = DataConnection.makeDataConnection(mPhone, id, this,
-                mDataServiceManager, mDcTesterFailBringUpAll, mDcc, doAllocatePduSessionId);
+                mDataServiceManager, mDcTesterFailBringUpAll, mDcc);
         mDataConnections.put(id, dataConnection);
         if (DBG) log("createDataConnection() X id=" + id + " dc=" + dataConnection);
         return dataConnection;
@@ -4488,7 +4486,7 @@ public class DcTracker extends Handler {
         mAllDataDisconnectedRegistrants.remove(h);
     }
 
-    private void onDataEnabledChanged(boolean enable,
+    protected void onDataEnabledChanged(boolean enable,
                                       @DataEnabledChangedReason int enabledChangedReason) {
         if (DBG) {
             log("onDataEnabledChanged: enable=" + enable + ", enabledChangedReason="
