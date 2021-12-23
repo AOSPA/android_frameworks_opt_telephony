@@ -40,7 +40,6 @@ import android.telephony.AnomalyReporter;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
-import android.telephony.data.NrQosSessionAttributes;
 import android.telephony.data.QosBearerSession;
 import android.util.LocalLog;
 import android.util.SparseArray;
