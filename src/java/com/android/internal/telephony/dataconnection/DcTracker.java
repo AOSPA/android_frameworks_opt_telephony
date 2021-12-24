@@ -226,7 +226,7 @@ public class DcTracker extends Handler {
 
     public AtomicBoolean isCleanupRequired = new AtomicBoolean(false);
 
-    private final TelephonyManager mTelephonyManager;
+    protected final TelephonyManager mTelephonyManager;
 
     private final AlarmManager mAlarmManager;
 
@@ -2552,7 +2552,7 @@ public class DcTracker extends Handler {
         return false;
     }
 
-    private void onCarrierConfigChanged() {
+    protected void onCarrierConfigChanged() {
         if (DBG) log("onCarrierConfigChanged");
 
         if (!isCarrierConfigApplied()) {
@@ -2562,7 +2562,8 @@ public class DcTracker extends Handler {
 
         readConfiguration();
 
-        if (mSimState == TelephonyManager.SIM_STATE_LOADED) {
+        if (mSimState == TelephonyManager.SIM_STATE_LOADED
+                || isSimCardPresentAndEssentialRecordsLoaded()) {
             setDefaultDataRoamingEnabled();
             createAllApnList();
             setDataProfilesAsNeeded();
@@ -2571,8 +2572,21 @@ public class DcTracker extends Handler {
             cleanUpConnectionsOnUpdatedApns(true, Phone.REASON_CARRIER_CHANGE);
             setupDataOnAllConnectableApns(Phone.REASON_CARRIER_CHANGE, RetryFailures.ALWAYS);
         } else {
-            log("onCarrierConfigChanged: SIM is not loaded yet.");
+            log("onCarrierConfigChanged: SIM is not loaded yet, state: " + mSimState);
         }
+    }
+
+    public void setEssentialRecordsLoaded(boolean isLoaded) {
+        loge("Error! setEssentialRecordsLoaded should not have been called here!");
+    }
+
+    protected boolean isSimCardPresentAndEssentialRecordsLoaded() {
+        loge("Error! isSimCardPresentAndEssentialRecordsLoaded should not have been called here!");
+        return false;
+    }
+
+    public void onCarrierConfigLoadedForEssentialRecords() {
+        loge("Error! onCarrierConfigLoadedForEssentialRecords should not have been called here!");
     }
 
     private void cleanUpConnectionsAndClearApnSettings() {
@@ -2595,7 +2609,7 @@ public class DcTracker extends Handler {
         setDataProfilesAsNeeded();
     }
 
-    private void onSimStateUpdated(@SimState int simState) {
+    protected void onSimStateUpdated(@SimState int simState) {
         mSimState = simState;
 
         if (DBG) {
