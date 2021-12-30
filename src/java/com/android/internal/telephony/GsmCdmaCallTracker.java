@@ -219,6 +219,26 @@ public class GsmCdmaCallTracker extends CallTracker {
         clearDisconnected();
     }
 
+    /**
+     * @return true if the phone is in Emergency Callback mode, otherwise false
+     */
+    private boolean isPhoneInEcbm() {
+        return EcbmHandler.getInstance() != null && EcbmHandler.getInstance().isInEcm();
+    }
+
+    /**
+     * @return true if the phone is in SMS callback mode and
+     * exit SCBM supported, otherwise false
+     */
+    private boolean canExitScbm() {
+        return mPhone.isInScbm() && mPhone.isExitScbmFeatureSupported();
+    }
+
+    private boolean isPhoneInEmergencyMode() {
+        return isPhoneInEcbm() || canExitScbm();
+    }
+
+
     @Override
     protected void finalize() {
         Rlog.d(LOG_TAG, "GsmCdmaCallTracker finalized");
@@ -271,6 +291,28 @@ public class GsmCdmaCallTracker extends CallTracker {
         for (Connection conn : connCopy) {
             GsmCdmaConnection gsmCdmaConn = (GsmCdmaConnection) conn;
             gsmCdmaConn.fakeHoldBeforeDial();
+        }
+    }
+
+    private void exitEmergencyMode() {
+        boolean isPhoneInEcbm = isPhoneInEcbm();
+        if (isPhoneInEcbm) {
+            EcbmHandler emergencyHandler = EcbmHandler.getInstance();
+            try {
+                emergencyHandler.exitEmergencyCallbackMode();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            emergencyHandler.setOnEcbModeExitResponse(this,
+                    EVENT_EXIT_ECM_RESPONSE_CDMA, null);
+        } else {
+            try {
+                mPhone.exitScbm();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            mPhone.setOnScbmExitResponse(this,
+                    EVENT_EXIT_SCBM_RESPONSE_CDMA, null);
         }
     }
 
@@ -357,21 +399,17 @@ public class GsmCdmaCallTracker extends CallTracker {
 
             // Always unmute when initiating a new call
             setMute(false);
-            boolean isPhoneInEcmMode = EcbmHandler.getInstance().isInEcm();
+            boolean isPhoneInEmergencyMode = isPhoneInEmergencyMode();
+
             // In Ecm mode, if another emergency call is dialed, Ecm mode will not exit.
-            if(!isPhoneInEcmMode || (isPhoneInEcmMode && isEmergencyCall)) {
+            if ((!isPhoneInEmergencyMode) ||
+                (isPhoneInEmergencyMode && isEmergencyCall)) {
                 mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
                         mPendingMO.getEmergencyNumberInfo(),
                         mPendingMO.hasKnownUserIntentEmergency(), clirMode, uusInfo,
                         obtainCompleteMessage());
             } else {
-                EcbmHandler emergencyHandler = EcbmHandler.getInstance();
-                try {
-                    emergencyHandler.exitEmergencyCallbackMode();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-                emergencyHandler.setOnEcbModeExitResponse(this,EVENT_EXIT_ECM_RESPONSE_CDMA, null);
+                exitEmergencyMode();
                 mPendingCallClirMode = clirMode;
                 mPendingCallUusInfo = uusInfo;
                 mPendingCallInEcm = true;
@@ -499,21 +537,15 @@ public class GsmCdmaCallTracker extends CallTracker {
 
             // Check data call
             disableDataCallInEmergencyCall(dialString);
-
+            boolean isPhoneInEmergencyMode = isPhoneInEmergencyMode();
             // In Ecm mode, if another emergency call is dialed, Ecm mode will not exit.
-            if(!isPhoneInEcmMode || (isPhoneInEcmMode && isEmergencyCall)) {
+            if (!isPhoneInEmergencyMode || (isPhoneInEmergencyMode && isEmergencyCall)) {
                 mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
                         mPendingMO.getEmergencyNumberInfo(),
                         mPendingMO.hasKnownUserIntentEmergency(),
                         clirMode, obtainCompleteMessage());
             } else {
-                EcbmHandler emergencyHandler = EcbmHandler.getInstance();
-                try {
-                    emergencyHandler.exitEmergencyCallbackMode();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-                emergencyHandler.setOnEcbModeExitResponse(this,EVENT_EXIT_ECM_RESPONSE_CDMA, null);
+                exitEmergencyMode();
                 mPendingCallClirMode=clirMode;
                 mPendingCallInEcm=true;
             }
@@ -1460,6 +1492,25 @@ public class GsmCdmaCallTracker extends CallTracker {
         return null;
     }
 
+    private void handlePendingMoCall() {
+        if (mPendingCallInEcm) {
+            // no matter the result, we still do the same here
+            if (isPhoneTypeGsm()) {
+                mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
+                        mPendingMO.getEmergencyNumberInfo(),
+                        mPendingMO.hasKnownUserIntentEmergency(), mPendingCallClirMode,
+                        mPendingCallUusInfo, obtainCompleteMessage());
+
+            } else {
+                mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
+                        mPendingMO.getEmergencyNumberInfo(),
+                        mPendingMO.hasKnownUserIntentEmergency(),
+                        mPendingCallClirMode, obtainCompleteMessage());
+            }
+            mPendingCallInEcm = false;
+        }
+    }
+
     //CDMA
     private void notifyCallWaitingInfo(CdmaCallWaitingNotification obj) {
         if (mCallWaitingRegistrants != null) {
@@ -1671,23 +1722,13 @@ public class GsmCdmaCallTracker extends CallTracker {
             break;
 
             case EVENT_EXIT_ECM_RESPONSE_CDMA:
-                if (mPendingCallInEcm) {
-                    // no matter the result, we still do the same here
-                    if (isPhoneTypeGsm()) {
-                        mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
-                                mPendingMO.getEmergencyNumberInfo(),
-                                mPendingMO.hasKnownUserIntentEmergency(), mPendingCallClirMode,
-                                mPendingCallUusInfo, obtainCompleteMessage());
-
-                    } else {
-                        mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
-                                mPendingMO.getEmergencyNumberInfo(),
-                                mPendingMO.hasKnownUserIntentEmergency(),
-                                mPendingCallClirMode, obtainCompleteMessage());
-                    }
-                }
+                handlePendingMoCall();
                 EcbmHandler.getInstance().unsetOnEcbModeExitResponse(this);
-                mPendingCallInEcm = false;
+                break;
+
+            case EVENT_EXIT_SCBM_RESPONSE_CDMA:
+                handlePendingMoCall();
+                mPhone.unsetOnScbmExitResponse(this);
                 break;
 
             case EVENT_CALL_WAITING_INFO_CDMA:
