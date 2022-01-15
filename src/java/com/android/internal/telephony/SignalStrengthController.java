@@ -18,7 +18,10 @@ package com.android.internal.telephony;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.IBinder;
@@ -38,14 +41,10 @@ import android.telephony.SignalStrength;
 import android.telephony.SignalStrengthUpdateRequest;
 import android.telephony.SignalThresholdInfo;
 import android.telephony.SubscriptionInfo;
-import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.telephony.uicc.IccCardStatus;
-import com.android.internal.telephony.uicc.UiccCard;
-import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.util.ArrayUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.telephony.Rlog;
@@ -82,16 +81,12 @@ public class SignalStrengthController extends Handler {
     private static final int EVENT_GET_SIGNAL_STRENGTH                      = 6;
     private static final int EVENT_POLL_SIGNAL_STRENGTH                     = 7;
     private static final int EVENT_SIGNAL_STRENGTH_UPDATE                   = 8;
+    private static final int EVENT_POLL_SIGNAL_STRENGTH_DONE                = 9;
+    private static final int EVENT_CARRIER_CONFIG_CHANGED                   = 10;
 
     private final Phone mPhone;
     private final CommandsInterface mCi;
 
-    /**
-     * By default, strength polling is enabled.  However, if we're
-     * getting unsolicited signal strength updates from the radio, set
-     * value to true and don't bother polling any more.
-     */
-    private boolean mDontPollSignalStrength = false;
     @NonNull
     private SignalStrength mSignalStrength;
     private long mSignalStrengthUpdatedTime;
@@ -119,6 +114,23 @@ public class SignalStrengthController extends Handler {
 
     private final List<SignalRequestRecord> mSignalRequestRecords = new ArrayList<>();
 
+    @NonNull
+    private PersistableBundle mCarrierConfig;
+
+    private BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            final String action = intent.getAction();
+            if (CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED.equals(action)) {
+                int phoneId = intent.getExtras().getInt(CarrierConfigManager.EXTRA_SLOT_INDEX);
+                // Ignore the carrier config changed if the phoneId is not matched.
+                if (phoneId == mPhone.getPhoneId()) {
+                    sendEmptyMessage(EVENT_CARRIER_CONFIG_CHANGED);
+                }
+            }
+        }
+    };
+
     public SignalStrengthController(Phone phone) {
         mPhone = phone;
         mCi = mPhone.mCi;
@@ -127,6 +139,11 @@ public class SignalStrengthController extends Handler {
         mCi.registerForAvailable(this, EVENT_RADIO_AVAILABLE, null);
         mCi.setOnSignalStrengthUpdate(this, EVENT_SIGNAL_STRENGTH_UPDATE, null);
         setSignalStrengthDefaultValues();
+
+        mCarrierConfig = getCarrierConfig();
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+        mPhone.getContext().registerReceiver(mBroadcastReceiver, filter);
     }
 
     @Override
@@ -169,7 +186,7 @@ public class SignalStrengthController extends Handler {
                 mSignalRequestRecords.add(record);
 
                 updateAlwaysReportSignalStrength();
-                updateReportingCriteria(getCarrierConfig());
+                updateReportingCriteria();
 
                 onCompleted.sendToTarget();
                 break;
@@ -191,7 +208,7 @@ public class SignalStrengthController extends Handler {
                 }
 
                 updateAlwaysReportSignalStrength();
-                updateReportingCriteria(getCarrierConfig());
+                updateReportingCriteria();
 
                 if (onCompleted != null) {
                     AsyncResult ret = AsyncResult.forMessage(onCompleted);
@@ -201,10 +218,11 @@ public class SignalStrengthController extends Handler {
             }
 
             case EVENT_ON_DEVICE_IDLE_STATE_CHANGED: {
-                updateReportingCriteria(getCarrierConfig());
+                updateReportingCriteria();
                 break;
             }
 
+            case EVENT_POLL_SIGNAL_STRENGTH_DONE: // fall through
             case EVENT_GET_SIGNAL_STRENGTH: {
                 // This callback is called when signal strength is polled
                 // all by itself
@@ -215,15 +233,13 @@ public class SignalStrengthController extends Handler {
                 }
                 ar = (AsyncResult) msg.obj;
                 onSignalStrengthResult(ar);
-                queueNextSignalStrengthPoll();
-
                 break;
             }
 
             case EVENT_POLL_SIGNAL_STRENGTH: {
                 // Just poll signal strength...not part of pollState()
 
-                mCi.getSignalStrength(obtainMessage(EVENT_GET_SIGNAL_STRENGTH));
+                mCi.getSignalStrength(obtainMessage(EVENT_POLL_SIGNAL_STRENGTH_DONE));
                 break;
             }
 
@@ -231,12 +247,12 @@ public class SignalStrengthController extends Handler {
                 // This is a notification from CommandsInterface.setOnSignalStrengthUpdate
 
                 ar = (AsyncResult) msg.obj;
-
-                // The radio is telling us about signal strength changes
-                // we don't have to ask it
-                mDontPollSignalStrength = true;
-
                 onSignalStrengthResult(ar);
+                break;
+            }
+
+            case EVENT_CARRIER_CONFIG_CHANGED: {
+                onCarrierConfigChanged();
                 break;
             }
 
@@ -276,9 +292,8 @@ public class SignalStrengthController extends Handler {
         if ((ar.exception == null) && (ar.result != null)) {
             mSignalStrength = (SignalStrength) ar.result;
 
-            PersistableBundle config = getCarrierConfig();
             if (mPhone.getServiceStateTracker() != null) {
-                mSignalStrength.updateLevel(config, mPhone.getServiceStateTracker().mSS);
+                mSignalStrength.updateLevel(mCarrierConfig, mPhone.getServiceStateTracker().mSS);
             }
         } else {
             log("onSignalStrengthResult() Exception from RIL : " + ar.exception);
@@ -335,71 +350,57 @@ public class SignalStrengthController extends Handler {
         return false;
     }
 
-    void queueNextSignalStrengthPoll() {
-        if (mDontPollSignalStrength) {
-            // The radio is telling us about signal strength changes
-            // we don't have to ask it
-            return;
-        }
-
-        // if there is no SIM present, do not poll signal strength
-        UiccCard uiccCard = UiccController.getInstance().getUiccCard(
-                mPhone != null ? mPhone.getPhoneId() : SubscriptionManager.DEFAULT_PHONE_INDEX);
-        if (uiccCard == null
-                || uiccCard.getCardState() == IccCardStatus.CardState.CARDSTATE_ABSENT) {
-            log("Not polling signal strength due to absence of SIM");
-            return;
-        }
-
-        // TODO Don't poll signal strength if screen is off
-        sendMessageDelayed(obtainMessage(EVENT_POLL_SIGNAL_STRENGTH), POLL_PERIOD_MILLIS);
-    }
-
     /**
      * Update signal strength reporting criteria from the carrier config
      */
     @VisibleForTesting
-    public void updateReportingCriteria(PersistableBundle config) {
-        int lteMeasurementEnabled = config.getInt(CarrierConfigManager
+    public void updateReportingCriteria() {
+        int lteMeasurementEnabled = mCarrierConfig.getInt(CarrierConfigManager
                 .KEY_PARAMETERS_USED_FOR_LTE_SIGNAL_BAR_INT, CellSignalStrengthLte.USE_RSRP);
         mPhone.setSignalStrengthReportingCriteria(SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSRP,
-                config.getIntArray(CarrierConfigManager.KEY_LTE_RSRP_THRESHOLDS_INT_ARRAY),
+                mCarrierConfig.getIntArray(CarrierConfigManager.KEY_LTE_RSRP_THRESHOLDS_INT_ARRAY),
                 AccessNetworkConstants.AccessNetworkType.EUTRAN,
                 (lteMeasurementEnabled & CellSignalStrengthLte.USE_RSRP) != 0);
         mPhone.setSignalStrengthReportingCriteria(SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSCP,
-                config.getIntArray(CarrierConfigManager.KEY_WCDMA_RSCP_THRESHOLDS_INT_ARRAY),
+                mCarrierConfig.getIntArray(
+                        CarrierConfigManager.KEY_WCDMA_RSCP_THRESHOLDS_INT_ARRAY),
                 AccessNetworkConstants.AccessNetworkType.UTRAN, true);
         mPhone.setSignalStrengthReportingCriteria(SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSSI,
-                config.getIntArray(CarrierConfigManager.KEY_GSM_RSSI_THRESHOLDS_INT_ARRAY),
+                mCarrierConfig.getIntArray(CarrierConfigManager.KEY_GSM_RSSI_THRESHOLDS_INT_ARRAY),
                 AccessNetworkConstants.AccessNetworkType.GERAN, true);
 
         if (mPhone.getHalVersion().greaterOrEqual(RIL.RADIO_HAL_VERSION_1_5)) {
             mPhone.setSignalStrengthReportingCriteria(
                     SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSRQ,
-                    config.getIntArray(CarrierConfigManager.KEY_LTE_RSRQ_THRESHOLDS_INT_ARRAY),
+                    mCarrierConfig.getIntArray(
+                            CarrierConfigManager.KEY_LTE_RSRQ_THRESHOLDS_INT_ARRAY),
                     AccessNetworkConstants.AccessNetworkType.EUTRAN,
                     (lteMeasurementEnabled & CellSignalStrengthLte.USE_RSRQ) != 0);
             mPhone.setSignalStrengthReportingCriteria(
                     SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSSNR,
-                    config.getIntArray(CarrierConfigManager.KEY_LTE_RSSNR_THRESHOLDS_INT_ARRAY),
+                    mCarrierConfig.getIntArray(
+                            CarrierConfigManager.KEY_LTE_RSSNR_THRESHOLDS_INT_ARRAY),
                     AccessNetworkConstants.AccessNetworkType.EUTRAN,
                     (lteMeasurementEnabled & CellSignalStrengthLte.USE_RSSNR) != 0);
 
-            int measurementEnabled = config.getInt(CarrierConfigManager
+            int measurementEnabled = mCarrierConfig.getInt(CarrierConfigManager
                     .KEY_PARAMETERS_USE_FOR_5G_NR_SIGNAL_BAR_INT, CellSignalStrengthNr.USE_SSRSRP);
             mPhone.setSignalStrengthReportingCriteria(
                     SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_SSRSRP,
-                    config.getIntArray(CarrierConfigManager.KEY_5G_NR_SSRSRP_THRESHOLDS_INT_ARRAY),
+                    mCarrierConfig.getIntArray(
+                            CarrierConfigManager.KEY_5G_NR_SSRSRP_THRESHOLDS_INT_ARRAY),
                     AccessNetworkConstants.AccessNetworkType.NGRAN,
                     (measurementEnabled & CellSignalStrengthNr.USE_SSRSRP) != 0);
             mPhone.setSignalStrengthReportingCriteria(
                     SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_SSRSRQ,
-                    config.getIntArray(CarrierConfigManager.KEY_5G_NR_SSRSRQ_THRESHOLDS_INT_ARRAY),
+                    mCarrierConfig.getIntArray(
+                            CarrierConfigManager.KEY_5G_NR_SSRSRQ_THRESHOLDS_INT_ARRAY),
                     AccessNetworkConstants.AccessNetworkType.NGRAN,
                     (measurementEnabled & CellSignalStrengthNr.USE_SSRSRQ) != 0);
             mPhone.setSignalStrengthReportingCriteria(
                     SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_SSSINR,
-                    config.getIntArray(CarrierConfigManager.KEY_5G_NR_SSSINR_THRESHOLDS_INT_ARRAY),
+                    mCarrierConfig.getIntArray(
+                            CarrierConfigManager.KEY_5G_NR_SSSINR_THRESHOLDS_INT_ARRAY),
                     AccessNetworkConstants.AccessNetworkType.NGRAN,
                     (measurementEnabled & CellSignalStrengthNr.USE_SSSINR) != 0);
         }
@@ -477,32 +478,12 @@ public class SignalStrengthController extends Handler {
         pw.println("mSignalRequestRecords=" + mSignalRequestRecords);
         pw.println(" mLastSignalStrength=" + mLastSignalStrength);
         pw.println(" mSignalStrength=" + mSignalStrength);
-        pw.println(" mDontPollSignalStrength=" + mDontPollSignalStrength);
         pw.println(" mLteRsrpBoost=" + mLteRsrpBoost);
         pw.println(" mNrRsrpBoost=" + Arrays.toString(mNrRsrpBoost));
-        dumpEarfcnPairList(pw, mEarfcnPairListForRsrpBoost, "mEarfcnPairListForRsrpBoost");
-        dumpEarfcnPairList(pw, mNrarfcnRangeListForRsrpBoost, "mNrarfcnRangeListForRsrpBoost");
+        pw.println(" mEarfcnPairListForRsrpBoost=" + mEarfcnPairListForRsrpBoost);
+        pw.println(" mNrarfcnRangeListForRsrpBoost=" + mNrarfcnRangeListForRsrpBoost);
         ipw.decreaseIndent();
         ipw.flush();
-    }
-
-    private void dumpEarfcnPairList(PrintWriter pw, ArrayList<Pair<Integer, Integer>> pairList,
-            String name) {
-        pw.print(" " + name + "={");
-        if (pairList != null) {
-            int i = pairList.size();
-            for (Pair<Integer, Integer> earfcnPair : pairList) {
-                pw.print("(");
-                pw.print(earfcnPair.first);
-                pw.print(",");
-                pw.print(earfcnPair.second);
-                pw.print(")");
-                if ((--i) != 0) {
-                    pw.print(",");
-                }
-            }
-        }
-        pw.println("}");
     }
 
     /**
@@ -691,17 +672,18 @@ public class SignalStrengthController extends Handler {
         mPhone.setAlwaysReportSignalStrength(alwaysReport);
     }
 
-    void updateArfcnLists(PersistableBundle config) {
+    void updateArfcnLists() {
         synchronized (mRsrpBoostLock) {
-            mLteRsrpBoost = config.getInt(CarrierConfigManager.KEY_LTE_EARFCNS_RSRP_BOOST_INT, 0);
-            String[] earfcnsStringArrayForRsrpBoost = config.getStringArray(
+            mLteRsrpBoost = mCarrierConfig.getInt(
+                    CarrierConfigManager.KEY_LTE_EARFCNS_RSRP_BOOST_INT, 0);
+            String[] earfcnsStringArrayForRsrpBoost = mCarrierConfig.getStringArray(
                     CarrierConfigManager.KEY_BOOSTED_LTE_EARFCNS_STRING_ARRAY);
             mEarfcnPairListForRsrpBoost = convertEarfcnStringArrayToPairList(
                     earfcnsStringArrayForRsrpBoost);
 
-            mNrRsrpBoost = config.getIntArray(
+            mNrRsrpBoost = mCarrierConfig.getIntArray(
                     CarrierConfigManager.KEY_NRARFCNS_RSRP_BOOST_INT_ARRAY);
-            String[] nrarfcnsStringArrayForRsrpBoost = config.getStringArray(
+            String[] nrarfcnsStringArrayForRsrpBoost = mCarrierConfig.getStringArray(
                     CarrierConfigManager.KEY_BOOSTED_NRARFCNS_STRING_ARRAY);
             mNrarfcnRangeListForRsrpBoost = convertEarfcnStringArrayToPairList(
                     nrarfcnsStringArrayForRsrpBoost);
@@ -818,6 +800,14 @@ public class SignalStrengthController extends Handler {
         }
 
         return earfcnPairList;
+    }
+
+    private void onCarrierConfigChanged() {
+        mCarrierConfig = getCarrierConfig();
+        log("Carrier Config changed.");
+
+        updateArfcnLists();
+        updateReportingCriteria();
     }
 
     /**
