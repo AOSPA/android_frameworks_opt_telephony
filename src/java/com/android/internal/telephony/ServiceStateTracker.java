@@ -1291,8 +1291,6 @@ public class ServiceStateTracker extends Handler {
                 mPrevSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
                 mIsSimReady = true;
                 pollStateInternal(false);
-                // Signal strength polling stops when radio is off
-                queueNextSignalStrengthPoll();
                 break;
 
             case EVENT_RADIO_STATE_CHANGED:
@@ -1300,9 +1298,6 @@ public class ServiceStateTracker extends Handler {
                 if(!mPhone.isPhoneTypeGsm() &&
                         mCi.getRadioState() == TelephonyManager.RADIO_POWER_ON) {
                     handleCdmaSubscriptionSource(mCdmaSSM.getCdmaSubscriptionSource());
-
-                    // Signal strength polling stops when radio is off.
-                    queueNextSignalStrengthPoll();
                 }
                 // This will do nothing in the 'radio not available' case
                 setPowerStateToDesired();
@@ -4632,10 +4627,6 @@ public class ServiceStateTracker extends Handler {
         }
     }
 
-    private void queueNextSignalStrengthPoll() {
-        mPhone.getSignalStrengthController().queueNextSignalStrengthPoll();
-    }
-
     private void notifyCdmaSubscriptionInfoReady() {
         if (mCdmaForSubscriptionInfoReadyRegistrants != null) {
             if (DBG) log("CDMA_SUBSCRIPTION: call notifyRegistrants()");
@@ -4987,10 +4978,6 @@ public class ServiceStateTracker extends Handler {
 
         mCarrierConfigLoaded = true;
         pollState();
-
-        // TODO(b/178429976): Listen config change in SSC and remove logic here
-        mPhone.getSignalStrengthController().updateArfcnLists(config);
-        mPhone.getSignalStrengthController().updateReportingCriteria(config);
 
         updateOperatorNamePattern(config);
         mCdnr.updateEfFromCarrierConfig(config);
