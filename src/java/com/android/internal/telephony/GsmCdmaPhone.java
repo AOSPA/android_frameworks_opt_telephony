@@ -1348,8 +1348,35 @@ public class GsmCdmaPhone extends Phone {
                     + possibleEmergencyNumber);
             dialString = possibleEmergencyNumber;
         }
+
+        CarrierConfigManager configManager =
+                (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        PersistableBundle carrierConfig = configManager.getConfigForSubId(getSubId());
+        boolean allowWpsOverIms = carrierConfig.getBoolean(
+                CarrierConfigManager.KEY_SUPPORT_WPS_OVER_IMS_BOOL);
+        boolean useOnlyDialedSimEccList = carrierConfig.getBoolean(
+                CarrierConfigManager.KEY_USE_ONLY_DIALED_SIM_ECC_LIST_BOOL);
+
+
         TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
-        boolean isEmergency = tm.isEmergencyNumber(dialString);
+        boolean isEmergency;
+        // Check if the carrier wants to treat a call as an emergency call based on its own list of
+        // known emergency numbers.
+        // useOnlyDialedSimEccList is false for the vast majority of carriers.  There are, however,
+        // some carriers which do not want to handle dial requests for numbers which are in the
+        // emergency number list on another SIM, but is not on theirs.  In this case we will use the
+        // emergency number list for this carrier's SIM only.
+        if (useOnlyDialedSimEccList) {
+            isEmergency = getEmergencyNumberTracker().isEmergencyNumber(dialString,
+                    true /* exactMatch */);
+            logi("dial; isEmergency=" + isEmergency
+                    + " (based on this phone only); globalIsEmergency="
+                    + tm.isEmergencyNumber(dialString));
+        } else {
+            isEmergency = tm.isEmergencyNumber(dialString);
+            logi("dial; isEmergency=" + isEmergency + " (based on all phones)");
+        }
+
         /** Check if the call is Wireless Priority Service call */
         boolean isWpsCall = dialString != null ? (dialString.startsWith(PREFIX_WPS)
                 || dialString.startsWith(PREFIX_WPS_CLIR_ACTIVATE)
@@ -1362,12 +1389,6 @@ public class GsmCdmaPhone extends Phone {
         mDialArgs = dialArgs = imsDialArgsBuilder.build();
 
         Phone imsPhone = mImsPhone;
-
-        CarrierConfigManager configManager =
-                (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-
-        boolean allowWpsOverIms = configManager.getConfigForSubId(getSubId())
-                .getBoolean(CarrierConfigManager.KEY_SUPPORT_WPS_OVER_IMS_BOOL);
 
         boolean useImsForEmergency = isEmergency && useImsForEmergency();
 
@@ -1384,8 +1405,9 @@ public class GsmCdmaPhone extends Phone {
         boolean useImsForPsOnlyCall = useImsForPsOnlyCall();
 
         if (DBG) {
-            logd("useImsForCall=" + useImsForCall
+            logi("useImsForCall=" + useImsForCall
                     + ", useImsForPsOnlyCall=" + useImsForPsOnlyCall
+                    + ", useOnlyDialedSimEccList=" + useOnlyDialedSimEccList
                     + ", isEmergency=" + isEmergency
                     + ", useImsForEmergency=" + useImsForEmergency
                     + ", useImsForUt=" + useImsForUt
@@ -3597,7 +3619,7 @@ public class GsmCdmaPhone extends Phone {
         return isProhibited;
     }
 
-    private void registerForIccRecordEvents() {
+    protected void registerForIccRecordEvents() {
         IccRecords r = mIccRecords.get();
         if (r == null) {
             return;
@@ -3616,7 +3638,7 @@ public class GsmCdmaPhone extends Phone {
         }
     }
 
-    private void unregisterForIccRecordEvents() {
+    protected void unregisterForIccRecordEvents() {
         IccRecords r = mIccRecords.get();
         if (r == null) {
             return;
