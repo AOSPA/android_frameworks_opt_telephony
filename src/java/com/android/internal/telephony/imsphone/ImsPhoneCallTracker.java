@@ -1806,7 +1806,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
                 // Set the RTT mode to 1 if sim supports RTT and if the connection has
                 // valid RTT text stream
-                if (isRttSupported() && conn.hasRttTextStream() && isStartRttCall) {
+                if (isRttSupported() && conn.hasRttTextStream() && isStartRttCall && isRttOn()) {
                     if (DBG) log("dialInternal: setting RTT mode to full");
                     profile.mMediaProfile.mRttMode = ImsStreamMediaProfile.RTT_MODE_FULL;
                 }
