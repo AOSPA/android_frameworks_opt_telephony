@@ -330,7 +330,7 @@ public class GsmCdmaPhone extends Phone {
             mTransportManager.registerDataThrottler(dcTracker.getDataThrottler());
         }
 
-        if (false/*isUsingNewDataStack()*/) {
+        if (isUsingNewDataStack()) {
             mDataNetworkController = mTelephonyComponentFactory.inject(
                     DataNetworkController.class.getName())
                     .makeDataNetworkController(this, getLooper());
@@ -4529,8 +4529,11 @@ public class GsmCdmaPhone extends Phone {
             return;
         }
 
-        String iccId = slot.getIccId();
-        if (iccId == null) return;
+        UiccPort port = mUiccController.getUiccPort(mPhoneId);
+        String iccId = (port == null) ? null : port.getIccId();
+        if (iccId == null) {
+            return;
+        }
 
         SubscriptionInfo info = SubscriptionController.getInstance().getSubInfoForIccId(
                 IccUtils.stripTrailingFs(iccId));
@@ -4590,6 +4593,9 @@ public class GsmCdmaPhone extends Phone {
      * @return Currently bound data service package names.
      */
     public @NonNull List<String> getDataServicePackages() {
+        if (isUsingNewDataStack()) {
+            return getDataNetworkController().getDataServicePackages();
+        }
         List<String> packages = new ArrayList<>();
         int[] transports = new int[]{AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
                 AccessNetworkConstants.TRANSPORT_TYPE_WLAN};

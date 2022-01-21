@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony;
 
+import static android.Manifest.permission.READ_PHONE_NUMBERS;
+import static android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE;
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 import static android.telephony.TelephonyManager.MULTISIM_ALLOWED;
 import static android.telephony.TelephonyManager.SET_OPPORTUNISTIC_SUB_REMOTE_SERVICE_EXCEPTION;
@@ -45,6 +47,7 @@ import android.os.RemoteException;
 import android.os.TelephonyServiceManager.ServiceRegisterer;
 import android.os.UserHandle;
 import android.provider.Settings;
+import android.provider.Telephony.SimInfo;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
 import android.telephony.AnomalyReporter;
@@ -57,7 +60,9 @@ import android.telephony.TelephonyFrameworkInitializer;
 import android.telephony.TelephonyManager;
 import android.telephony.TelephonyRegistryManager;
 import android.telephony.UiccAccessRule;
+import android.telephony.UiccPortInfo;
 import android.telephony.UiccSlotInfo;
+import android.telephony.UiccSlotMapping;
 import android.telephony.euicc.EuiccManager;
 import android.text.TextUtils;
 import android.util.EventLog;
@@ -1164,9 +1169,12 @@ public class SubscriptionController extends ISub.Stub {
 
         for (UiccSlot uiccSlot : uiccSlots) {
             if (uiccSlot != null && uiccSlot.getCardState() != null
-                    && uiccSlot.getCardState().isCardPresent()
-                    && !TextUtils.isEmpty(uiccSlot.getIccId())) {
-                ret.add(IccUtils.stripTrailingFs(uiccSlot.getIccId()));
+                    && uiccSlot.getCardState().isCardPresent()) {
+                // Non euicc slots will have single port, so use default port index.
+                String iccId = uiccSlot.getIccId(TelephonyManager.DEFAULT_PORT_INDEX);
+                if (!TextUtils.isEmpty(iccId)) {
+                    ret.add(IccUtils.stripTrailingFs(iccId));
+                }
             }
         }
 
@@ -3264,6 +3272,8 @@ public class SubscriptionController extends ISub.Stub {
                 value.put(propKey, Integer.parseInt(propValue));
                 break;
             case SubscriptionManager.ALLOWED_NETWORK_TYPES:
+            case SimInfo.COLUMN_PHONE_NUMBER_SOURCE_CARRIER:
+            case SimInfo.COLUMN_PHONE_NUMBER_SOURCE_IMS:
                 value.put(propKey, propValue);
                 break;
             default:
@@ -3342,6 +3352,8 @@ public class SubscriptionController extends ISub.Stub {
                         case SubscriptionManager.VOIMS_OPT_IN_STATUS:
                         case SubscriptionManager.D2D_STATUS_SHARING_SELECTED_CONTACTS:
                         case SubscriptionManager.NR_ADVANCED_CALLING_ENABLED:
+                        case SimInfo.COLUMN_PHONE_NUMBER_SOURCE_CARRIER:
+                        case SimInfo.COLUMN_PHONE_NUMBER_SOURCE_IMS:
                             resultValue = cursor.getString(0);
                             break;
                         default:
@@ -4126,7 +4138,8 @@ public class SubscriptionController extends ISub.Stub {
         // Can't find the existing SIM.
         if (slotInfo == null) return false;
 
-        if (enable && !slotInfo.getIsActive()) {
+        // this for physical slot which has only one port
+        if (enable && !slotInfo.getPorts().stream().findFirst().get().isActive()) {
             // We need to send intents to Euicc if we are turning on an inactive slot.
             // Euicc will decide whether to ask user to switch to DSDS, or change SIM
             // slot mapping.
@@ -4143,7 +4156,11 @@ public class SubscriptionController extends ISub.Stub {
                     PhoneConfigurationManager.getInstance().switchMultiSimConfig(
                             mTelephonyManager.getSupportedModemCount());
                 } else {
-                    UiccController.getInstance().switchSlots(new int[]{physicalSlotIndex}, null);
+                    List<UiccSlotMapping> slotMapping = new ArrayList<>();
+                    // As this is single sim mode, set port index to 0 and logical slot index is 0
+                    slotMapping.add(new UiccSlotMapping(TelephonyManager.DEFAULT_PORT_INDEX,
+                            physicalSlotIndex, 0));
+                    UiccController.getInstance().switchSlots(slotMapping, null);
                 }
             }
             return true;
@@ -4181,34 +4198,15 @@ public class SubscriptionController extends ISub.Stub {
                         + physicalSlotIndex, enabled ? 1 : 0);
     }
 
-    private int getPhysicalSlotIndex(boolean isEmbedded, int subId) {
-        UiccSlotInfo[] slotInfos = mTelephonyManager.getUiccSlotsInfo();
-        int logicalSlotIndex = getSlotIndex(subId);
-        int physicalSlotIndex = SubscriptionManager.INVALID_SIM_SLOT_INDEX;
-        boolean isLogicalSlotIndexValid = SubscriptionManager.isValidSlotIndex(logicalSlotIndex);
-
-        for (int i = 0; i < slotInfos.length; i++) {
-            // If we can know the logicalSlotIndex from subId, we should find the exact matching
-            // physicalSlotIndex. However for some cases like inactive eSIM, the logicalSlotIndex
-            // will be -1. In this case, we assume there's only one eSIM, and return the
-            // physicalSlotIndex of that eSIM.
-            if ((isLogicalSlotIndexValid && slotInfos[i].getLogicalSlotIdx() == logicalSlotIndex)
-                    || (!isLogicalSlotIndexValid && slotInfos[i].getIsEuicc() && isEmbedded)) {
-                physicalSlotIndex = i;
-                break;
-            }
-        }
-
-        return physicalSlotIndex;
-    }
-
     private int getPhysicalSlotIndexFromLogicalSlotIndex(int logicalSlotIndex) {
         int physicalSlotIndex = SubscriptionManager.INVALID_SIM_SLOT_INDEX;
         UiccSlotInfo[] slotInfos = mTelephonyManager.getUiccSlotsInfo();
         for (int i = 0; i < slotInfos.length; i++) {
-            if (slotInfos[i].getLogicalSlotIdx() == logicalSlotIndex) {
-                physicalSlotIndex = i;
-                break;
+            for (UiccPortInfo portInfo : slotInfos[i].getPorts()) {
+                if (portInfo.getLogicalSlotIndex() == logicalSlotIndex) {
+                    physicalSlotIndex = i;
+                    break;
+                }
             }
         }
 
@@ -4595,6 +4593,105 @@ public class SubscriptionController extends ISub.Stub {
         try {
             Phone phone = PhoneFactory.getDefaultPhone();
             return phone != null && phone.canDisablePhysicalSubscription();
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    /*
+     * Returns the phone number for the given {@code subId} and {@code source},
+     * or an empty string if not available.
+     */
+    @Override
+    public String getPhoneNumber(int subId, int source,
+            String callingPackage, String callingFeatureId) {
+        TelephonyPermissions.enforceAnyPermissionGrantedOrCarrierPrivileges(
+                mContext, subId, Binder.getCallingUid(), "getPhoneNumber",
+                READ_PHONE_NUMBERS, READ_PRIVILEGED_PHONE_STATE);
+
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            String number = getPhoneNumber(subId, source);
+            return number == null ? "" : number;
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    /*
+     * Returns the phone number for the given {@code subId} or an empty string if not available.
+     *
+     * <p>Built up on getPhoneNumber(int subId, int source) this API picks the 1st available
+     * source based on a priority order.
+     */
+    @Override
+    public String getPhoneNumberFromFirstAvailableSource(int subId,
+            String callingPackage, String callingFeatureId) {
+        TelephonyPermissions.enforceAnyPermissionGrantedOrCarrierPrivileges(
+                mContext, subId, Binder.getCallingUid(), "getPhoneNumberFromFirstAvailableSource",
+                READ_PHONE_NUMBERS, READ_PRIVILEGED_PHONE_STATE);
+
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            String numberFromCarrier = getPhoneNumber(
+                    subId, SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER);
+            if (!TextUtils.isEmpty(numberFromCarrier)) {
+                return numberFromCarrier;
+            }
+            String numberFromUicc = getPhoneNumber(
+                    subId, SubscriptionManager.PHONE_NUMBER_SOURCE_UICC);
+            if (!TextUtils.isEmpty(numberFromUicc)) {
+                return numberFromUicc;
+            }
+            String numberFromIms = getPhoneNumber(
+                    subId, SubscriptionManager.PHONE_NUMBER_SOURCE_IMS);
+            if (!TextUtils.isEmpty(numberFromIms)) {
+                return numberFromIms;
+            }
+            return "";
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    // Internal helper method for implementing getPhoneNumber() API.
+    @Nullable
+    private String getPhoneNumber(int subId, int source) {
+        if (source == SubscriptionManager.PHONE_NUMBER_SOURCE_UICC) {
+            Phone phone = PhoneFactory.getPhone(getPhoneId(subId));
+            return phone != null ? phone.getLine1Number() : null;
+        }
+        if (source == SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER) {
+            return getSubscriptionProperty(subId, SimInfo.COLUMN_PHONE_NUMBER_SOURCE_CARRIER);
+        }
+        if (source == SubscriptionManager.PHONE_NUMBER_SOURCE_IMS) {
+            return getSubscriptionProperty(subId, SimInfo.COLUMN_PHONE_NUMBER_SOURCE_IMS);
+        }
+        throw new IllegalArgumentException("setPhoneNumber doesn't accept source " + source);
+    }
+
+    /**
+     * Sets the phone number for the given {@code subId}.
+     *
+     * <p>The only accepted {@code source} is {@link
+     * SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER}.
+     */
+    @Override
+    public void setPhoneNumber(int subId, int source, String number,
+            String callingPackage, String callingFeatureId) {
+        if (source != SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER) {
+            throw new IllegalArgumentException("setPhoneNumber doesn't accept source " + source);
+        }
+        if (!TelephonyPermissions.checkCarrierPrivilegeForSubId(mContext, subId)) {
+            throw new SecurityException("setPhoneNumber for CARRIER needs carrier privilege");
+        }
+        if (number == null) {
+            throw new NullPointerException("invalid number null");
+        }
+
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            setSubscriptionProperty(subId, SimInfo.COLUMN_PHONE_NUMBER_SOURCE_CARRIER, number);
         } finally {
             Binder.restoreCallingIdentity(identity);
         }

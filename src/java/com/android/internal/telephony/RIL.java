@@ -2716,7 +2716,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
             mMetrics.writeSetPreferredNetworkType(mPhoneId, networkType);
 
             try {
-                networkProxy.setAllowedNetworkTypesBitmap(rr.mSerial, mAllowedNetworkTypesBitmask);
+                networkProxy.setPreferredNetworkTypeBitmap(rr.mSerial, mAllowedNetworkTypesBitmask);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(NETWORK_SERVICE, "setPreferredNetworkType", e);
             }
@@ -2747,6 +2747,12 @@ public class RIL extends BaseCommands implements CommandsInterface {
             @TelephonyManager.NetworkTypeBitMask int networkTypeBitmask, Message result) {
         RadioNetworkProxy networkProxy = getRadioServiceProxy(RadioNetworkProxy.class, result);
         if (!networkProxy.isEmpty()) {
+            if (mRadioVersion.less(RADIO_HAL_VERSION_1_6)) {
+                // For older HAL, redirects the call to setPreferredNetworkType.
+                setPreferredNetworkType(
+                        RadioAccessFamily.getNetworkTypeFromRaf(networkTypeBitmask), result);
+                return;
+            }
             RILRequest rr = obtainRequest(RIL_REQUEST_SET_ALLOWED_NETWORK_TYPES_BITMAP, result,
                     mRILDefaultWorkSource);
 
@@ -2887,10 +2893,29 @@ public class RIL extends BaseCommands implements CommandsInterface {
      */
     @Override
     public void isVoNrEnabled(Message result, WorkSource workSource) {
-        boolean isEnabled = isVoNrEnabled();
-        if (result != null) {
-            AsyncResult.forMessage(result, isEnabled, null);
-            result.sendToTarget();
+
+        if (mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_2_0)) {
+            RadioVoiceProxy voiceProxy = getRadioServiceProxy(RadioVoiceProxy.class, result);
+            if (!voiceProxy.isEmpty()) {
+                RILRequest rr = obtainRequest(RIL_REQUEST_IS_VONR_ENABLED , result,
+                        getDefaultWorkSourceIfInvalid(workSource));
+
+                if (RILJ_LOGD) {
+                    riljLog(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
+                }
+
+                try {
+                    voiceProxy.isVoNrEnabled(rr.mSerial);
+                } catch (RemoteException | RuntimeException e) {
+                    handleRadioProxyExceptionForRR(VOICE_SERVICE, "isVoNrEnabled", e);
+                }
+            }
+        } else {
+            boolean isEnabled = isVoNrEnabled();
+            if (result != null) {
+                AsyncResult.forMessage(result, isEnabled, null);
+                result.sendToTarget();
+            }
         }
     }
 
@@ -2901,16 +2926,34 @@ public class RIL extends BaseCommands implements CommandsInterface {
     @Override
     public void setVoNrEnabled(boolean enabled, Message result, WorkSource workSource) {
         setVoNrEnabled(enabled);
-        /* calling a query api to let HAL know that VoNREnabled state is updated.
-           This is a temporary work around as new HIDL API is not allowed.
-           HAL can check the value of PROPERTY_IS_VONR_ENABLED property to determine
-           if there is any change whenever it receives isNrDualConnectivityEnabled request.
-           This behavior will be removed in Android T.
-         */
-        isNrDualConnectivityEnabled(null, workSource);
-        if (result != null) {
-            AsyncResult.forMessage(result, null, null);
-            result.sendToTarget();
+
+        if (mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_2_0)) {
+            RadioVoiceProxy voiceProxy = getRadioServiceProxy(RadioVoiceProxy.class, result);
+            if (!voiceProxy.isEmpty()) {
+                RILRequest rr = obtainRequest(RIL_REQUEST_ENABLE_VONR, result,
+                        getDefaultWorkSourceIfInvalid(workSource));
+
+                if (RILJ_LOGD) {
+                    riljLog(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
+                }
+
+                try {
+                    voiceProxy.setVoNrEnabled(rr.mSerial, enabled);
+                } catch (RemoteException | RuntimeException e) {
+                    handleRadioProxyExceptionForRR(VOICE_SERVICE, "setVoNrEnabled", e);
+                }
+            }
+        } else {
+            /* calling a query api to let HAL know that VoNREnabled state is updated.
+               This is a work around as new AIDL API is not allowed for older HAL version devices.
+               HAL can check the value of PROPERTY_IS_VONR_ENABLED property to determine
+               if there is any change whenever it receives isNrDualConnectivityEnabled request.
+            */
+            isNrDualConnectivityEnabled(null, workSource);
+            if (result != null) {
+                AsyncResult.forMessage(result, null, null);
+                result.sendToTarget();
+            }
         }
     }
 
