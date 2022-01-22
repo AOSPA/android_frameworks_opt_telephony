@@ -58,6 +58,7 @@ import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.uicc.UiccPort;
 import com.android.internal.telephony.uicc.UiccSlot;
 import com.android.telephony.Rlog;
 
@@ -442,9 +443,10 @@ public class SubscriptionInfoUpdater extends Handler {
         }
 
         // ICCID is not available in IccRecords by the time SIM Ready event received
-        // hence get ICCID from UiccSlot.
-        UiccSlot uiccSlot = UiccController.getInstance().getUiccSlotForPhone(phoneId);
-        String iccId = (uiccSlot != null) ? IccUtils.stripTrailingFs(uiccSlot.getIccId()) : null;
+        // hence get ICCID from UiccPort.
+        UiccPort port = UiccController.getInstance().getUiccPort(phoneId);
+        String iccId = (port == null) ? null : IccUtils.stripTrailingFs(port.getIccId());
+
         if (!TextUtils.isEmpty(iccId)) {
             sIccId[phoneId] = iccId;
             updateSubscriptionInfoByIccId(phoneId, true /* updateEmbeddedSubs */);
@@ -469,8 +471,9 @@ public class SubscriptionInfoUpdater extends Handler {
         boolean uiccAppsDisabled = areUiccAppsDisabledOnCard(phoneId);
         if (iccCard.isEmptyProfile() || uiccAppsDisabled) {
             if (uiccAppsDisabled) {
-                UiccSlot slot = UiccController.getInstance().getUiccSlotForPhone(phoneId);
-                sInactiveIccIds[phoneId] = IccUtils.stripTrailingFs(slot.getIccId());
+                UiccPort port = UiccController.getInstance().getUiccPort(phoneId);
+                String iccId = (port == null) ? null : port.getIccId();
+                sInactiveIccIds[phoneId] = IccUtils.stripTrailingFs(iccId);
             }
             isFinalState = true;
             // ICC_NOT_READY is a terminal state for
@@ -498,10 +501,15 @@ public class SubscriptionInfoUpdater extends Handler {
         // cardStatus (since IRadio 1.2). Amd upon cardStatus change we'll receive another
         // handleSimNotReady so this will be evaluated again.
         UiccSlot slot = UiccController.getInstance().getUiccSlotForPhone(phoneId);
-        if (slot == null || slot.getIccId() == null) return false;
+        if (slot == null) return false;
+        UiccPort port = UiccController.getInstance().getUiccPort(phoneId);
+        String iccId = (port == null) ? null : port.getIccId();
+        if (iccId == null) {
+            return false;
+        }
         SubscriptionInfo info =
                 mSubscriptionController.getSubInfoForIccId(
-                        IccUtils.stripTrailingFs(slot.getIccId()));
+                        IccUtils.stripTrailingFs(iccId));
         return info != null && !info.areUiccApplicationsEnabled();
     }
 
@@ -1184,6 +1192,11 @@ public class SubscriptionInfoUpdater extends Handler {
             // should do a review of whether to make this public
             int slotId = UiccController.getInstance().getSlotIdFromPhoneId(phoneId);
             i.putExtra(PhoneConstants.SLOT_KEY, slotId);
+            UiccPort portInfo = UiccController.getInstance().getUiccPortForPhone(phoneId);
+            if (portInfo != null) {
+                int portId = portInfo.getPortIdx();
+                i.putExtra(PhoneConstants.PORT_KEY, portId);
+            }
             logd("Broadcasting intent ACTION_SIM_CARD_STATE_CHANGED " + simStateString(state)
                     + " for phone: " + phoneId + " slot: " + slotId);
             sContext.sendBroadcast(i, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
@@ -1211,6 +1224,11 @@ public class SubscriptionInfoUpdater extends Handler {
             // should do a review of whether to make this public
             int slotId = UiccController.getInstance().getSlotIdFromPhoneId(phoneId);
             i.putExtra(PhoneConstants.SLOT_KEY, slotId);
+            UiccPort portInfo = UiccController.getInstance().getUiccPortForPhone(phoneId);
+            if (portInfo != null) {
+                int portId = portInfo.getPortIdx();
+                i.putExtra(PhoneConstants.PORT_KEY, portId);
+            }
             logd("Broadcasting intent ACTION_SIM_APPLICATION_STATE_CHANGED " + simStateString(state)
                     + " for phone: " + phoneId + " slot: " + slotId);
             sContext.sendBroadcast(i, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);

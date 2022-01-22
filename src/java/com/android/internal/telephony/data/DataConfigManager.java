@@ -28,10 +28,14 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.RegistrantList;
+import android.telephony.Annotation.NetCapability;
+import android.telephony.Annotation.NetworkType;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.util.IndentingPrintWriter;
 
+import com.android.internal.R;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.data.DataRetryManager.DataRetryRule;
 import com.android.telephony.Rlog;
@@ -135,6 +139,9 @@ public class DataConfigManager extends Handler {
         if (mCarrierConfigManager != null) {
             mCarrierConfig = mCarrierConfigManager.getConfigForSubId(mPhone.getSubId());
         }
+        if (mCarrierConfig == null) {
+            mCarrierConfig = CarrierConfigManager.getDefaultConfig();
+        }
         mResources = SubscriptionManager.getResourcesForSubId(mPhone.getContext(),
                 mPhone.getSubId());
 
@@ -151,7 +158,6 @@ public class DataConfigManager extends Handler {
      * Update the network capability priority from carrier config.
      */
     private void updateNetworkCapabilityPriority() {
-        if (mCarrierConfig == null) return;
         String[] capabilityPriorityStrings = mCarrierConfig.getStringArray(
                 CarrierConfigManager.KEY_TELEPHONY_NETWORK_CAPABILITY_PRIORITIES_STRING_ARRAY);
         if (capabilityPriorityStrings != null) {
@@ -181,7 +187,7 @@ public class DataConfigManager extends Handler {
      * @param capability The network capability
      * @return The priority range from 0 ~ 100. 100 is the highest priority.
      */
-    public int getNetworkCapabilityPriority(int capability) {
+    public int getNetworkCapabilityPriority(@NetCapability int capability) {
         if (mNetworkCapabilityPriorityMap.containsKey(capability)) {
             return mNetworkCapabilityPriorityMap.get(capability);
         }
@@ -193,7 +199,6 @@ public class DataConfigManager extends Handler {
      */
     private void updateDataRetryRules() {
         mDataRetryRules.clear();
-        if (mCarrierConfig == null) return;
         String[] dataRetryRulesStrings = mCarrierConfig.getStringArray(
                 CarrierConfigManager.KEY_TELEPHONY_DATA_RETRY_RULES_STRING_ARRAY);
         if (dataRetryRulesStrings != null) {
@@ -208,6 +213,38 @@ public class DataConfigManager extends Handler {
      */
     public @NonNull List<DataRetryRule> getDataRetryRules() {
         return Collections.unmodifiableList(mDataRetryRules);
+    }
+
+    /**
+     * Get the TCP config string, which will be used for
+     * {@link android.net.LinkProperties#setTcpBufferSizes(String)}
+     *
+     * @param networkType The network type. Note that {@link TelephonyManager#NETWORK_TYPE_NR} is
+     * used for both 5G SA and NSA case. {@link TelephonyManager#NETWORK_TYPE_LTE_CA} can be used
+     * for LTE CA even though it's not really a radio access technology.
+     *
+     * @return The TCP buffer configuration string.
+     */
+    public @NonNull String getTcpConfigString(@NetworkType int networkType) {
+        // TODO: Move all TCP_BUFFER_SIZES_XXX from DataConnection to here.
+        return null;
+    }
+
+    /**
+     * @return The delay in millisecond for IMS graceful tear down. If IMS/RCS de-registration
+     * does not complete within the window, the data network will be torn down after timeout.
+     */
+    public long getImsDeregistrationDelay() {
+        return mResources.getInteger(R.integer.config_delay_for_ims_dereg_millis);
+    }
+
+    /**
+     * @return {@code true} if PDN should persist when IWLAN data service restarted/crashed.
+     * {@code false} will cause all data networks on IWLAN torn down if IWLAN data service crashes.
+     */
+    public boolean shouldPersistIwlanDataNetworksWhenDataServiceRestarted() {
+        return mResources.getBoolean(com.android.internal.R.bool
+                .config_wlan_data_service_conn_persistence_on_restart);
     }
 
     /**
@@ -255,12 +292,14 @@ public class DataConfigManager extends Handler {
         IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
         pw.println(DataConfigManager.class.getSimpleName() + "-" + mPhone.getPhoneId() + ":");
         pw.increaseIndent();
+        pw.println("isConfigCarrierSpecific=" + isConfigCarrierSpecific());
         pw.println("Network capability priority:");
         pw.increaseIndent();
         for (Map.Entry<Integer, Integer> entry : mNetworkCapabilityPriorityMap.entrySet()) {
             pw.print(DataUtils.networkCapabilityToString(entry.getKey()) + ":"
                     + entry.getValue() + " ");
         }
+        pw.decreaseIndent();
         pw.println();
         pw.println("Data retry rules:");
         pw.increaseIndent();
@@ -268,7 +307,9 @@ public class DataConfigManager extends Handler {
             pw.println(rule);
         }
         pw.decreaseIndent();
-        pw.decreaseIndent();
+        pw.println("getImsDeregistrationDelay=" + getImsDeregistrationDelay());
+        pw.println("shouldPersistIwlanDataNetworksWhenDataServiceRestarted="
+                + shouldPersistIwlanDataNetworksWhenDataServiceRestarted());
         pw.decreaseIndent();
     }
 }
