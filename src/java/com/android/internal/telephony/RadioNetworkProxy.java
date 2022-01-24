@@ -372,7 +372,7 @@ public class RadioNetworkProxy extends RadioServiceProxy {
                     serial, RILUtils.convertToHalRadioAccessFamily(networkTypeBitmask));
         } else if (mHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_1_4)) {
             ((android.hardware.radio.V1_4.IRadio) mRadioProxy).setPreferredNetworkTypeBitmap(
-                    serial, networkTypeBitmask);
+                    serial, RILUtils.convertToHalRadioAccessFamily(networkTypeBitmask));
         } else {
             mRadioProxy.setPreferredNetworkType(
                     serial, RadioAccessFamily.getNetworkTypeFromRaf(networkTypeBitmask));
