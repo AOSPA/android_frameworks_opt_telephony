@@ -78,12 +78,12 @@ import com.android.ims.ImsException;
 import com.android.ims.ImsManager;
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.internal.telephony.data.DataNetworkController;
-import com.android.internal.telephony.dataconnection.AccessNetworksManager;
+import com.android.internal.telephony.data.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
-import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.EcbmHandler;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
@@ -481,6 +481,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     protected LinkBandwidthEstimator mLinkBandwidthEstimator;
 
+    // TODO: Temp code. Use cl/399526916 for future canary process. After rolling out to 100%
+    //  dogfooders, the code below should be completely removed.
+    private final boolean mNewDataStackEnabled;
+
     public IccRecords getIccRecords() {
         return mIccRecords.get();
     }
@@ -621,6 +625,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
         // Initialize SMS stats
         mSmsStats = new SmsStats(this);
+
+        mNewDataStackEnabled = false; /*(Boolean.parseBoolean(DeviceConfig.getProperty(
+                DeviceConfig.NAMESPACE_TELEPHONY,"new_telephony_data_enabled"));*/
 
         if (getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
             return;
@@ -5010,10 +5017,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     // TODO: Temp code. Use cl/399526916 for future canary process. After rolling out to 100%
     //  dogfooders, the code below should be completely removed.
     public boolean isUsingNewDataStack() {
-        return false;
-        /*String configValue = DeviceConfig.getProperty(DeviceConfig.NAMESPACE_TELEPHONY,
-                "new_telephony_data_enabled");
-        return Boolean.parseBoolean(configValue);*/
+        return mNewDataStackEnabled;
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {

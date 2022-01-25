@@ -333,7 +333,8 @@ import com.android.internal.telephony.cdma.SmsMessage;
 import com.android.internal.telephony.cdma.sms.CdmaSmsAddress;
 import com.android.internal.telephony.cdma.sms.CdmaSmsSubaddress;
 import com.android.internal.telephony.cdma.sms.SmsEnvelope;
-import com.android.internal.telephony.dataconnection.KeepaliveStatus;
+import com.android.internal.telephony.data.KeepaliveStatus;
+import com.android.internal.telephony.data.KeepaliveStatus.KeepaliveStatusCode;
 import com.android.internal.telephony.uicc.AdnCapacity;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus;
 import com.android.internal.telephony.uicc.IccCardStatus;
@@ -3918,7 +3919,7 @@ public class RILUtils {
      * @param halCode KeepaliveStatus code defined in radio/1.1/types.hal or KeepaliveStatus.aidl
      * @return The converted KeepaliveStatus
      */
-    public static int convertHalKeepaliveStatusCode(int halCode) {
+    public static @KeepaliveStatusCode int convertHalKeepaliveStatusCode(int halCode) {
         switch (halCode) {
             case android.hardware.radio.V1_1.KeepaliveStatusCode.ACTIVE:
                 return KeepaliveStatus.STATUS_ACTIVE;
@@ -4401,7 +4402,10 @@ public class RILUtils {
                 for (int i = 0; i < portCount; i++) {
                     IccSimPortInfo simPortInfo = new IccSimPortInfo();
                     simPortInfo.mIccId = slotStatus.portInfo[i].iccId;
-                    simPortInfo.mLogicalSlotIndex = slotStatus.portInfo[i].logicalSlotId;
+                    // If port is not active, set invalid logical slot index(-1) irrespective of
+                    // the modem response. For more info, check http://b/209035150
+                    simPortInfo.mLogicalSlotIndex = slotStatus.portInfo[i].portActive
+                            ? slotStatus.portInfo[i].logicalSlotId : -1;
                     simPortInfo.mPortActive = slotStatus.portInfo[i].portActive;
                     iccSlotStatus.mSimPortInfos[i] = simPortInfo;
                 }
@@ -4423,8 +4427,11 @@ public class RILUtils {
                 iccSlotStatus.mSimPortInfos = new IccSimPortInfo[1];
                 IccSimPortInfo simPortInfo = new IccSimPortInfo();
                 simPortInfo.mIccId = slotStatus.base.iccid;
-                simPortInfo.mLogicalSlotIndex = slotStatus.base.logicalSlotId;
                 simPortInfo.mPortActive = (slotStatus.base.slotState == IccSlotStatus.STATE_ACTIVE);
+                // If port/slot is not active, set invalid logical slot index(-1) irrespective of
+                // the modem response. For more info, check http://b/209035150
+                simPortInfo.mLogicalSlotIndex = simPortInfo.mPortActive
+                        ? slotStatus.base.logicalSlotId : -1;
                 iccSlotStatus.mSimPortInfos[TelephonyManager.DEFAULT_PORT_INDEX] = simPortInfo;
                 iccSlotStatus.atr = slotStatus.base.atr;
                 iccSlotStatus.eid = slotStatus.eid;
@@ -4444,8 +4451,11 @@ public class RILUtils {
                 iccSlotStatus.mSimPortInfos = new IccSimPortInfo[1];
                 IccSimPortInfo simPortInfo = new IccSimPortInfo();
                 simPortInfo.mIccId = slotStatus.iccid;
-                simPortInfo.mLogicalSlotIndex = slotStatus.logicalSlotId;
                 simPortInfo.mPortActive = (slotStatus.slotState == IccSlotStatus.STATE_ACTIVE);
+                // If port/slot is not active, set invalid logical slot index(-1) irrespective of
+                // the modem response. For more info, check http://b/209035150
+                simPortInfo.mLogicalSlotIndex = simPortInfo.mPortActive
+                        ? slotStatus.logicalSlotId : -1;
                 iccSlotStatus.mSimPortInfos[TelephonyManager.DEFAULT_PORT_INDEX] = simPortInfo;
                 iccSlotStatus.atr = slotStatus.atr;
                 response.add(iccSlotStatus);
