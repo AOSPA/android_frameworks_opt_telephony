@@ -1616,6 +1616,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             return;
         }
         mCarrierConfigLoaded = true;
+        QtiImsUtils.updateRttConfigCache(mPhone.getContext(),mPhone.getPhoneId(), carrierConfig);
 
         updateCarrierConfigCache(carrierConfig);
         updateImsServiceConfig();
@@ -5681,6 +5682,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         return QtiImsUtils.isRttOn(mPhone.getPhoneId(), mPhone.getContext());
     }
 
+    private boolean isSimLessRttSupported() {
+        return QtiImsUtils.isSimLessRttSupported(mPhone.getPhoneId(), mPhone.getContext());
+    }
+
     /**
      * RTT call is allowed if RTT is supported by carrier and RTT setting is ON
      * and call is not a video call or RTT is supported for video calls.
@@ -5688,7 +5693,15 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
      * or device needs to be registered on WIFI or it should be an emergency call.
      */
     private boolean canMakeRttCall(ImsCallProfile profile, boolean isEmergency) {
-        if (!isRttSupported() || !isRttOn()) {
+        Phone defaultPhone = mPhone.getDefaultPhone();
+        IccCardConstants.State state = defaultPhone.getIccCard().getState();
+        /** RTT call needs to allowed based on carrier config if sim is present
+         * else we need to check the saved cache for simless RTT e911 call
+         */
+        if ((state == IccCardConstants.State.READY && !isRttSupported()) ||
+                (state == IccCardConstants.State.ABSENT && isEmergency &&
+                !isSimLessRttSupported())
+                || !isRttOn()) {
             return false;
         }
         if (profile != null && profile.isVideoCall() && !QtiImsUtils.isRttSupportedOnVtCalls(
