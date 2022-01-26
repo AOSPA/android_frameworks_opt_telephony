@@ -27,3 +27,8 @@ public *;
 -keepclassmembers class * {
 @**.UnsupportedAppUsage *;
 }
+
+# Keep CellularNetworkServiceProvider members
+-keepclasseswithmembers class com.android.internal.telephony.CellularNetworkService$CellularNetworkServiceProvider {
+*;
+}
