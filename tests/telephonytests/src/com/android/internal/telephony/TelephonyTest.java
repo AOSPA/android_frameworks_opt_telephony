@@ -86,6 +86,9 @@ import com.android.ims.ImsEcbm;
 import com.android.ims.ImsManager;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.cdma.EriManager;
+import com.android.internal.telephony.data.DataConfigManager;
+import com.android.internal.telephony.data.DataNetworkController;
+import com.android.internal.telephony.dataconnection.AccessNetworksManager;
 import com.android.internal.telephony.dataconnection.DataEnabledOverride;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DataThrottler;
@@ -112,6 +115,7 @@ import com.android.internal.telephony.uicc.SIMRecords;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.uicc.UiccPort;
 import com.android.internal.telephony.uicc.UiccProfile;
 import com.android.internal.telephony.uicc.UiccSlot;
 import com.android.server.pm.PackageManagerService;
@@ -197,6 +201,10 @@ public abstract class TelephonyTest {
     @Mock
     protected DcTracker mDcTracker;
     @Mock
+    protected DataNetworkController mDataNetworkController;
+    @Mock
+    protected DataConfigManager mDataConfigManager;
+    @Mock
     protected DisplayInfoController mDisplayInfoController;
     @Mock
     protected GsmCdmaCall mGsmCdmaCall;
@@ -275,6 +283,8 @@ public abstract class TelephonyTest {
     @Mock
     protected TransportManager mTransportManager;
     @Mock
+    protected AccessNetworksManager mAccessNetworksManager;
+    @Mock
     protected IntentBroadcaster mIntentBroadcaster;
     @Mock
     protected NitzStateMachine mNitzStateMachine;
@@ -296,6 +306,8 @@ public abstract class TelephonyTest {
     protected CellularNetworkValidator mCellularNetworkValidator;
     @Mock
     protected UiccCard mUiccCard;
+    @Mock
+    protected UiccPort mUiccPort;
     @Mock
     protected MultiSimSettingController mMultiSimSettingController;
     @Mock
@@ -472,7 +484,8 @@ public abstract class TelephonyTest {
         mPhone.mCi = mSimulatedCommands;
         mCT.mCi = mSimulatedCommands;
         doReturn(mUiccCard).when(mPhone).getUiccCard();
-        doReturn(mUiccProfile).when(mUiccCard).getUiccProfile();
+        doReturn(mUiccPort).when(mPhone).getUiccPort();
+        doReturn(mUiccProfile).when(mUiccPort).getUiccProfile();
 
         mTelephonyManager = (TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE);
         mActivityManager = (ActivityManager) mContext.getSystemService(Context.ACTIVITY_SERVICE);
@@ -534,6 +547,8 @@ public abstract class TelephonyTest {
                 .makeDeviceStateMonitor(nullable(Phone.class));
         doReturn(mTransportManager).when(mTelephonyComponentFactory)
                 .makeTransportManager(nullable(Phone.class));
+        doReturn(mAccessNetworksManager).when(mTelephonyComponentFactory)
+                .makeAccessNetworksManager(nullable(Phone.class));
         doReturn(mNitzStateMachine).when(mTelephonyComponentFactory)
                 .makeNitzStateMachine(nullable(GsmCdmaPhone.class));
         doReturn(mLocaleTracker).when(mTelephonyComponentFactory)
@@ -566,8 +581,10 @@ public abstract class TelephonyTest {
         doReturn(mAppSmsManager).when(mPhone).getAppSmsManager();
         doReturn(mIccSmsInterfaceManager).when(mPhone).getIccSmsInterfaceManager();
         doReturn(mTransportManager).when(mPhone).getTransportManager();
+        doReturn(mAccessNetworksManager).when(mPhone).getAccessNetworksManager();
         doReturn(mDataEnabledSettings).when(mPhone).getDataEnabledSettings();
         doReturn(mDcTracker).when(mPhone).getDcTracker(anyInt());
+        doReturn(mDataNetworkController).when(mPhone).getDataNetworkController();
         doReturn(mCarrierPrivilegesTracker).when(mPhone).getCarrierPrivilegesTracker();
         doReturn(mSignalStrength).when(mPhone).getSignalStrength();
         doReturn(mVoiceCallSessionStats).when(mPhone).getVoiceCallSessionStats();
@@ -578,6 +595,7 @@ public abstract class TelephonyTest {
         doReturn(mLinkBandwidthEstimator).when(mPhone).getLinkBandwidthEstimator();
         doReturn(mCellIdentity).when(mPhone).getCurrentCellIdentity();
         doReturn(mCellLocation).when(mCellIdentity).asCellLocation();
+        doReturn(mDataConfigManager).when(mDataNetworkController).getDataConfigManager();
 
         //mUiccController
         doReturn(mUiccCardApplication3gpp).when(mUiccController).getUiccCardApplication(anyInt(),
@@ -587,6 +605,7 @@ public abstract class TelephonyTest {
         doReturn(mUiccCardApplicationIms).when(mUiccController).getUiccCardApplication(anyInt(),
                 eq(UiccController.APP_FAM_IMS));
         doReturn(mUiccCard).when(mUiccController).getUiccCard(anyInt());
+        doReturn(mUiccPort).when(mUiccController).getUiccPort(anyInt());
 
         doAnswer(new Answer<IccRecords>() {
             public IccRecords answer(InvocationOnMock invocation) {

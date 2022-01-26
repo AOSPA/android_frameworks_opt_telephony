@@ -90,6 +90,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.cdma.CdmaMmiCode;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.data.DataNetworkController;
+import com.android.internal.telephony.dataconnection.AccessNetworksManager;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
 import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
@@ -113,9 +114,9 @@ import com.android.internal.telephony.uicc.IsimRecords;
 import com.android.internal.telephony.uicc.IsimUiccRecords;
 import com.android.internal.telephony.uicc.RuimRecords;
 import com.android.internal.telephony.uicc.SIMRecords;
-import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.uicc.UiccPort;
 import com.android.internal.telephony.uicc.UiccProfile;
 import com.android.internal.telephony.uicc.UiccSlot;
 import com.android.internal.telephony.util.ArrayUtils;
@@ -297,8 +298,14 @@ public class GsmCdmaPhone extends Phone {
                 .makeCarrierActionAgent(this);
         mCarrierSignalAgent = mTelephonyComponentFactory.inject(CarrierSignalAgent.class.getName())
                 .makeCarrierSignalAgent(this);
+        mAccessNetworksManager = mTelephonyComponentFactory
+                .inject(AccessNetworksManager.class.getName())
+                .makeAccessNetworksManager(this);
         mTransportManager = mTelephonyComponentFactory.inject(TransportManager.class.getName())
                 .makeTransportManager(this);
+        // SST/DSM depends on SSC, so SSC is instanced before SST/DSM
+        mSignalStrengthController = mTelephonyComponentFactory.inject(
+                SignalStrengthController.class.getName()).makeSignalStrengthController(this);
         mSST = mTelephonyComponentFactory.inject(ServiceStateTracker.class.getName())
                 .makeServiceStateTracker(this, this.mCi);
         mEmergencyNumberTracker = mTelephonyComponentFactory
@@ -323,9 +330,11 @@ public class GsmCdmaPhone extends Phone {
             mTransportManager.registerDataThrottler(dcTracker.getDataThrottler());
         }
 
-        mDataNetworkController = mTelephonyComponentFactory.inject(
-                DataNetworkController.class.getName())
-                .makeDataNetworkController(this, getLooper());
+        if (false/*isUsingNewDataStack()*/) {
+            mDataNetworkController = mTelephonyComponentFactory.inject(
+                    DataNetworkController.class.getName())
+                    .makeDataNetworkController(this, getLooper());
+        }
 
         mCarrierResolver = mTelephonyComponentFactory.inject(CarrierResolver.class.getName())
                 .makeCarrierResolver(this);
@@ -438,7 +447,8 @@ public class GsmCdmaPhone extends Phone {
                 CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         filter.addAction(TelecomManager.ACTION_CURRENT_TTY_MODE_CHANGED);
         filter.addAction(TelecomManager.ACTION_TTY_PREFERRED_MODE_CHANGED);
-        mContext.registerReceiver(mBroadcastReceiver, filter);
+        mContext.registerReceiver(mBroadcastReceiver, filter,
+                android.Manifest.permission.MODIFY_PHONE_STATE, null);
 
         mCDM = new CarrierKeyDownloadManager(this);
         mCIM = mTelephonyComponentFactory.inject(CarrierInfoManager.class.getName())
@@ -646,6 +656,11 @@ public class GsmCdmaPhone extends Phone {
     }
 
     @Override
+    public AccessNetworksManager getAccessNetworksManager() {
+        return mAccessNetworksManager;
+    }
+
+    @Override
     public DeviceStateMonitor getDeviceStateMonitor() {
         return mDeviceStateMonitor;
     }
@@ -653,6 +668,11 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public DisplayInfoController getDisplayInfoController() {
         return mDisplayInfoController;
+    }
+
+    @Override
+    public SignalStrengthController getSignalStrengthController() {
+        return mSignalStrengthController;
     }
 
     @Override
@@ -1362,8 +1382,35 @@ public class GsmCdmaPhone extends Phone {
                     + possibleEmergencyNumber);
             dialString = possibleEmergencyNumber;
         }
+
+        CarrierConfigManager configManager =
+                (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        PersistableBundle carrierConfig = configManager.getConfigForSubId(getSubId());
+        boolean allowWpsOverIms = carrierConfig.getBoolean(
+                CarrierConfigManager.KEY_SUPPORT_WPS_OVER_IMS_BOOL);
+        boolean useOnlyDialedSimEccList = carrierConfig.getBoolean(
+                CarrierConfigManager.KEY_USE_ONLY_DIALED_SIM_ECC_LIST_BOOL);
+
+
         TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
-        boolean isEmergency = tm.isEmergencyNumber(dialString);
+        boolean isEmergency;
+        // Check if the carrier wants to treat a call as an emergency call based on its own list of
+        // known emergency numbers.
+        // useOnlyDialedSimEccList is false for the vast majority of carriers.  There are, however,
+        // some carriers which do not want to handle dial requests for numbers which are in the
+        // emergency number list on another SIM, but is not on theirs.  In this case we will use the
+        // emergency number list for this carrier's SIM only.
+        if (useOnlyDialedSimEccList) {
+            isEmergency = getEmergencyNumberTracker().isEmergencyNumber(dialString,
+                    true /* exactMatch */);
+            logi("dial; isEmergency=" + isEmergency
+                    + " (based on this phone only); globalIsEmergency="
+                    + tm.isEmergencyNumber(dialString));
+        } else {
+            isEmergency = tm.isEmergencyNumber(dialString);
+            logi("dial; isEmergency=" + isEmergency + " (based on all phones)");
+        }
+
         /** Check if the call is Wireless Priority Service call */
         boolean isWpsCall = dialString != null ? (dialString.startsWith(PREFIX_WPS)
                 || dialString.startsWith(PREFIX_WPS_CLIR_ACTIVATE)
@@ -1376,12 +1423,6 @@ public class GsmCdmaPhone extends Phone {
         mDialArgs = dialArgs = imsDialArgsBuilder.build();
 
         Phone imsPhone = mImsPhone;
-
-        CarrierConfigManager configManager =
-                (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-
-        boolean allowWpsOverIms = configManager.getConfigForSubId(getSubId())
-                .getBoolean(CarrierConfigManager.KEY_SUPPORT_WPS_OVER_IMS_BOOL);
 
         boolean useImsForEmergency = isEmergency && useImsForEmergency();
 
@@ -1398,8 +1439,9 @@ public class GsmCdmaPhone extends Phone {
         boolean useImsForPsOnlyCall = useImsForPsOnlyCall();
 
         if (DBG) {
-            logd("useImsForCall=" + useImsForCall
+            logi("useImsForCall=" + useImsForCall
                     + ", useImsForPsOnlyCall=" + useImsForPsOnlyCall
+                    + ", useOnlyDialedSimEccList=" + useOnlyDialedSimEccList
                     + ", isEmergency=" + isEmergency
                     + ", useImsForEmergency=" + useImsForEmergency
                     + ", useImsForUt=" + useImsForUt
@@ -2978,6 +3020,7 @@ public class GsmCdmaPhone extends Phone {
                 updateCdmaRoamingSettingsAfterCarrierConfigChanged(b);
 
                 updateNrSettingsAfterCarrierConfigChanged(b);
+                updateVoNrSettings(b);
                 updateSsOverCdmaSupported(b);
                 loadAllowedNetworksFromSubscriptionDatabase();
                 // Obtain new radio capabilities from the modem, since some are SIM-dependent
@@ -3271,6 +3314,10 @@ public class GsmCdmaPhone extends Phone {
                 resetCarrierKeysForImsiEncryption();
                 break;
             }
+            case EVENT_SET_VONR_ENABLED_DONE:
+                logd("EVENT_SET_VONR_ENABLED_DONE is done");
+                break;
+
             default:
                 super.handleMessage(msg);
         }
@@ -4007,17 +4054,19 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void setSignalStrengthReportingCriteria(int signalStrengthMeasure,
             int[] systemThresholds, int ran, boolean isEnabledForSystem) {
-        int[] consolidatedThresholds = mSST.getConsolidatedSignalThresholds(
+        int[] consolidatedThresholds = mSignalStrengthController.getConsolidatedSignalThresholds(
                 ran,
                 signalStrengthMeasure,
-                isEnabledForSystem && mSST.shouldHonorSystemThresholds() ? systemThresholds
+                isEnabledForSystem && mSignalStrengthController.shouldHonorSystemThresholds()
+                        ? systemThresholds
                         : new int[]{},
                 REPORTING_HYSTERESIS_DB);
-        boolean isEnabledForAppRequest = mSST.shouldEnableSignalThresholdForAppRequest(
-                ran,
-                signalStrengthMeasure,
-                getSubId(),
-                isDeviceIdle());
+        boolean isEnabledForAppRequest =
+                mSignalStrengthController.shouldEnableSignalThresholdForAppRequest(
+                        ran,
+                        signalStrengthMeasure,
+                        getSubId(),
+                        isDeviceIdle());
         mCi.setSignalStrengthReportingCriteria(
                 new SignalThresholdInfo.Builder()
                         .setRadioAccessNetworkType(ran)
@@ -4118,12 +4167,12 @@ public class GsmCdmaPhone extends Phone {
             return false;
         }
 
-        UiccCard card = mUiccController.getUiccCard(getPhoneId());
-        if (card == null) {
+        UiccPort port = mUiccController.getUiccPort(getPhoneId());
+        if (port == null) {
             return false;
         }
 
-        boolean status = card.setOperatorBrandOverride(brand);
+        boolean status = port.setOperatorBrandOverride(brand);
 
         // Refresh.
         if (status) {
@@ -4580,6 +4629,38 @@ public class GsmCdmaPhone extends Phone {
         int[] nrAvailabilities = config.getIntArray(
                 CarrierConfigManager.KEY_CARRIER_NR_AVAILABILITIES_INT_ARRAY);
         mIsCarrierNrSupported = !ArrayUtils.isEmpty(nrAvailabilities);
+    }
+
+    private void updateVoNrSettings(PersistableBundle config) {
+        if (config == null) {
+            loge("didn't get the vonr_enabled_bool from the carrier config.");
+            return;
+        }
+
+        boolean mIsVonrEnabledByCarrier =
+                config.getBoolean(CarrierConfigManager.KEY_VONR_ENABLED_BOOL);
+
+        String result = SubscriptionController.getInstance().getSubscriptionProperty(
+                getSubId(),
+                SubscriptionManager.NR_ADVANCED_CALLING_ENABLED);
+
+        int setting = -1;
+        if (result != null) {
+            setting = Integer.parseInt(result);
+        }
+
+        logd("VoNR setting from telephony.db:"
+                + setting
+                + " ,vonr_enabled_bool:"
+                + mIsVonrEnabledByCarrier);
+
+        if (!mIsVonrEnabledByCarrier) {
+            mCi.setVoNrEnabled(false, obtainMessage(EVENT_SET_VONR_ENABLED_DONE), null);
+        } else if (setting == 1 || setting == -1) {
+            mCi.setVoNrEnabled(true, obtainMessage(EVENT_SET_VONR_ENABLED_DONE), null);
+        } else if (setting == 0) {
+            mCi.setVoNrEnabled(false, obtainMessage(EVENT_SET_VONR_ENABLED_DONE), null);
+        }
     }
 
     private void updateCdmaRoamingSettingsAfterCarrierConfigChanged(PersistableBundle config) {

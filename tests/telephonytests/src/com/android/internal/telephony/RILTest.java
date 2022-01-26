@@ -158,11 +158,13 @@ import android.telephony.data.ApnSetting;
 import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataProfile;
 import android.telephony.data.EpsQos;
+import android.telephony.data.Qos;
 import android.telephony.data.QosBearerFilter;
 import android.telephony.data.QosBearerSession;
 import android.telephony.data.TrafficDescriptor;
 import android.testing.AndroidTestingRunner;
 import android.testing.TestableLooper;
+import android.util.SparseArray;
 
 import androidx.test.filters.FlakyTest;
 
@@ -200,6 +202,12 @@ public class RILTest extends TelephonyTest {
     private TelephonyManager mTelephonyManager;
     @Mock
     private IRadio mRadioProxy;
+    @Mock
+    private RadioDataProxy mDataProxy;
+    @Mock
+    private RadioNetworkProxy mNetworkProxy;
+    @Mock
+    private RadioSimProxy mSimProxy;
 
     private HalVersion mRadioVersionV10 = new HalVersion(1, 0);
     private HalVersion mRadioVersionV11 = new HalVersion(1, 1);
@@ -294,8 +302,7 @@ public class RILTest extends TelephonyTest {
         } catch (RuntimeException e) {
         }
         Context context = new ContextFixture().getTestDouble();
-        doReturn(true).when(mConnectionManager)
-            .isNetworkSupported(ConnectivityManager.TYPE_MOBILE);
+        doReturn(true).when(mConnectionManager).isNetworkSupported(ConnectivityManager.TYPE_MOBILE);
         doReturn(mConnectionManager).when(context)
             .getSystemService(Context.CONNECTIVITY_SERVICE);
         doReturn(mTelephonyManager).when(context)
@@ -305,13 +312,25 @@ public class RILTest extends TelephonyTest {
                 mock(IThermalService.class), new Handler(Looper.myLooper()));
         doReturn(powerManager).when(context).getSystemService(Context.POWER_SERVICE);
         doReturn(new ApplicationInfo()).when(context).getApplicationInfo();
-
+        SparseArray<RadioServiceProxy> proxies = new SparseArray<>();
+        proxies.put(RIL.RADIO_SERVICE, null);
+        proxies.put(RIL.DATA_SERVICE, mDataProxy);
+        proxies.put(RIL.NETWORK_SERVICE, mNetworkProxy);
+        proxies.put(RIL.SIM_SERVICE, mSimProxy);
         mRILInstance = new RIL(context,
                 RadioAccessFamily.getRafFromNetworkType(RILConstants.PREFERRED_NETWORK_MODE),
-            Phone.PREFERRED_CDMA_SUBSCRIPTION, 0);
+                Phone.PREFERRED_CDMA_SUBSCRIPTION, 0, proxies);
         mRILUnderTest = spy(mRILInstance);
         doReturn(mRadioProxy).when(mRILUnderTest).getRadioProxy(any());
-
+        doReturn(mDataProxy).when(mRILUnderTest).getRadioServiceProxy(eq(RadioDataProxy.class),
+                any());
+        doReturn(mNetworkProxy).when(mRILUnderTest).getRadioServiceProxy(
+                eq(RadioNetworkProxy.class), any());
+        doReturn(mSimProxy).when(mRILUnderTest).getRadioServiceProxy(eq(RadioSimProxy.class),
+                any());
+        doReturn(false).when(mDataProxy).isEmpty();
+        doReturn(false).when(mNetworkProxy).isEmpty();
+        doReturn(false).when(mSimProxy).isEmpty();
         try {
             replaceInstance(RIL.class, "mRadioVersion", mRILUnderTest, mRadioVersionV10);
         } catch (Exception e) {
@@ -1373,7 +1392,7 @@ public class RILTest extends TelephonyTest {
     public void testGetBarringInfo() throws Exception {
         // Not supported on Radio 1.0.
         mRILUnderTest.getBarringInfo(obtainMessage());
-        verify(mRadioProxy, never()).getBarringInfo(anyInt());
+        verify(mNetworkProxy, never()).getBarringInfo(anyInt());
 
         // Make radio version 1.5 to support the operation.
         try {
@@ -1381,7 +1400,7 @@ public class RILTest extends TelephonyTest {
         } catch (Exception e) {
         }
         mRILUnderTest.getBarringInfo(obtainMessage());
-        verify(mRadioProxy).getBarringInfo(mSerialNumberCaptor.capture());
+        verify(mNetworkProxy).getBarringInfo(mSerialNumberCaptor.capture());
         verifyRILResponse(
                 mRILUnderTest, mSerialNumberCaptor.getValue(), RIL_REQUEST_GET_BARRING_INFO);
     }
@@ -1499,11 +1518,10 @@ public class RILTest extends TelephonyTest {
         record.timeStampType = RIL_TIMESTAMP_TYPE_OEM_RIL;
         record.timeStamp = TIMESTAMP;
         record.lte.add(lte);
-        ArrayList<android.hardware.radio.V1_0.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_0.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
 
-        ArrayList<CellInfo> ret = RIL.convertHalCellInfoList(records);
+        ArrayList<CellInfo> ret = RILUtils.convertHalCellInfoList(records);
 
         assertEquals(1, ret.size());
         CellInfoLte cellInfoLte = (CellInfoLte) ret.get(0);
@@ -1541,11 +1559,10 @@ public class RILTest extends TelephonyTest {
         record.timeStampType = RIL_TIMESTAMP_TYPE_OEM_RIL;
         record.timeStamp = TIMESTAMP;
         record.gsm.add(cellinfo);
-        ArrayList<android.hardware.radio.V1_0.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_0.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
 
-        ArrayList<CellInfo> ret = RIL.convertHalCellInfoList(records);
+        ArrayList<CellInfo> ret = RILUtils.convertHalCellInfoList(records);
 
         assertEquals(1, ret.size());
         CellInfoGsm cellInfoGsm = (CellInfoGsm) ret.get(0);
@@ -1582,11 +1599,10 @@ public class RILTest extends TelephonyTest {
         record.timeStampType = RIL_TIMESTAMP_TYPE_OEM_RIL;
         record.timeStamp = TIMESTAMP;
         record.wcdma.add(cellinfo);
-        ArrayList<android.hardware.radio.V1_0.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_0.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
 
-        ArrayList<CellInfo> ret = RIL.convertHalCellInfoList(records);
+        ArrayList<CellInfo> ret = RILUtils.convertHalCellInfoList(records);
 
         assertEquals(1, ret.size());
         CellInfoWcdma cellInfoWcdma = (CellInfoWcdma) ret.get(0);
@@ -1632,11 +1648,10 @@ public class RILTest extends TelephonyTest {
         record.timeStampType = RIL_TIMESTAMP_TYPE_OEM_RIL;
         record.timeStamp = TIMESTAMP;
         record.tdscdma.add(cellinfo);
-        ArrayList<android.hardware.radio.V1_2.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_2.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
 
-        ArrayList<CellInfo> ret = RIL.convertHalCellInfoList_1_2(records);
+        ArrayList<CellInfo> ret = RILUtils.convertHalCellInfoList(records);
 
         assertEquals(1, ret.size());
         CellInfoTdscdma cellInfoTdscdma = (CellInfoTdscdma) ret.get(0);
@@ -1675,11 +1690,10 @@ public class RILTest extends TelephonyTest {
         record.timeStampType = RIL_TIMESTAMP_TYPE_OEM_RIL;
         record.timeStamp = TIMESTAMP;
         record.cdma.add(cellinfo);
-        ArrayList<android.hardware.radio.V1_0.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_0.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
 
-        ArrayList<CellInfo> ret = RIL.convertHalCellInfoList(records);
+        ArrayList<CellInfo> ret = RILUtils.convertHalCellInfoList(records);
 
         assertEquals(1, ret.size());
         CellInfoCdma cellInfoCdma = (CellInfoCdma) ret.get(0);
@@ -1962,10 +1976,10 @@ public class RILTest extends TelephonyTest {
         android.hardware.radio.V1_4.CellInfo record = new android.hardware.radio.V1_4.CellInfo();
         record.info.nr(cellinfo);
 
-        ArrayList<android.hardware.radio.V1_4.CellInfo> records = new ArrayList<>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
 
-        ArrayList<CellInfo> ret = RIL.convertHalCellInfoList_1_4(records);
+        ArrayList<CellInfo> ret = RILUtils.convertHalCellInfoList(records);
 
         CellInfoNr cellInfoNr = (CellInfoNr) ret.get(0);
         CellIdentityNr cellIdentityNr = (CellIdentityNr) cellInfoNr.getCellIdentity();
@@ -2015,7 +2029,7 @@ public class RILTest extends TelephonyTest {
                 new android.hardware.radio.V1_5.CellIdentityLte();
         initializeCellIdentityLte_1_5(halCellIdentity, false, true);
 
-        CellIdentityLte cellIdentity = new CellIdentityLte(halCellIdentity);
+        CellIdentityLte cellIdentity = RILUtils.convertHalCellIdentityLte(halCellIdentity);
 
         assertEquals(CSG_INDICATION,
                 cellIdentity.getClosedSubscriberGroupInfo().getCsgIndicator());
@@ -2031,7 +2045,7 @@ public class RILTest extends TelephonyTest {
                 new android.hardware.radio.V1_5.CellIdentityLte();
         initializeCellIdentityLte_1_5(halCellIdentity, true, false);
 
-        CellIdentityLte cellIdentity = new CellIdentityLte(halCellIdentity);
+        CellIdentityLte cellIdentity = RILUtils.convertHalCellIdentityLte(halCellIdentity);
 
         Set<String> additionalPlmns = new HashSet<>();
         Collections.addAll(additionalPlmns, ADDITIONAL_PLMNS);
@@ -2046,8 +2060,7 @@ public class RILTest extends TelephonyTest {
         initializeCellIdentityWcdma_1_2(id.base);
 
         if (addAdditionalPlmns) {
-            id.additionalPlmns = new ArrayList<>(
-                    Arrays.asList(ADDITIONAL_PLMNS));
+            id.additionalPlmns = new ArrayList<>(Arrays.asList(ADDITIONAL_PLMNS));
         }
 
         if (addCsgInfo) {
@@ -2061,7 +2074,7 @@ public class RILTest extends TelephonyTest {
                 new android.hardware.radio.V1_5.CellIdentityWcdma();
         initializeCellIdentityWcdma_1_5(halCellIdentity, false, true);
 
-        CellIdentityWcdma cellIdentity = new CellIdentityWcdma(halCellIdentity);
+        CellIdentityWcdma cellIdentity = RILUtils.convertHalCellIdentityWcdma(halCellIdentity);
 
         assertEquals(CSG_INDICATION,
                 cellIdentity.getClosedSubscriberGroupInfo().getCsgIndicator());
@@ -2077,7 +2090,7 @@ public class RILTest extends TelephonyTest {
                 new android.hardware.radio.V1_5.CellIdentityWcdma();
         initializeCellIdentityWcdma_1_5(halCellIdentity, true, false);
 
-        CellIdentityWcdma cellIdentity = new CellIdentityWcdma(halCellIdentity);
+        CellIdentityWcdma cellIdentity = RILUtils.convertHalCellIdentityWcdma(halCellIdentity);
 
         Set<String> additionalPlmns = new HashSet<>();
         Collections.addAll(additionalPlmns, ADDITIONAL_PLMNS);
@@ -2092,8 +2105,7 @@ public class RILTest extends TelephonyTest {
         initializeCellIdentityTdscdma_1_2(id.base);
 
         if (addAdditionalPlmns) {
-            id.additionalPlmns = new ArrayList<>(
-                    Arrays.asList(ADDITIONAL_PLMNS));
+            id.additionalPlmns = new ArrayList<>(Arrays.asList(ADDITIONAL_PLMNS));
         }
 
         if (addCsgInfo) {
@@ -2107,7 +2119,7 @@ public class RILTest extends TelephonyTest {
                 new android.hardware.radio.V1_5.CellIdentityTdscdma();
         initializeCellIdentityTdscdma_1_5(halCellIdentity, false, true);
 
-        CellIdentityTdscdma cellIdentity = new CellIdentityTdscdma(halCellIdentity);
+        CellIdentityTdscdma cellIdentity = RILUtils.convertHalCellIdentityTdscdma(halCellIdentity);
 
         assertEquals(CSG_INDICATION,
                 cellIdentity.getClosedSubscriberGroupInfo().getCsgIndicator());
@@ -2123,7 +2135,7 @@ public class RILTest extends TelephonyTest {
                 new android.hardware.radio.V1_5.CellIdentityTdscdma();
         initializeCellIdentityTdscdma_1_5(halCellIdentity, true, false);
 
-        CellIdentityTdscdma cellIdentity = new CellIdentityTdscdma(halCellIdentity);
+        CellIdentityTdscdma cellIdentity = RILUtils.convertHalCellIdentityTdscdma(halCellIdentity);
 
         Set<String> additionalPlmns = new HashSet<>();
         Collections.addAll(additionalPlmns, ADDITIONAL_PLMNS);
@@ -2173,7 +2185,7 @@ public class RILTest extends TelephonyTest {
                 .setTrafficDescriptors(new ArrayList<>())
                 .build();
 
-        assertEquals(response, RIL.convertDataCallResult(result10));
+        assertEquals(response, RILUtils.convertHalDataCallResult(result10));
 
         // Test V1.4 SetupDataCallResult
         android.hardware.radio.V1_4.SetupDataCallResult result14 =
@@ -2192,7 +2204,7 @@ public class RILTest extends TelephonyTest {
                 "fd00:976a:c206:20::6", "fd00:976a:c206:20::9", "fd00:976a:c202:1d::9"));
         result14.mtu = 1500;
 
-        assertEquals(response, RIL.convertDataCallResult(result14));
+        assertEquals(response, RILUtils.convertHalDataCallResult(result14));
 
         // Test V1.5 SetupDataCallResult
         android.hardware.radio.V1_5.SetupDataCallResult result15 =
@@ -2248,7 +2260,7 @@ public class RILTest extends TelephonyTest {
                 .setTrafficDescriptors(new ArrayList<>())
                 .build();
 
-        assertEquals(response, RIL.convertDataCallResult(result15));
+        assertEquals(response, RILUtils.convertHalDataCallResult(result15));
 
         // Test V1.6 SetupDataCallResult
         android.hardware.radio.V1_6.SetupDataCallResult result16 =
@@ -2312,7 +2324,7 @@ public class RILTest extends TelephonyTest {
 
         result16.qosSessions = new ArrayList<>(Arrays.asList(halQosSession));
 
-        EpsQos epsQos = new EpsQos(halEpsQos);
+        EpsQos epsQos = new EpsQos(new Qos.QosBandwidth(4, 7), new Qos.QosBandwidth(5, 8), 4);
         QosBearerFilter qosFilter = new QosBearerFilter(
                 Arrays.asList(
                         new LinkAddress(InetAddresses.parseNumericAddress("122.22.22.22"), 32)),
@@ -2338,7 +2350,7 @@ public class RILTest extends TelephonyTest {
                 new android.hardware.radio.V1_6.OptionalOsAppId();
         android.hardware.radio.V1_6.OsAppId osAppId = new android.hardware.radio.V1_6.OsAppId();
         byte[] osAppIdArray = {1, 2, 3, 4};
-        osAppId.osAppId = mRILUnderTest.primitiveArrayToArrayList(osAppIdArray);
+        osAppId.osAppId = RILUtils.primitiveArrayToArrayList(osAppIdArray);
         halOsAppId.value(osAppId);
 
         halTrafficDescriptor.dnn = halDnn;
@@ -2375,7 +2387,7 @@ public class RILTest extends TelephonyTest {
                 .setTrafficDescriptors(trafficDescriptors)
                 .build();
 
-        assertEquals(response, RIL.convertDataCallResult(result16));
+        assertEquals(response, RILUtils.convertHalDataCallResult(result16));
     }
 
     @Test
@@ -2404,8 +2416,7 @@ public class RILTest extends TelephonyTest {
 
     @Test
     public void testCellInfoTimestamp_1_4() {
-        ArrayList<android.hardware.radio.V1_4.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_4.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
 
         for (int i = 0; i < 5 /* arbitrary */; i++) {
             android.hardware.radio.V1_4.CellInfo record =
@@ -2417,7 +2428,7 @@ public class RILTest extends TelephonyTest {
 
             records.add(record);
         }
-        List<CellInfo> cil = RIL.convertHalCellInfoList_1_4(records);
+        List<CellInfo> cil = RILUtils.convertHalCellInfoList(records);
 
         // Check that all timestamps are set to a valid number and are equal
         final long ts = cil.get(0).getTimeStamp();
@@ -2429,8 +2440,7 @@ public class RILTest extends TelephonyTest {
 
     @Test
     public void testCellInfoTimestamp_1_2() {
-        ArrayList<android.hardware.radio.V1_2.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_2.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
 
         for (int i = 0; i < 5 /* arbitrary */; i++) {
             android.hardware.radio.V1_2.CellInfo record =
@@ -2445,7 +2455,7 @@ public class RILTest extends TelephonyTest {
 
             records.add(record);
         }
-        List<CellInfo> cil = RIL.convertHalCellInfoList_1_2(records);
+        List<CellInfo> cil = RILUtils.convertHalCellInfoList(records);
 
         // Check that all timestamps are set to a valid number and are equal
         final long ts = cil.get(0).getTimeStamp();
@@ -2500,10 +2510,9 @@ public class RILTest extends TelephonyTest {
         record.timeStamp = TIMESTAMP;
         record.lte.add(lte);
         record.connectionStatus = 0;
-        ArrayList<android.hardware.radio.V1_2.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_2.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
-        return RIL.convertHalCellInfoList_1_2(records);
+        return RILUtils.convertHalCellInfoList(records);
     }
 
     private ArrayList<CellInfo> getCellInfoListForGSM(
@@ -2528,11 +2537,10 @@ public class RILTest extends TelephonyTest {
         record.timeStamp = TIMESTAMP;
         record.gsm.add(cellinfo);
         record.connectionStatus = 0;
-        ArrayList<android.hardware.radio.V1_2.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_2.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
 
-        return RIL.convertHalCellInfoList_1_2(records);
+        return RILUtils.convertHalCellInfoList(records);
     }
 
     private static void initializeCellIdentityWcdma_1_2(
@@ -2571,11 +2579,10 @@ public class RILTest extends TelephonyTest {
         record.timeStamp = TIMESTAMP;
         record.wcdma.add(cellinfo);
         record.connectionStatus = 0;
-        ArrayList<android.hardware.radio.V1_2.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_2.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
 
-        return RIL.convertHalCellInfoList_1_2(records);
+        return RILUtils.convertHalCellInfoList(records);
     }
 
     private ArrayList<CellInfo> getCellInfoListForCdma(String alphaLong, String alphaShort) {
@@ -2600,11 +2607,10 @@ public class RILTest extends TelephonyTest {
         record.timeStamp = TIMESTAMP;
         record.cdma.add(cellinfo);
         record.connectionStatus = 0;
-        ArrayList<android.hardware.radio.V1_2.CellInfo> records =
-                new ArrayList<android.hardware.radio.V1_2.CellInfo>();
+        ArrayList<Object> records = new ArrayList<>();
         records.add(record);
 
-        return RIL.convertHalCellInfoList_1_2(records);
+        return RILUtils.convertHalCellInfoList(records);
     }
 
     @Test
@@ -2632,29 +2638,27 @@ public class RILTest extends TelephonyTest {
                 .build();
 
         mRILUnderTest.setupDataCall(AccessNetworkConstants.AccessNetworkType.EUTRAN, dp, false,
-                false, 0, null,
-                DataCallResponse.PDU_SESSION_ID_NOT_SET, null, null, true, obtainMessage());
-        ArgumentCaptor<DataProfileInfo> dpiCaptor = ArgumentCaptor.forClass(DataProfileInfo.class);
-        verify(mRadioProxy).setupDataCall(
-                mSerialNumberCaptor.capture(), eq(AccessNetworkConstants.AccessNetworkType.EUTRAN),
-                dpiCaptor.capture(), eq(true), eq(false), eq(false));
+                false, 0, null, DataCallResponse.PDU_SESSION_ID_NOT_SET, null, null, true,
+                obtainMessage());
+        ArgumentCaptor<DataProfile> dpiCaptor = ArgumentCaptor.forClass(DataProfile.class);
+        verify(mDataProxy).setupDataCall(mSerialNumberCaptor.capture(),
+                anyInt(), eq(AccessNetworkConstants.AccessNetworkType.EUTRAN), dpiCaptor.capture(),
+                eq(false), eq(false), anyInt(), any(), anyInt(), any(), any(), eq(true));
         verifyRILResponse(
                 mRILUnderTest, mSerialNumberCaptor.getValue(), RIL_REQUEST_SETUP_DATA_CALL);
-        DataProfileInfo dpi = dpiCaptor.getValue();
-        assertEquals(PROFILE_ID, dpi.profileId);
-        assertEquals(APN, dpi.apn);
-        assertEquals(PROTOCOL, ApnSetting.getProtocolIntFromString(dpi.protocol));
-        assertEquals(AUTH_TYPE, dpi.authType);
-        assertEquals(USER_NAME, dpi.user);
-        assertEquals(PASSWORD, dpi.password);
-        assertEquals(TYPE, dpi.type);
-        assertEquals(APN_ENABLED, dpi.enabled);
-        assertEquals(SUPPORTED_APN_TYPES_BITMASK, dpi.supportedApnTypesBitmap);
-        assertEquals(ROAMING_PROTOCOL, ApnSetting.getProtocolIntFromString(dpi.protocol));
-        assertEquals(
-                SUPPORTED_NETWORK_TYPES_BITMASK,
-                ServiceState.convertBearerBitmaskToNetworkTypeBitmask(dpi.bearerBitmap >> 1));
-        assertEquals(MTU, dpi.mtu);
+        DataProfile dpi = dpiCaptor.getValue();
+        assertEquals(PROFILE_ID, dpi.getProfileId());
+        assertEquals(APN, dpi.getApn());
+        assertEquals(PROTOCOL, dpi.getProtocolType());
+        assertEquals(AUTH_TYPE, dpi.getAuthType());
+        assertEquals(USER_NAME, dpi.getUserName());
+        assertEquals(PASSWORD, dpi.getPassword());
+        assertEquals(TYPE, dpi.getType());
+        assertEquals(APN_ENABLED, dpi.isEnabled());
+        assertEquals(SUPPORTED_APN_TYPES_BITMASK, dpi.getSupportedApnTypesBitmask());
+        assertEquals(ROAMING_PROTOCOL, dpi.getRoamingProtocolType());
+        assertEquals(SUPPORTED_NETWORK_TYPES_BITMASK, dpi.getBearerBitmask());
+        assertEquals(MTU, dpi.getMtu());
     }
 
     @Test
@@ -2738,7 +2742,7 @@ public class RILTest extends TelephonyTest {
         expected.add(c4);
         expected.add(c5);
 
-        ArrayList<Carrier> result = RIL.createCarrierRestrictionList(carriers);
+        ArrayList<Carrier> result = RILUtils.convertToHalCarrierRestrictionList(carriers);
 
         assertTrue(result.equals(expected));
     }
@@ -2747,7 +2751,7 @@ public class RILTest extends TelephonyTest {
     public void testEnableUiccApplications() throws Exception {
         // Not supported on Radio 1.0.
         mRILUnderTest.enableUiccApplications(false, obtainMessage());
-        verify(mRadioProxy, never()).enableUiccApplications(anyInt(), anyBoolean());
+        verify(mSimProxy, never()).enableUiccApplications(anyInt(), anyBoolean());
 
         // Make radio version 1.5 to support the operation.
         try {
@@ -2755,7 +2759,7 @@ public class RILTest extends TelephonyTest {
         } catch (Exception e) {
         }
         mRILUnderTest.enableUiccApplications(false, obtainMessage());
-        verify(mRadioProxy).enableUiccApplications(mSerialNumberCaptor.capture(), anyBoolean());
+        verify(mSimProxy).enableUiccApplications(mSerialNumberCaptor.capture(), anyBoolean());
         verifyRILResponse(mRILUnderTest, mSerialNumberCaptor.getValue(),
                 RIL_REQUEST_ENABLE_UICC_APPLICATIONS);
     }
@@ -2764,7 +2768,7 @@ public class RILTest extends TelephonyTest {
     public void testAreUiccApplicationsEnabled() throws Exception {
         // Not supported on Radio 1.0.
         mRILUnderTest.areUiccApplicationsEnabled(obtainMessage());
-        verify(mRadioProxy, never()).areUiccApplicationsEnabled(mSerialNumberCaptor.capture());
+        verify(mSimProxy, never()).areUiccApplicationsEnabled(mSerialNumberCaptor.capture());
 
         // Make radio version 1.5 to support the operation.
         try {
@@ -2772,7 +2776,7 @@ public class RILTest extends TelephonyTest {
         } catch (Exception e) {
         }
         mRILUnderTest.areUiccApplicationsEnabled(obtainMessage());
-        verify(mRadioProxy).areUiccApplicationsEnabled(mSerialNumberCaptor.capture());
+        verify(mSimProxy).areUiccApplicationsEnabled(mSerialNumberCaptor.capture());
         verifyRILResponse(mRILUnderTest, mSerialNumberCaptor.getValue(),
                 RIL_REQUEST_GET_UICC_APPLICATIONS_ENABLEMENT);
     }
@@ -2784,7 +2788,7 @@ public class RILTest extends TelephonyTest {
         Message message = obtainMessage();
         mRILUnderTest.areUiccApplicationsEnabled(message);
         processAllMessages();
-        verify(mRadioProxy, never()).areUiccApplicationsEnabled(mSerialNumberCaptor.capture());
+        verify(mSimProxy, never()).areUiccApplicationsEnabled(mSerialNumberCaptor.capture());
         // Sending message is handled by getRadioProxy when proxy is null.
         // areUiccApplicationsEnabled shouldn't explicitly send another callback.
         assertEquals(null, message.obj);

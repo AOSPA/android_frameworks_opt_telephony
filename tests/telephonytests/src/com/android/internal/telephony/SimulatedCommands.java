@@ -61,7 +61,7 @@ import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.LastCallFailCause;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
-import com.android.internal.telephony.RIL;
+import com.android.internal.telephony.RILUtils;
 import com.android.internal.telephony.RadioCapability;
 import com.android.internal.telephony.SmsResponse;
 import com.android.internal.telephony.UUSInfo;
@@ -1192,6 +1192,13 @@ public class SimulatedCommands extends BaseCommands
         }
     }
 
+    public void triggerNITZupdate(String NITZStr, long ageMs) {
+        if (NITZStr != null) {
+            mNITZTimeRegistrant.notifyRegistrant(new AsyncResult (null, new Object[]{NITZStr,
+                    SystemClock.elapsedRealtime(), ageMs}, null));
+        }
+    }
+
     @Override
     public void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
             boolean allowRoaming, int reason, LinkProperties linkProperties, int pduSessionId,
@@ -1222,7 +1229,7 @@ public class SimulatedCommands extends BaseCommands
             }
         }
 
-        DataCallResponse response = RIL.convertDataCallResult(mSetupDataCallResult);
+        DataCallResponse response = RILUtils.convertHalDataCallResult(mSetupDataCallResult);
         if (mDcSuccess) {
             resultSuccess(result, response);
         } else {

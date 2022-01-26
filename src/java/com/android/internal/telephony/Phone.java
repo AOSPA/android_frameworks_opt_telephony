@@ -69,6 +69,7 @@ import android.telephony.ims.RegistrationManager;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
 import android.text.TextUtils;
 import android.util.LocalLog;
+import android.util.Log;
 import android.util.SparseArray;
 import android.util.Xml;
 
@@ -79,6 +80,7 @@ import com.android.ims.ImsManager;
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.data.DataNetworkController;
+import com.android.internal.telephony.dataconnection.AccessNetworksManager;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
@@ -86,6 +88,7 @@ import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.EcbmHandler;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
+import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
 import com.android.internal.telephony.metrics.SmsStats;
 import com.android.internal.telephony.metrics.VoiceCallSessionStats;
@@ -98,6 +101,7 @@ import com.android.internal.telephony.uicc.SIMRecords;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.uicc.UiccPort;
 import com.android.internal.telephony.uicc.UsimServiceTable;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.util.XmlUtils;
@@ -238,8 +242,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected static final int EVENT_BARRING_INFO_CHANGED = 58;
     protected static final int EVENT_LINK_CAPACITY_CHANGED = 59;
     protected static final int EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION = 60;
+    protected static final int EVENT_SET_VONR_ENABLED_DONE = 61;
 
-    protected static final int EVENT_LAST = EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION;
+    protected static final int EVENT_LAST = EVENT_SET_VONR_ENABLED_DONE;
 
     // For shared prefs.
     private static final String GSM_ROAMING_LIST_OVERRIDE_PREFIX = "gsm_roaming_list_";
@@ -268,6 +273,13 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     // Integer used to let the calling application know that the we are ignoring auto mode switch.
     private static final int ALREADY_IN_AUTO_SELECTION = 1;
+
+    //Used to indicate smart DDS switch during voice call is supported or not.
+    protected boolean mSmartTempDdsSwitchSupported = false;
+
+    //Used to indicate telephony temp DDS switch during voice call is enabled or not
+    //when smart DDS switch is enabled in modem.
+    protected boolean mTelephonyTempDdsSwitch = true;
 
     /**
      * This method is invoked when the Phone exits Emergency Callback Mode.
@@ -346,9 +358,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected DeviceStateMonitor mDeviceStateMonitor;
     protected DisplayInfoController mDisplayInfoController;
     protected TransportManager mTransportManager;
+    protected AccessNetworksManager mAccessNetworksManager;
     protected DataEnabledSettings mDataEnabledSettings;
     // Used for identify the carrier of current subscription
     protected CarrierResolver mCarrierResolver;
+    protected SignalStrengthController mSignalStrengthController;
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected int mPhoneId;
@@ -1900,9 +1914,16 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     * @return The instance of transport manager
+     * @return The instance of transport manager.
      */
     public TransportManager getTransportManager() {
+        return null;
+    }
+
+    /**
+     * @return The instance of access networks manager.
+     */
+    public AccessNetworksManager getAccessNetworksManager() {
         return null;
     }
 
@@ -1917,6 +1938,14 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * Retrieves the DisplayInfoController of the phone instance.
      */
     public DisplayInfoController getDisplayInfoController() {
+        return null;
+    }
+
+    /**
+     * Retrieves the SignalStrengthController of the phone instance.
+     */
+    public SignalStrengthController getSignalStrengthController() {
+        Log.wtf(LOG_TAG, "getSignalStrengthController return null.");
         return null;
     }
 
@@ -2234,11 +2263,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * @return Current signal strength as SignalStrength
      */
     public SignalStrength getSignalStrength() {
-        ServiceStateTracker sst = getServiceStateTracker();
-        if (sst == null) {
+        SignalStrengthController ssc = getSignalStrengthController();
+        if (ssc == null) {
             return new SignalStrength();
         } else {
-            return sst.getSignalStrength();
+            return ssc.getSignalStrength();
         }
     }
 
@@ -3961,6 +3990,14 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
+     * Gets the Uicc port corresponding to this phone.
+     * @return the UiccPort object corresponding to the phone ID.
+     */
+    public UiccPort getUiccPort() {
+        return mUiccController.getUiccPort(mPhoneId);
+    }
+
+    /**
      * Get P-CSCF address from PCO after data connection is established or modified.
      * @param apnType the apnType, "ims" for IMS APN, "emergency" for EMERGENCY APN
      */
@@ -3990,6 +4027,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return mImsPhone;
     }
 
+    @VisibleForTesting
+    public void setImsPhone(ImsPhone imsPhone) {
+        mImsPhone = imsPhone;
+    }
+
     /**
      * Returns Carrier specific information that will be used to encrypt the IMSI and IMPI.
      * @param keyType whether the key is being used for WLAN or ePDG.
@@ -4012,6 +4054,36 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo) {
         return;
+    }
+
+    /**
+     * Sets smart DDS switch is supported.
+     */
+    public void setSmartTempDdsSwitchSupported(boolean smartDdsSwitch) {
+    }
+
+    /**
+     * Returns smart DDS switch during voice call is supported or not.
+     */
+    public boolean getSmartTempDdsSwitchSupported() {
+        return false;
+    }
+
+    /**
+     * Sets telephony temp DDS switch logic during voice call is enabled or not.
+     * Telephony temp DDS switch logic could be disabled if smart DDS switch
+     * capability is supported by modem.
+     * If its disabled, DDS switch during voice call is performed based on modem
+     * recommendations.
+     */
+    public void setTelephonyTempDdsSwitch(boolean telephonyTempDdsSwitch) {
+    }
+
+    /**
+     * Returns telephony temp DDS switch logic during voice call is enabled or not.
+     */
+    public boolean getTelephonyTempDdsSwitch() {
+        return true;
     }
 
     /**
@@ -4866,12 +4938,12 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * @param isIdle true if the new state is idle
      */
     public void notifyDeviceIdleStateChanged(boolean isIdle) {
-        ServiceStateTracker sst = getServiceStateTracker();
-        if (sst == null) {
-            Rlog.e(LOG_TAG, "notifyDeviceIdleStateChanged: SST is null");
+        SignalStrengthController ssc = getSignalStrengthController();
+        if (ssc == null) {
+            Rlog.e(LOG_TAG, "notifyDeviceIdleStateChanged: SignalStrengthController is null");
             return;
         }
-        sst.onDeviceIdleStateChanged(isIdle);
+        ssc.onDeviceIdleStateChanged(isIdle);
     }
 
     /**
@@ -5087,6 +5159,12 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             pw.println("++++++++++++++++++++++++++++++++");
         }
 
+        if (mSignalStrengthController != null) {
+            pw.println("SignalStrengthController:");
+            mSignalStrengthController.dump(fd, pw, args);
+            pw.println("++++++++++++++++++++++++++++++++");
+        }
+
         if (mTransportManager != null) {
             mTransportManager.dump(fd, pw, args);
         }
@@ -5167,5 +5245,41 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         String configValue = DeviceConfig.getProperty(DeviceConfig.NAMESPACE_TELEPHONY,
                 "new_telephony_data_enabled");
         return configValue != null && Boolean.parseBoolean(configValue);
+    }
+
+    public void exitScbm() {
+    }
+
+    public void setOnScbmExitResponse(Handler h, int what, Object obj) {
+        Registrant registrant = new Registrant(h, what, obj);
+        registrant.notifyRegistrant();
+    }
+
+    public void unsetOnScbmExitResponse(Handler h) {
+    }
+
+    public void registerForScbmTimerReset(Handler h, int what, Object obj) {
+    }
+
+    public void unregisterForScbmTimerReset(Handler h) {
+    }
+
+    public boolean isInScbm(int subId) {
+        return false;
+    }
+
+    public boolean isInScbm() {
+        return false;
+    }
+
+    public boolean isExitScbmFeatureSupported() {
+        return false;
+    }
+
+    public void handleTimerInScbm(int action) {
+    }
+
+    public boolean isScbmTimerCanceledForEmergency() {
+        return false;
     }
 }

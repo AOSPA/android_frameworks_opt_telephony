@@ -70,8 +70,8 @@ import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -275,13 +275,7 @@ public class ImsPhoneConnectionTest extends TelephonyTest {
         // process post dial string during update
         assertTrue(mConnectionUT.update(mImsCall, Call.State.ACTIVE));
         assertEquals(Connection.PostDialState.STARTED, mConnectionUT.getPostDialState());
-        try {
-            Field field = ImsPhoneConnection.class.getDeclaredField("PAUSE_DELAY_MILLIS");
-            field.setAccessible(true);
-            moveTimeForward((Integer) field.get(null));
-        } catch (Exception ex) {
-            Assert.fail("unexpected exception thrown" + ex.getMessage());
-        }
+        moveTimeForward(ImsPhoneConnection.PAUSE_DELAY_MILLIS);
         processAllMessages();
         assertEquals(Connection.PostDialState.COMPLETE, mConnectionUT.getPostDialState());
     }
@@ -433,15 +427,14 @@ public class ImsPhoneConnectionTest extends TelephonyTest {
     @SmallTest
     public void testSetRedirectingAddress() {
         mConnectionUT = new ImsPhoneConnection(mImsPhone, mImsCall, mImsCT, mForeGroundCall, false);
-        ArrayList<String> forwardedNumber = new ArrayList<String>();
-        forwardedNumber.add("11111");
-        forwardedNumber.add("22222");
-        forwardedNumber.add("33333");
+        String[] forwardedNumber = new String[]{"11111", "22222", "33333"};
+        ArrayList<String> forwardedNumberList =
+                new ArrayList<String>(Arrays.asList(forwardedNumber));
 
         assertEquals(mConnectionUT.getForwardedNumber(), null);
-        mBundle.putStringArrayList(ImsCallProfile.EXTRA_FORWARDED_NUMBER, forwardedNumber);
+        mBundle.putStringArray(ImsCallProfile.EXTRA_FORWARDED_NUMBER, forwardedNumber);
         assertTrue(mConnectionUT.update(mImsCall, Call.State.ACTIVE));
-        assertEquals(forwardedNumber, mConnectionUT.getForwardedNumber());
+        assertEquals(forwardedNumberList, mConnectionUT.getForwardedNumber());
     }
 
     @Test

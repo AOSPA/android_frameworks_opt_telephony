@@ -211,6 +211,8 @@ public class PhoneSwitcher extends Handler {
     // Internet data if mOpptDataSubId is not set.
     protected int mPrimaryDataSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
 
+    private boolean isPrimaryDataSubChanged = false;
+
     // mOpptDataSubId must be an active subscription. If it's set, it overrides mPrimaryDataSubId
     // to be used for Internet data.
     private int mOpptDataSubId = SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
@@ -265,7 +267,7 @@ public class PhoneSwitcher extends Handler {
     public static final int EVENT_PRECISE_CALL_STATE_CHANGED      = 109;
     private static final int EVENT_NETWORK_VALIDATION_DONE        = 110;
     private static final int EVENT_REMOVE_DEFAULT_NETWORK_CHANGE_CALLBACK = 111;
-    private static final int EVENT_MODEM_COMMAND_DONE             = 112;
+    protected static final int EVENT_MODEM_COMMAND_DONE             = 112;
     protected static final int EVENT_MODEM_COMMAND_RETRY            = 113;
     @VisibleForTesting
     public static final int EVENT_DATA_ENABLED_CHANGED            = 114;
@@ -287,6 +289,7 @@ public class PhoneSwitcher extends Handler {
     protected static final int EVENT_UNSOL_MAX_DATA_ALLOWED_CHANGED = 122;
     protected static final int EVENT_OEM_HOOK_SERVICE_READY       = 123;
     protected static final int EVENT_SUB_INFO_READY               = 124;
+    protected static final int EVENT_RECONNECT_EXT_TELEPHONY_SERVICE = 125;
 
     // List of events triggers re-evaluations
     private static final String EVALUATION_REASON_RADIO_ON = "EVENT_RADIO_ON";
@@ -702,7 +705,9 @@ public class PhoneSwitcher extends Handler {
                         mEmergencyOverride.mPendingOriginatingCall = false;
                     }
                 }
-                evaluateIfDataSwitchIsNeeded("EVENT_PRECISE_CALL_STATE_CHANGED");
+                if (isTelephonyTempDdsSwitchEnabled()) {
+                    evaluateIfDataSwitchIsNeeded("EVENT_PRECISE_CALL_STATE_CHANGED");
+                }
                 break;
             }
 
@@ -1012,6 +1017,7 @@ public class PhoneSwitcher extends Handler {
             sb.append(" mPrimaryDataSubId ").append(mPrimaryDataSubId).append("->")
                 .append(primaryDataSubId);
             mPrimaryDataSubId = primaryDataSubId;
+            isPrimaryDataSubChanged = true;
         }
 
         // Check to see if there is any active subscription on any phone
@@ -1130,6 +1136,7 @@ public class PhoneSwitcher extends Handler {
                 }
             }
         }
+        isPrimaryDataSubChanged = false;
         return diffDetected;
     }
 
@@ -1197,6 +1204,27 @@ public class PhoneSwitcher extends Handler {
         msg.sendToTarget();
     }
 
+    /**
+     * Returns if telephony temp DDS switch is enabled/disabled during voice call based
+     * on smart DDS switch supported by modem.
+     * If telephony temp DDS switch is disabled, DDS switch during voice call is
+     * performed based on modem recommendations.
+     */
+    private boolean isTelephonyTempDdsSwitchEnabled() {
+        for (int i = 0; i < mActiveModemCount; i++) {
+            Phone phone = PhoneFactory.getPhone(i);
+            if(phone == null) {
+                continue;
+            }
+            int subId = phone.getSubId();
+            if(subId != INVALID_SUBSCRIPTION_ID
+                    && subId != mPrimaryDataSubId && !phone.getTelephonyTempDdsSwitch()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     protected void sendRilCommands(int phoneId) {
         if (!SubscriptionManager.isValidPhoneId(phoneId)) {
             log("sendRilCommands: skip dds switch due to invalid phoneid=" + phoneId);
@@ -1209,8 +1237,10 @@ public class PhoneSwitcher extends Handler {
             if (mActiveModemCount > 1) {
                 PhoneFactory.getPhone(phoneId).mCi.setDataAllowed(isPhoneActive(phoneId), message);
             }
-        } else if (phoneId == mPreferredDataPhoneId) {
-            // Only setPreferredDataModem if the phoneId equals to current mPreferredDataPhoneId
+        } else if ((phoneId == mPreferredDataPhoneId)
+                && (isTelephonyTempDdsSwitchEnabled() || isPrimaryDataSubChanged)) {
+            // Only setPreferredDataModem if the phoneId equals to current mPreferredDataPhoneId,
+            // and telephony temp dds switch is enabled or user changes DDS from Settings app.
             log("sendRilCommands: setPreferredDataModem - phoneId: " + phoneId);
             mRadioConfig.setPreferredDataModem(mPreferredDataPhoneId, message);
         }

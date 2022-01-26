@@ -68,6 +68,7 @@ import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.E
 import com.android.internal.telephony.protobuf.nano.MessageNano;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
 import com.android.internal.telephony.uicc.UiccCard;
+import com.android.internal.telephony.uicc.UiccPort;
 import com.android.internal.telephony.uicc.UiccSlot;
 
 import org.junit.After;
@@ -95,6 +96,8 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
     @Mock private UiccSlot mEmptySlot;
     @Mock private UiccCard mInactiveCard;
     @Mock private UiccCard mActiveCard;
+    @Mock private UiccPort mInactivePort;
+    @Mock private UiccPort mActivePort;
 
     @Mock private ImsPhoneConnection mImsConnection0;
     @Mock private ImsPhoneConnection mImsConnection1;
@@ -155,8 +158,8 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
         doReturn(true).when(mEsimSlot).isActive();
         doReturn(CardState.CARDSTATE_PRESENT).when(mEsimSlot).getCardState();
         doReturn(true).when(mEsimSlot).isEuicc();
-        doReturn(0).when(mInactiveCard).getNumApplications();
-        doReturn(4).when(mActiveCard).getNumApplications();
+        doReturn(0).when(mInactivePort).getNumApplications();
+        doReturn(4).when(mActivePort).getNumApplications();
 
         doReturn(new UiccSlot[] {mPhysicalSlot}).when(mUiccController).getUiccSlots();
         doReturn(mPhysicalSlot).when(mUiccController).getUiccSlot(eq(0));
@@ -437,6 +440,7 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
     @SmallTest
     public void singleImsCall_dsdsModeSingleSim() {
         doReturn(mInactiveCard).when(mEsimSlot).getUiccCard();
+        doReturn(new UiccPort[]{mInactivePort}).when(mInactiveCard).getUiccPortList();
         doReturn(new UiccSlot[] {mPhysicalSlot, mEsimSlot}).when(mUiccController).getUiccSlots();
         doReturn(mEsimSlot).when(mUiccController).getUiccSlot(eq(1));
         doReturn(mEsimSlot).when(mUiccController).getUiccSlotForPhone(eq(1));
@@ -481,6 +485,7 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
     @SmallTest
     public void singleImsCall_dsdsMode() {
         doReturn(mActiveCard).when(mEsimSlot).getUiccCard();
+        doReturn(new UiccPort[]{mActivePort}).when(mActiveCard).getUiccPortList();
         doReturn(new UiccSlot[] {mPhysicalSlot, mEsimSlot}).when(mUiccController).getUiccSlots();
         doReturn(mEsimSlot).when(mUiccController).getUiccSlot(eq(1));
         doReturn(mEsimSlot).when(mUiccController).getUiccSlotForPhone(eq(1));
@@ -525,6 +530,7 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
     @SmallTest
     public void singleImsCall_esim() {
         doReturn(mActiveCard).when(mEsimSlot).getUiccCard();
+        doReturn(new UiccPort[]{mActivePort}).when(mActiveCard).getUiccPortList();
         doReturn(new UiccSlot[] {mPhysicalSlot, mEsimSlot}).when(mUiccController).getUiccSlots();
         doReturn(mEsimSlot).when(mUiccController).getUiccSlot(eq(1));
         doReturn(mEsimSlot).when(mUiccController).getUiccSlotForPhone(eq(1));
@@ -1311,9 +1317,9 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
         expectedCall.ratSwitchCount = 1L;
         expectedCall.setupFailed = true;
         expectedCall.ratAtConnected = TelephonyManager.NETWORK_TYPE_UNKNOWN;
-        expectedCall.codecBitmask = 1L << AudioCodec.AUDIO_CODEC_AMR;
+        expectedCall.codecBitmask = 0L;
         expectedCall.mainCodecQuality =
-                VOICE_CALL_SESSION__MAIN_CODEC_QUALITY__CODEC_QUALITY_NARROWBAND;
+                VOICE_CALL_SESSION__MAIN_CODEC_QUALITY__CODEC_QUALITY_UNKNOWN;
         VoiceCallRatUsage expectedRatUsageLte =
                 makeRatUsageProto(
                         CARRIER_ID_SLOT_0, TelephonyManager.NETWORK_TYPE_LTE, 2000L, 3000L, 1L);
@@ -1331,8 +1337,6 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
         mVoiceCallSessionStats0.setTimeMillis(3000L);
         setServiceState(mServiceState, TelephonyManager.NETWORK_TYPE_UMTS);
         mVoiceCallSessionStats0.onServiceStateChanged(mServiceState);
-        mVoiceCallSessionStats0.setTimeMillis(3100L);
-        mVoiceCallSessionStats0.onAudioCodecChanged(mGsmConnection0, DriverCall.AUDIO_QUALITY_AMR);
         mVoiceCallSessionStats0.setTimeMillis(15000L);
         doReturn(DisconnectCause.LOST_SIGNAL).when(mGsmConnection0).getDisconnectCause();
         mVoiceCallSessionStats0.onRilCallListChanged(List.of(mGsmConnection0));
@@ -1435,7 +1439,8 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
         expectedCall.setupFailed = true;
         expectedCall.ratAtConnected = TelephonyManager.NETWORK_TYPE_UNKNOWN;
         expectedCall.bandAtEnd = 0;
-        expectedCall.codecBitmask = 1L << AudioCodec.AUDIO_CODEC_AMR;
+        expectedCall.codecBitmask =
+                (1L << AudioCodec.AUDIO_CODEC_AMR) | (1L << AudioCodec.AUDIO_CODEC_AMR_WB);
         expectedCall.mainCodecQuality =
                 VOICE_CALL_SESSION__MAIN_CODEC_QUALITY__CODEC_QUALITY_NARROWBAND;
         VoiceCallRatUsage expectedRatUsage =
@@ -1448,10 +1453,12 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
         mVoiceCallSessionStats0.setTimeMillis(2500L);
         doReturn(Call.State.INCOMING).when(mCsCall0).getState();
         doReturn(Call.State.INCOMING).when(mGsmConnection0).getState();
+        doReturn(DriverCall.AUDIO_QUALITY_AMR_WB).when(mGsmConnection0).getAudioCodec();
         doReturn(DisconnectCause.NOT_DISCONNECTED).when(mGsmConnection0).getDisconnectCause();
         mVoiceCallSessionStats0.onRilCallListChanged(List.of(mGsmConnection0));
         mVoiceCallSessionStats0.setTimeMillis(3000L);
         mVoiceCallSessionStats0.onAudioCodecChanged(mGsmConnection0, DriverCall.AUDIO_QUALITY_AMR);
+        doReturn(DriverCall.AUDIO_QUALITY_AMR).when(mGsmConnection0).getAudioCodec();
         mVoiceCallSessionStats0.setTimeMillis(15000L);
         doReturn(DisconnectCause.NORMAL).when(mGsmConnection0).getDisconnectCause();
         doReturn(PreciseDisconnectCause.CALL_REJECTED)
@@ -1907,7 +1914,7 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
     public void singleWifiCall_preferred() {
         setServiceStateWithWifiCalling(mServiceState, TelephonyManager.NETWORK_TYPE_LTE);
         doReturn(mImsPhone).when(mPhone).getImsPhone();
-        doReturn(true).when(mImsPhone).isWifiCallingEnabled();
+        doReturn(TelephonyManager.NETWORK_TYPE_IWLAN).when(mImsStats).getImsVoiceRadioTech();
         doReturn(true).when(mImsConnection0).isIncoming();
         doReturn(2000L).when(mImsConnection0).getCreateTime();
         doReturn(mImsCall0).when(mImsConnection0).getCall();
@@ -1955,7 +1962,7 @@ public class VoiceCallSessionStatsTest extends TelephonyTest {
     public void singleWifiCall_airPlaneMode() {
         setServiceStateWithWifiCalling(mServiceState, TelephonyManager.NETWORK_TYPE_UNKNOWN);
         doReturn(mImsPhone).when(mPhone).getImsPhone();
-        doReturn(true).when(mImsPhone).isWifiCallingEnabled();
+        doReturn(TelephonyManager.NETWORK_TYPE_IWLAN).when(mImsStats).getImsVoiceRadioTech();
         doReturn(true).when(mImsConnection0).isIncoming();
         doReturn(2000L).when(mImsConnection0).getCreateTime();
         doReturn(mImsCall0).when(mImsConnection0).getCall();

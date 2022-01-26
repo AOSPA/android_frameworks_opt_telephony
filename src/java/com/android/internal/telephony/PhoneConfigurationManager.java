@@ -78,6 +78,11 @@ public class PhoneConfigurationManager {
             "com.qti.permission.RECEIVE_MSIM_VOICE_CAPABILITY";
     private final String EXTRAS_MSIM_VOICE_CAPABILITY = "MsimVoiceCapability";
 
+    private static final String ACTION_MSIM_VOICE_CAPABILITY_CHANGED =
+            "org.codeaurora.intent.action.MSIM_VOICE_CAPABILITY_CHANGED";
+    private static final String PERMISSION_MSIM_VOICE_CAPABILITY_CHANGED =
+            "com.qti.permission.RECEIVE_MSIM_VOICE_CAPABILITY_CHANGED";
+
     /**
      * Init method to instantiate the object
      * Should only be called once.
@@ -126,6 +131,7 @@ public class PhoneConfigurationManager {
                     TelephonyManager.MultiSimVoiceCapability.UNKNOWN);
             log(" mConcurrentCallsReceiver: voiceCapability : " + voiceCapability);
             TelephonyProperties.multi_sim_voice_capability(voiceCapability);
+            broadcastMsimVoiceCapabilityChanged();
         }
     };
 
@@ -357,7 +363,7 @@ public class PhoneConfigurationManager {
             log("switchMultiSimConfig: sending the request for switching");
             Message callback = Message.obtain(
                     mHandler, EVENT_SWITCH_DSDS_CONFIG_DONE, numOfSims, 0 /**dummy arg*/);
-            mRadioConfig.setModemsConfig(numOfSims, callback);
+            mRadioConfig.setNumOfLiveModems(numOfSims, callback);
         } else {
             log("switchMultiSimConfig: No need to switch. getNumOfActiveSims is already "
                     + numOfSims);
@@ -464,6 +470,12 @@ public class PhoneConfigurationManager {
         Intent intent = new Intent(ACTION_MULTI_SIM_CONFIG_CHANGED);
         intent.putExtra(EXTRA_ACTIVE_SIM_SUPPORTED_COUNT, numOfActiveModems);
         mContext.sendBroadcast(intent);
+    }
+
+    private void broadcastMsimVoiceCapabilityChanged() {
+        log("broadcastMsimVoiceCapabilityChanged");
+        Intent intent = new Intent(ACTION_MSIM_VOICE_CAPABILITY_CHANGED);
+        mContext.sendBroadcast(intent, PERMISSION_MSIM_VOICE_CAPABILITY_CHANGED);
     }
 
     /**

@@ -21,7 +21,6 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.os.SystemClock;
 import android.os.SystemProperties;
-import android.os.TimestampedValue;
 import android.provider.Settings;
 
 import com.android.internal.util.IndentingPrintWriter;
@@ -65,7 +64,7 @@ public interface NitzStateMachine {
     /**
      * Handle a new NITZ signal being received.
      */
-    void handleNitzReceived(@NonNull TimestampedValue<NitzData> nitzSignal);
+    void handleNitzReceived(@NonNull NitzSignal nitzSignal);
 
     /**
      * Handle the user putting the device into or out of airplane mode
@@ -90,14 +89,14 @@ public interface NitzStateMachine {
     interface DeviceState {
 
         /**
-         * If time between NITZ updates is less than {@link #getNitzUpdateSpacingMillis()} the
-         * update may be ignored.
+         * If elapsed time between two NITZ signals is less than this value then the second signal
+         * can be ignored.
          */
         int getNitzUpdateSpacingMillis();
 
         /**
-         * If {@link #getNitzUpdateSpacingMillis()} hasn't been exceeded but update is >
-         * {@link #getNitzUpdateDiffMillis()} do the update
+         * If UTC time between two NITZ signals is less than this value then the second signal can
+         * be ignored.
          */
         int getNitzUpdateDiffMillis();
 
@@ -109,7 +108,7 @@ public interface NitzStateMachine {
         /**
          * Returns the same value as {@link SystemClock#elapsedRealtime()}.
          */
-        long elapsedRealtime();
+        long elapsedRealtimeMillis();
 
         /**
          * Returns the same value as {@link System#currentTimeMillis()}.
@@ -158,7 +157,7 @@ public interface NitzStateMachine {
         }
 
         @Override
-        public long elapsedRealtime() {
+        public long elapsedRealtimeMillis() {
             return SystemClock.elapsedRealtime();
         }
 
