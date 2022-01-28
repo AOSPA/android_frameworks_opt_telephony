@@ -1067,6 +1067,14 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     e.printStackTrace();
             }
         }
+        if (canExitScbm()) {
+             try {
+                 mPhone.mDefaultPhone.exitScbm();
+             } catch (Exception e) {
+                 e.printStackTrace();
+             }
+         }
+
         int mPreferredTtyMode = Settings.Secure.getInt(
                 mPhone.getContext().getContentResolver(),
                 Settings.Secure.PREFERRED_TTY_MODE,
