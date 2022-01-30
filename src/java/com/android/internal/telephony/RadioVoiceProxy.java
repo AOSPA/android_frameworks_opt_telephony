@@ -18,6 +18,7 @@ package com.android.internal.telephony;
 
 import android.os.RemoteException;
 import android.telephony.PhoneNumberUtils;
+import android.telephony.Rlog;
 import android.telephony.emergency.EmergencyNumber;
 
 import java.util.ArrayList;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
  * getAidl to get IRadioVoice and call the AIDL implementations of the HAL APIs.
  */
 public class RadioVoiceProxy extends RadioServiceProxy {
+    private static final String TAG = "RadioVoiceProxy";
     private volatile android.hardware.radio.voice.IRadioVoice mVoiceProxy = null;
 
     /**
@@ -38,6 +40,7 @@ public class RadioVoiceProxy extends RadioServiceProxy {
         mHalVersion = halVersion;
         mVoiceProxy = voice;
         mIsAidl = true;
+        Rlog.d(TAG, "AIDL initialized");
     }
 
     /**
@@ -133,7 +136,7 @@ public class RadioVoiceProxy extends RadioServiceProxy {
                     emergencyNumberInfo.getEmergencyServiceCategoryBitmaskInternalDial(),
                     emergencyNumberInfo.getEmergencyUrns() != null
                             ? emergencyNumberInfo.getEmergencyUrns().stream().toArray(String[]::new)
-                            : null,
+                            : new String[0],
                     emergencyNumberInfo.getEmergencyCallRouting(),
                     hasKnownUserIntentEmergency,
                     emergencyNumberInfo.getEmergencyNumberSourceBitmask()

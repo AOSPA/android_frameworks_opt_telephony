@@ -46,12 +46,12 @@ import android.util.SparseArray;
 
 import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneSwitcher;
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.SlidingWindowEventCounter;
 import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.data.KeepaliveStatus;
 import com.android.internal.telephony.data.NotifyQosSessionInterface;
+import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.data.QosCallbackTracker;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.util.IndentingPrintWriter;

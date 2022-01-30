@@ -182,7 +182,7 @@ public class RadioConfigProxy {
      * @return Set string capabilities
      */
     public Set<String> getFullCapabilitySet() {
-        return RILUtils.getCaps(mRadioConfigHalVersion, false);
+        return RILUtils.getCaps(mRadioHalVersion, false);
     }
 
     /**
@@ -288,7 +288,7 @@ public class RadioConfigProxy {
             // Deal with service going away
             Rlog.e(TAG, "serviceDied");
             mRadioConfig.sendMessage(
-                    mRadioConfig.obtainMessage(RadioConfig.EVENT_SERVICE_DEAD, cookie));
+                    mRadioConfig.obtainMessage(RadioConfig.EVENT_HIDL_SERVICE_DEAD, cookie));
         }
     }
 
@@ -332,7 +332,8 @@ public class RadioConfigProxy {
         public void binderDied() {
             Rlog.e(TAG, "service died.");
             unlinkToDeath();
-            mRadioConfig.sendMessage(mRadioConfig.obtainMessage(RadioConfig.EVENT_SERVICE_DEAD));
+            mRadioConfig.sendMessage(
+                    mRadioConfig.obtainMessage(RadioConfig.EVENT_AIDL_SERVICE_DEAD));
         }
     }
 }
