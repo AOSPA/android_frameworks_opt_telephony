@@ -45,6 +45,7 @@ import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerExecutor;
 import android.os.Looper;
 import android.os.Message;
 import android.os.PersistableBundle;
@@ -264,6 +265,8 @@ public class GsmCdmaPhone extends Phone {
     private final ImsManagerFactory mImsManagerFactory;
     private final CarrierPrivilegesTracker mCarrierPrivilegesTracker;
 
+    private final SubscriptionManager.OnSubscriptionsChangedListener mSubscriptionsChangedListener;
+
     // Constructors
 
     public GsmCdmaPhone(Context context, CommandsInterface ci, PhoneNotifier notifier, int phoneId,
@@ -348,6 +351,7 @@ public class GsmCdmaPhone extends Phone {
         mSST.registerForNetworkAttached(this, EVENT_REGISTERED_TO_NETWORK, null);
         mSST.registerForVoiceRegStateOrRatChanged(this, EVENT_VRS_OR_RAT_CHANGED, null);
 
+        // TODO: Remove SettingsObserver and provisioning events when DataEnabledSettings is removed
         mSettingsObserver = new SettingsObserver(context, this);
         mSettingsObserver.observe(
                 Settings.Global.getUriFor(Settings.Global.DEVICE_PROVISIONED),
@@ -366,6 +370,19 @@ public class GsmCdmaPhone extends Phone {
         loadTtyMode();
 
         CallManager.getInstance().registerPhone(this);
+
+        mSubscriptionsChangedListener =
+                new SubscriptionManager.OnSubscriptionsChangedListener() {
+            @Override
+            public void onSubscriptionsChanged() {
+                sendEmptyMessage(EVENT_SUBSCRIPTIONS_CHANGED);
+            }
+        };
+
+        SubscriptionManager subMan = context.getSystemService(SubscriptionManager.class);
+        subMan.addOnSubscriptionsChangedListener(
+                new HandlerExecutor(this), mSubscriptionsChangedListener);
+
         logd("GsmCdmaPhone: constructor: sub = " + mPhoneId);
     }
 
@@ -2653,6 +2670,9 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public boolean getDataRoamingEnabled() {
+        if (isUsingNewDataStack()) {
+            return getDataSettingsManager().isDataRoamingEnabled();
+        }
         if (getDcTracker(AccessNetworkConstants.TRANSPORT_TYPE_WWAN) != null) {
             return getDcTracker(AccessNetworkConstants.TRANSPORT_TYPE_WWAN).getDataRoamingEnabled();
         }
@@ -2661,6 +2681,10 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void setDataRoamingEnabled(boolean enable) {
+        if (isUsingNewDataStack()) {
+            getDataSettingsManager().setDataRoamingEnabled(enable);
+            return;
+        }
         if (getDcTracker(AccessNetworkConstants.TRANSPORT_TYPE_WWAN) != null) {
             getDcTracker(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
                     .setDataRoamingEnabledByUser(enable);
@@ -2713,6 +2737,10 @@ public class GsmCdmaPhone extends Phone {
      */
     @Override
     public boolean isUserDataEnabled() {
+        if (isUsingNewDataStack()) {
+            return getDataSettingsManager().isDataEnabledForReason(
+                    TelephonyManager.DATA_ENABLED_REASON_USER);
+        }
         if (mDataEnabledSettings.isProvisioning()) {
             return mDataEnabledSettings.isProvisioningDataEnabled();
         } else {
@@ -3240,14 +3268,23 @@ public class GsmCdmaPhone extends Phone {
             case EVENT_SET_CARRIER_DATA_ENABLED:
                 ar = (AsyncResult) msg.obj;
                 boolean enabled = (boolean) ar.result;
+                if (isUsingNewDataStack()) {
+                    getDataSettingsManager().setDataEnabled(
+                            TelephonyManager.DATA_ENABLED_REASON_CARRIER, enabled);
+                    return;
+                }
                 mDataEnabledSettings.setDataEnabled(TelephonyManager.DATA_ENABLED_REASON_CARRIER,
                         enabled);
                 break;
             case EVENT_DEVICE_PROVISIONED_CHANGE:
-                mDataEnabledSettings.updateProvisionedChanged();
+                if (!isUsingNewDataStack()) {
+                    mDataEnabledSettings.updateProvisionedChanged();
+                }
                 break;
             case EVENT_DEVICE_PROVISIONING_DATA_SETTING_CHANGE:
-                mDataEnabledSettings.updateProvisioningDataEnabled();
+                if (!isUsingNewDataStack()) {
+                    mDataEnabledSettings.updateProvisioningDataEnabled();
+                }
                 break;
             case EVENT_GET_AVAILABLE_NETWORKS_DONE:
                 ar = (AsyncResult) msg.obj;
@@ -3317,6 +3354,10 @@ public class GsmCdmaPhone extends Phone {
             }
             case EVENT_SET_VONR_ENABLED_DONE:
                 logd("EVENT_SET_VONR_ENABLED_DONE is done");
+                break;
+            case EVENT_SUBSCRIPTIONS_CHANGED:
+                logd("EVENT_SUBSCRIPTIONS_CHANGED");
+                updateUsageSetting();
                 break;
 
             default:
