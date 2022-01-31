@@ -24,6 +24,7 @@ import android.os.RemoteException;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.NetworkScanRequest;
 import android.telephony.RadioAccessSpecifier;
+import android.telephony.Rlog;
 import android.telephony.SignalThresholdInfo;
 
 import java.util.ArrayList;
@@ -35,6 +36,7 @@ import java.util.stream.Collectors;
  * getAidl to get IRadioNetwork and call the AIDL implementations of the HAL APIs.
  */
 public class RadioNetworkProxy extends RadioServiceProxy {
+    private static final String TAG = "RadioNetworkProxy";
     private volatile android.hardware.radio.network.IRadioNetwork mNetworkProxy = null;
 
     private static final int INDICATION_FILTERS_ALL_V1_0 =
@@ -68,6 +70,7 @@ public class RadioNetworkProxy extends RadioServiceProxy {
         mHalVersion = halVersion;
         mNetworkProxy = network;
         mIsAidl = true;
+        Rlog.d(TAG, "AIDL initialized");
     }
 
     /**
@@ -788,5 +791,32 @@ public class RadioNetworkProxy extends RadioServiceProxy {
         } else {
             mRadioProxy.supplyNetworkDepersonalization(serial, netPin);
         }
+    }
+
+    /**
+     * Call IRadioNetwork#getUsageSetting()
+     * @param serial Serial number of request
+     * @throws RemoteException
+     */
+    public void getUsageSetting(int serial) throws RemoteException {
+        if (isEmpty()) return;
+        if (isAidl()) {
+            mNetworkProxy.getUsageSetting(serial);
+        }
+        // Only supported on AIDL.
+    }
+
+    /**
+     * Call IRadioNetwork#setUsageSetting()
+     * @param serial Serial number of request
+     * @throws RemoteException
+     */
+    public void setUsageSetting(int serial,
+            /* TelephonyManager.UsageSetting */ int usageSetting) throws RemoteException {
+        if (isEmpty()) return;
+        if (isAidl()) {
+            mNetworkProxy.setUsageSetting(serial, usageSetting);
+        }
+        // Only supported on AIDL.
     }
 }

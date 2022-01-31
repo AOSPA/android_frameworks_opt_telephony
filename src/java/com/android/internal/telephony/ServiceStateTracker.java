@@ -93,7 +93,7 @@ import com.android.internal.telephony.cdma.EriManager;
 import com.android.internal.telephony.cdnr.CarrierDisplayNameData;
 import com.android.internal.telephony.cdnr.CarrierDisplayNameResolver;
 import com.android.internal.telephony.data.DataNetwork;
-import com.android.internal.telephony.data.DataNetworkController;
+import com.android.internal.telephony.data.DataNetworkController.DataNetworkControllerCallback;
 import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.dataconnection.DcTracker;
 import com.android.internal.telephony.dataconnection.TransportManager;
@@ -284,6 +284,7 @@ public class ServiceStateTracker extends Handler {
     // Timeout event used when delaying radio power off to wait for IMS deregistration to happen.
     private static final int EVENT_POWER_OFF_RADIO_IMS_DEREG_TIMEOUT   = 62;
     protected static final int EVENT_RESET_LAST_KNOWN_CELL_IDENTITY    = 63;
+    private static final int EVENT_REGISTER_DATA_NETWORK_EXISTING_CHANGED = 64;
 
     /**
      * The current service state.
@@ -616,6 +617,13 @@ public class ServiceStateTracker extends Handler {
     private int mLastKnownAreaCode = CellInfo.UNAVAILABLE;
     private boolean mImsDeregDelay;
 
+    /**
+     * Indicating if there is any data network existing. This is used in airplane mode turning on
+     * scenario, where service state tracker should wait all data disconnected before powering
+     * down the modem.
+     */
+    private boolean mAnyDataExisting = false;
+
     public ServiceStateTracker(GsmCdmaPhone phone, CommandsInterface ci) {
         mNitzState = TelephonyComponentFactory.getInstance()
                 .inject(NitzStateMachine.class.getName())
@@ -714,6 +722,10 @@ public class ServiceStateTracker extends Handler {
                 CarrierServiceStateTracker.CARRIER_EVENT_DATA_DEREGISTRATION, null);
         registerForImsCapabilityChanged(mCSST,
                 CarrierServiceStateTracker.CARRIER_EVENT_IMS_CAPABILITIES_CHANGED, null);
+
+        if (mPhone.isUsingNewDataStack()) {
+            sendEmptyMessage(EVENT_REGISTER_DATA_NETWORK_EXISTING_CHANGED);
+        }
     }
 
     @VisibleForTesting
@@ -1469,15 +1481,33 @@ public class ServiceStateTracker extends Handler {
                 }
                 break;
 
+            case EVENT_REGISTER_DATA_NETWORK_EXISTING_CHANGED: {
+                mPhone.getDataNetworkController().registerDataNetworkControllerCallback(
+                        new DataNetworkControllerCallback(this::post) {
+                        @Override
+                        public void onAnyDataNetworkExistingChanged(boolean anyDataExisting) {
+                            if (mAnyDataExisting != anyDataExisting) {
+                                mAnyDataExisting = anyDataExisting;
+                                log("onAnyDataNetworkExistingChanged: anyDataExisting="
+                                        + anyDataExisting);
+                                if (!mAnyDataExisting) {
+                                    sendEmptyMessage(EVENT_ALL_DATA_DISCONNECTED);
+                                }
+                            }
+                        }
+                        });
+                break;
+            }
             case EVENT_ALL_DATA_DISCONNECTED:
                 if (mPhone.isUsingNewDataStack()) {
+                    log("EVENT_ALL_DATA_DISCONNECTED");
                     if (mPendingRadioPowerOffAfterDataOff) {
                         mPendingRadioPowerOffAfterDataOff = false;
                         removeMessages(EVENT_SET_RADIO_POWER_OFF);
                         if (DBG) log("EVENT_ALL_DATA_DISCONNECTED, turn radio off now.");
                         hangupAndPowerOff();
-                        return;
                     }
+                    return;
                 }
                 int dds = SubscriptionManager.getDefaultDataSubscriptionId();
                 ProxyController.getInstance().unregisterForAllDataDisconnected(dds, this);
@@ -2796,8 +2826,10 @@ public class ServiceStateTracker extends Handler {
         String wfcFlightSpnFormat = null;
         int combinedRegState = getCombinedRegState(mSS);
         if (mPhone.getImsPhone() != null && mPhone.getImsPhone().isWifiCallingEnabled()
-                && (combinedRegState == ServiceState.STATE_IN_SERVICE)) {
-            // In Wi-Fi Calling mode show SPN or PLMN + WiFi Calling
+                && (combinedRegState == ServiceState.STATE_IN_SERVICE
+                && mSS.getDataNetworkType() == TelephonyManager.NETWORK_TYPE_IWLAN)) {
+            // In Wi-Fi Calling mode (connected to WiFi and WFC enabled),
+            // show SPN or PLMN + WiFi Calling
             //
             // 1) Show SPN + Wi-Fi Calling If SIM has SPN and SPN display condition
             //    is satisfied or SPN override is enabled for this carrier
@@ -4929,21 +4961,16 @@ public class ServiceStateTracker extends Handler {
         synchronized (this) {
             if (!mPendingRadioPowerOffAfterDataOff) {
                 if (mPhone.isUsingNewDataStack()) {
-                    mPhone.getDataNetworkController().registerDataNetworkControllerCallback(
-                            this::post,
-                            new DataNetworkController.DataNetworkControllerCallback() {
-                                @Override
-                                public void onAllDataNetworksDisconnected() {
-                                    sendEmptyMessage(EVENT_ALL_DATA_DISCONNECTED);
-                                }
-                                // One time callback. If all data networks are already disconnected
-                                // upon registration, the callback will be invoked immediately.
-                            }, true);
-                    log("powerOffRadioSafely: Tear down all data networks.");
-                    mPhone.getDataNetworkController().tearDownAllDataNetworks(
-                            DataNetwork.TEAR_DOWN_REASON_AIRPLANE_MODE_ON);
-                    sendEmptyMessageDelayed(EVENT_SET_RADIO_POWER_OFF,
-                            POWER_OFF_ALL_DATA_NETWORKS_DISCONNECTED_TIMEOUT);
+                    if (mAnyDataExisting) {
+                        log("powerOffRadioSafely: Tear down all data networks.");
+                        mPhone.getDataNetworkController().tearDownAllDataNetworks(
+                                DataNetwork.TEAR_DOWN_REASON_AIRPLANE_MODE_ON);
+                        sendEmptyMessageDelayed(EVENT_SET_RADIO_POWER_OFF,
+                                POWER_OFF_ALL_DATA_NETWORKS_DISCONNECTED_TIMEOUT);
+                    } else {
+                        log("powerOffRadioSafely: No data is connected.");
+                        sendEmptyMessage(EVENT_ALL_DATA_DISCONNECTED);
+                    }
                     mPendingRadioPowerOffAfterDataOff = true;
                     return;
                 }
@@ -5259,6 +5286,7 @@ public class ServiceStateTracker extends Handler {
         dumpCellInfoList(pw);
         pw.flush();
         pw.println(" mAllowedNetworkTypes=" + mAllowedNetworkTypes);
+        pw.println(" mAnyDataExisting=" + mAnyDataExisting);
         pw.println(" mMaxDataCalls=" + mMaxDataCalls);
         pw.println(" mNewMaxDataCalls=" + mNewMaxDataCalls);
         pw.println(" mReasonDataDenied=" + mReasonDataDenied);
