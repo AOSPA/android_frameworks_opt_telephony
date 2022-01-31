@@ -4948,17 +4948,6 @@ public class DcTracker extends Handler {
         boolean isEmergencyApnConfigured = false;
         boolean isImsApnConfigured = false;
 
-        String operator = mPhone.getOperatorNumeric();
-        //Add default apn setting for ia if no APN is present.
-        if (mAllApnSettings.isEmpty()) {
-            mAllApnSettings.add(ApnSetting.makeApnSetting(0, operator, "DEFAULT IA", "", null,
-                    -1, null, null, -1, "", "", 0, ApnSetting.TYPE_IA, ApnSetting.PROTOCOL_IPV4V6,
-                    ApnSetting.PROTOCOL_IPV4V6, true, 0, 0, false, 0, 0, 0, 0, -1, "",
-                    Telephony.Carriers.MATCH_ALL_APN_SET_ID, TelephonyManager.UNKNOWN_CARRIER_ID,
-                    Telephony.Carriers.SKIP_464XLAT_DEFAULT));
-            log("default IA empty(null) apn is created");
-        }
-
         for (ApnSetting apn : mAllApnSettings) {
             if (apn.canHandleType(ApnSetting.TYPE_EMERGENCY)) {
                 isEmergencyApnConfigured = true;

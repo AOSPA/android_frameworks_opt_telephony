@@ -63,8 +63,6 @@ public class ImsSmsDispatcher extends SMSDispatcher {
     private static final String TAG = "ImsSmsDispatcher";
     private static final int CONNECT_DELAY_MS = 5000; // 5 seconds;
 
-    private static final int RESTART_SCM_TIMER = 0; // restart Scm timer
-    private static final int CANCEL_SCM_TIMER = 1; // cancel Scm timer
     /**
      * Creates FeatureConnector instances for ImsManager, used during testing to inject mock
      * connector instances.
@@ -144,14 +142,6 @@ public class ImsSmsDispatcher extends SMSDispatcher {
                 }
     };
 
-    /**
-     * @return true if the phone is in SMS callback mode and
-     * exit SCBM supported, otherwise false
-     */
-    private boolean canExitScbm() {
-        return mPhone.isInScbm(mPhone.getSubId()) && mPhone.isExitScbmFeatureSupported();
-    }
-
     private final IImsSmsListener mImsSmsListener = new IImsSmsListener.Stub() {
         @Override
         public void onSendSmsResult(int token, int messageRef, @SendStatusResult int status,
@@ -201,15 +191,6 @@ public class ImsSmsDispatcher extends SMSDispatcher {
                         reason,
                         tracker.mMessageId,
                         tracker.isFromDefaultSmsApplication(mContext));
-
-                HashMap<String, Object> map = tracker.getData();
-                String destAddr = (String) map.get(MAP_KEY_DEST_ADDR);
-                boolean isEmergencySms = mTelephonyManager.isEmergencyNumber(destAddr);
-                if (status == ImsSmsImplBase.SEND_STATUS_OK &&
-                    isEmergencySms && canExitScbm()) {
-                    mPhone.handleTimerInScbm(CANCEL_SCM_TIMER);
-                    mPhone.handleTimerInScbm(RESTART_SCM_TIMER);
-                }
             } finally {
                 Binder.restoreCallingIdentity(identity);
             }
