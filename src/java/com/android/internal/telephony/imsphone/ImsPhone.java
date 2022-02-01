@@ -2517,9 +2517,20 @@ public class ImsPhone extends ImsPhoneBase {
             }
             mRegLocalLog.log("handleImsUnregistered: onImsMmTelDisconnected imsRadioTech="
                     + imsReasonInfo);
+            int extraCode = imsReasonInfo.getExtraCode();
+            /*
+             * If lower layer passes extraCode with information that UE is
+             * PS_ONLY attached or not, we update mIsOutgoingImsVoiceAllowed
+             * and return as we expect lower layer to invoke this function
+             * again with updated ImsReasonInfo.
+             */
+            if (extraCode == QtiImsUtils.CODE_IS_PS_ONLY_ATTACHED ||
+                extraCode == QtiImsUtils.CODE_IS_NOT_PS_ONLY_ATTACHED) {
+                mIsOutgoingImsVoiceAllowed =
+                        extraCode == QtiImsUtils.CODE_IS_PS_ONLY_ATTACHED;
+                return;
+            }
             setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
-            mIsOutgoingImsVoiceAllowed =
-                    imsReasonInfo.getExtraCode() == QtiImsUtils.CODE_IS_PS_ONLY_ATTACHED;
             processDisconnectReason(imsReasonInfo);
             getDefaultPhone().setImsRegistrationState(false);
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.DISCONNECTED,
