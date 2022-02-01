@@ -463,6 +463,13 @@ public class GsmCdmaPhone extends Phone {
                     e.printStackTrace();
                 }
             }
+            if (isInScbm() && isExitScbmFeatureSupported()) {
+                try {
+                    exitScbm();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
 
             mCi.setPhoneType(PhoneConstants.PHONE_TYPE_CDMA);
             tm.setPhoneType(getPhoneId(), PhoneConstants.PHONE_TYPE_CDMA);
