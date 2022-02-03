@@ -111,6 +111,8 @@ public class GsmCdmaCallTracker extends CallTracker {
     private int mPendingCallClirMode;
     private UUSInfo mPendingCallUusInfo;
     private int m3WayCallFlashDelay;
+    private boolean mPendingExitEcbmReq;
+    private boolean mPendingExitScbmReq;
 
     /**
      * Listens for Emergency Callback Mode state change intents
@@ -298,6 +300,8 @@ public class GsmCdmaCallTracker extends CallTracker {
 
     private void exitEmergencyMode() {
         boolean isPhoneInEcbm = isPhoneInEcbm();
+        boolean isPhoneInScbm = canExitScbm();
+
         if (isPhoneInEcbm) {
             EcbmHandler emergencyHandler = EcbmHandler.getInstance();
             try {
@@ -307,7 +311,9 @@ public class GsmCdmaCallTracker extends CallTracker {
             }
             emergencyHandler.setOnEcbModeExitResponse(this,
                     EVENT_EXIT_ECM_RESPONSE_CDMA, null);
-        } else {
+            mPendingExitEcbmReq = true;
+        }
+        if (isPhoneInScbm) {
             try {
                 mPhone.exitScbm();
             } catch (Exception e) {
@@ -315,6 +321,7 @@ public class GsmCdmaCallTracker extends CallTracker {
             }
             mPhone.setOnScbmExitResponse(this,
                     EVENT_EXIT_SCBM_RESPONSE_CDMA, null);
+            mPendingExitScbmReq = true;
         }
     }
 
@@ -1497,7 +1504,7 @@ public class GsmCdmaCallTracker extends CallTracker {
     }
 
     private void handlePendingMoCall() {
-        if (mPendingCallInEcm) {
+        if (mPendingCallInEcm && !mPendingExitEcbmReq && !mPendingExitScbmReq) {
             // no matter the result, we still do the same here
             if (isPhoneTypeGsm()) {
                 mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
@@ -1726,11 +1733,13 @@ public class GsmCdmaCallTracker extends CallTracker {
             break;
 
             case EVENT_EXIT_ECM_RESPONSE_CDMA:
+                mPendingExitEcbmReq = false;
                 handlePendingMoCall();
                 EcbmHandler.getInstance().unsetOnEcbModeExitResponse(this);
                 break;
 
             case EVENT_EXIT_SCBM_RESPONSE_CDMA:
+                mPendingExitScbmReq = false;
                 handlePendingMoCall();
                 mPhone.unsetOnScbmExitResponse(this);
                 break;
