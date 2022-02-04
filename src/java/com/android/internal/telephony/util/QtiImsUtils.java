@@ -55,7 +55,8 @@ public class QtiImsUtils {
     public static final int DOMAIN_CS = 1;
     public static final int DOMAIN_PS = 2;
 
-    public static final int CODE_IS_PS_ONLY_ATTACHED = 3002;
+    public static final int CODE_IS_PS_ONLY_ATTACHED = 4001;
+    public static final int CODE_IS_NOT_PS_ONLY_ATTACHED = 4002;
 
     public static final int RETRY_ON_IMS_WITHOUT_RTT = 301;
     //value of below constant needs to have same value as QtiCallConstants.java
