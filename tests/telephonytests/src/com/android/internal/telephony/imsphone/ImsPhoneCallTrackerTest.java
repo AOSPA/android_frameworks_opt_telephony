@@ -122,6 +122,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     private ImsCall mImsCall;
     private ImsCall mSecondImsCall;
     private Bundle mBundle = new Bundle();
+    private static final int SUB_0 = 0;
     @Nullable private VtDataUsageProvider mVtDataUsageProvider;
     @Mock
     private ImsCallSession mImsCallSession;
@@ -297,7 +298,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         processAllMessages();
 
         verify(mMockConnector).connect();
-        mConnectorListener.connectionReady(mImsManager);
+        mConnectorListener.connectionReady(mImsManager, SUB_0);
     }
 
     @After
@@ -791,6 +792,71 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
                 "Call answered elsewhere.")));
     }
 
+    private void clearCarrierConfig() {
+        PersistableBundle bundle = new PersistableBundle();
+        mCTUT.updateCarrierConfigCache(bundle);
+    }
+
+    private void loadReasonCodeRemapCarrierConfig() {
+        PersistableBundle bundle = new PersistableBundle();
+        String[] mappings = new String[] {
+                // These shall be equivalent to the remappings added in setUp():
+                "*|Wifi signal lost.|1407",
+                "501|Call answered elsewhere.|1014",
+                "510|Call answered elsewhere.|1014",
+                "510||332",
+                "352|emergency calls over wifi not allowed in this location|1622",
+                "332|service not allowed in this location|1623",
+                };
+        bundle.putStringArray(CarrierConfigManager.KEY_IMS_REASONINFO_MAPPING_STRING_ARRAY,
+                mappings);
+        mCTUT.updateCarrierConfigCache(bundle);
+    }
+
+    @Test
+    @SmallTest
+    public void testReasonCodeRemapCarrierConfig() {
+        clearCarrierConfig();
+        // The map shall become empty now
+
+        assertEquals(510, // ImsReasonInfo.CODE_USER_TERMINATED_BY_REMOTE
+                mCTUT.maybeRemapReasonCode(new ImsReasonInfo(510, 1, "Call answered elsewhere.")));
+
+        loadReasonCodeRemapCarrierConfig();
+        testReasonCodeRemap();
+        testNumericOnlyRemap();
+        testRemapEmergencyCallsOverWfc();
+        testRemapWfcNotAvailable();
+    }
+
+    private void loadReasonCodeRemapCarrierConfigWithWildcardMessage() {
+        PersistableBundle bundle = new PersistableBundle();
+        String[] mappings = new String[]{
+                "1014|call completed elsewhere|1014",
+                "1014|*|510",
+                };
+        bundle.putStringArray(CarrierConfigManager.KEY_IMS_REASONINFO_MAPPING_STRING_ARRAY,
+                mappings);
+        mCTUT.updateCarrierConfigCache(bundle);
+    }
+
+    @Test
+    @SmallTest
+    public void testReasonCodeRemapCarrierConfigWithWildcardMessage() {
+        clearCarrierConfig();
+        // The map shall become empty now
+
+        loadReasonCodeRemapCarrierConfigWithWildcardMessage();
+        assertEquals(ImsReasonInfo.CODE_USER_TERMINATED_BY_REMOTE, mCTUT.maybeRemapReasonCode(
+                new ImsReasonInfo(1014, 200, "Call Rejected By User"))); // 1014 -> 510
+        assertEquals(ImsReasonInfo.CODE_ANSWERED_ELSEWHERE, mCTUT.maybeRemapReasonCode(
+                new ImsReasonInfo(1014, 200, "Call completed elsewhere"))); // 1014 -> 1014
+
+        // Simulate that after SIM swap the new carrier config doesn't have the mapping for 1014
+        loadReasonCodeRemapCarrierConfig();
+        assertEquals(ImsReasonInfo.CODE_ANSWERED_ELSEWHERE, mCTUT.maybeRemapReasonCode(
+                new ImsReasonInfo(1014, 200, "Call Rejected By User"))); // 1014 -> 1014
+    }
 
     @Test
     @SmallTest
@@ -809,7 +875,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         processAllMessages();
 
         // Simulate ImsManager getting reconnected.
-        mConnectorListener.connectionReady(mImsManager);
+        mConnectorListener.connectionReady(mImsManager, SUB_0);
         verify(mImsManager, never()).makeCall(nullable(ImsCallProfile.class),
                 eq(new String[]{"+17005554141"}), nullable(ImsCall.Listener.class));
         // Make sure that open is called in ImsPhoneCallTracker when it was first connected and
@@ -1357,7 +1423,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         ImsPhoneCallTracker.Config config = new ImsPhoneCallTracker.Config();
         config.isD2DCommunicationSupported = true;
         mCTUT.setConfig(config);
-        mConnectorListener.connectionReady(mImsManager);
+        mConnectorListener.connectionReady(mImsManager, SUB_0);
 
         // Expect to get offered header extensions since d2d is supported.
         verify(mImsManager).setOfferedRtpHeaderExtensionTypes(
@@ -1388,7 +1454,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         ImsPhoneCallTracker.Config config = new ImsPhoneCallTracker.Config();
         config.isD2DCommunicationSupported = true;
         mCTUT.setConfig(config);
-        mConnectorListener.connectionReady(mImsManager);
+        mConnectorListener.connectionReady(mImsManager, SUB_0);
 
         // Expect to get offered header extensions since d2d is supported.
         verify(mImsManager).setOfferedRtpHeaderExtensionTypes(
@@ -1408,7 +1474,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         ImsPhoneCallTracker.Config config = new ImsPhoneCallTracker.Config();
         config.isD2DCommunicationSupported = false;
         mCTUT.setConfig(config);
-        mConnectorListener.connectionReady(mImsManager);
+        mConnectorListener.connectionReady(mImsManager, SUB_0);
 
         // Expect no offered header extensions since d2d is not supported.
         verify(mImsManager, never()).setOfferedRtpHeaderExtensionTypes(any());
