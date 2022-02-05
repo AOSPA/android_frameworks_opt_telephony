@@ -27,12 +27,14 @@ import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.spy;
 
 import android.app.ActivityManager;
 import android.app.AppOpsManager;
 import android.app.IActivityManager;
 import android.app.KeyguardManager;
 import android.app.usage.NetworkStatsManager;
+import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.IIntentSender;
@@ -63,6 +65,7 @@ import android.permission.LegacyPermissionManager;
 import android.provider.BlockedNumberContract;
 import android.provider.DeviceConfig;
 import android.provider.Settings;
+import android.provider.Telephony;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CellIdentity;
@@ -376,6 +379,7 @@ public abstract class TelephonyTest {
     protected ContextFixture mContextFixture;
     protected Context mContext;
     protected FakeBlockedNumberContentProvider mFakeBlockedNumberContentProvider;
+    private final ContentProvider mContentProvider = spy(new ContextFixture.FakeContentProvider());
     private Object mLock = new Object();
     private boolean mReady;
     protected HashMap<String, IBinder> mServiceManagerMockedServices = new HashMap<>();
@@ -495,6 +499,14 @@ public abstract class TelephonyTest {
         mFakeBlockedNumberContentProvider = new FakeBlockedNumberContentProvider();
         ((MockContentResolver)mContext.getContentResolver()).addProvider(
                 BlockedNumberContract.AUTHORITY, mFakeBlockedNumberContentProvider);
+        ((MockContentResolver) mContext.getContentResolver()).addProvider(
+                Settings.AUTHORITY, mContentProvider);
+        ((MockContentResolver) mContext.getContentResolver()).addProvider(
+                Telephony.ServiceStateTable.AUTHORITY, mContentProvider);
+        replaceContentProvider(mContentProvider);
+
+        Settings.Global.getInt(mContext.getContentResolver(), Settings.Global.AIRPLANE_MODE_ON, 0);
+
         mPhone.mCi = mSimulatedCommands;
         mCT.mCi = mSimulatedCommands;
         doReturn(mUiccCard).when(mPhone).getUiccCard();
@@ -948,6 +960,10 @@ public abstract class TelephonyTest {
         // restrictions should be enabled; this results in a NPE when DeviceConfig uses
         // Activity.currentActivity.getContentResolver as the resolver for Settings.Config.getString
         // since the IContentProvider in the NameValueCache's provider holder is null.
+        replaceContentProvider(new FakeSettingsConfigProvider());
+    }
+
+    private void replaceContentProvider(ContentProvider contentProvider) throws Exception {
         Class c = Class.forName("android.provider.Settings$Config");
         Field field = c.getDeclaredField("sNameValueCache");
         field.setAccessible(true);
@@ -958,10 +974,9 @@ public abstract class TelephonyTest {
         field.setAccessible(true);
         Object providerHolder = field.get(cache);
 
-        FakeSettingsConfigProvider fakeSettingsProvider = new FakeSettingsConfigProvider();
         field = MockContentProvider.class.getDeclaredField("mIContentProvider");
         field.setAccessible(true);
-        Object iContentProvider = field.get(fakeSettingsProvider);
+        Object iContentProvider = field.get(contentProvider);
 
         replaceInstance(Class.forName("android.provider.Settings$ContentProviderHolder"),
                 "mContentProvider", providerHolder, iContentProvider);
@@ -1094,12 +1109,49 @@ public abstract class TelephonyTest {
     }
 
     /**
+     * @return The longest delay from all the message queues.
+     */
+    private long getLongestDelay() {
+        long delay = 0;
+        for (TestableLooper looper : mTestableLoopers) {
+            MessageQueue queue = looper.getLooper().getQueue();
+            try {
+                Message msg = (Message) MESSAGE_QUEUE_FIELD.get(queue);
+                while (msg != null) {
+                    delay = Math.max(msg.getWhen(), delay);
+                    msg = (Message) MESSAGE_NEXT_FIELD.get(msg);
+                }
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException("Access failed in TelephonyTest", e);
+            }
+        }
+        return delay;
+    }
+
+    /**
+     * @return {@code true} if there are any messages in the queue.
+     */
+    private boolean messagesExist() {
+        for (TestableLooper looper : mTestableLoopers) {
+            MessageQueue queue = looper.getLooper().getQueue();
+            try {
+                Message msg = (Message) MESSAGE_QUEUE_FIELD.get(queue);
+                if (msg != null) return true;
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException("Access failed in TelephonyTest", e);
+            }
+        }
+        return false;
+    }
+
+    /**
      * Handle all messages including the delayed messages.
      */
     public void processAllFutureMessages() {
-        processAllMessages();
-        moveTimeForward(TimeUnit.DAYS.toMillis(1));
-        processAllMessages();
+        while (messagesExist()) {
+            moveTimeForward(getLongestDelay());
+            processAllMessages();
+        }
     }
 
     /**
