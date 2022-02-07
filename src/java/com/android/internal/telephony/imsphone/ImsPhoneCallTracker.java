@@ -574,6 +574,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     private ImsDialArgs mLastDialArgs = null;
     private Executor mExecutor = Runnable::run;
 
+    private boolean mPendingExitEcbmReq;
+    private boolean mPendingExitScbmReq;
+
     /**
      * Listeners to changes in the phone state.  Intended for use by other interested IMS components
      * without the need to register a full blown {@link android.telephony.PhoneStateListener}.
@@ -3236,6 +3239,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     private void exitEmergencyMode() throws Exception {
         boolean isPhoneInEcbm = isPhoneInEcbm();
+        boolean isPhoneInScbm = canExitScbm();
         if (isPhoneInEcbm) {
             try {
                 EcbmHandler.getInstance().exitEmergencyCallbackMode();
@@ -3244,7 +3248,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
             EcbmHandler.getInstance().setOnEcbModeExitResponse(this,
                     EVENT_EXIT_ECM_RESPONSE_CDMA, null);
-        } else {
+            mPendingExitEcbmReq = true;
+        }
+        if (isPhoneInScbm) {
             try {
                 mPhone.mDefaultPhone.exitScbm();
             } catch (Exception e) {
@@ -3252,6 +3258,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
             mPhone.mDefaultPhone.setOnScbmExitResponse(this,
               EVENT_EXIT_SCBM_RESPONSE_CDMA, null);
+            mPendingExitScbmReq = true;
         }
     }
 
@@ -4612,7 +4619,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     }
 
     private void handlePendingMoCall() {
-        if (pendingCallInEcm) {
+        if (pendingCallInEcm && !mPendingExitEcbmReq && !mPendingExitScbmReq) {
             dialInternal(mPendingMO, pendingCallClirMode,
                     mPendingCallVideoState, mPendingIntentExtras);
             mPendingIntentExtras = null;
@@ -4678,11 +4685,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 break;
 
             case EVENT_EXIT_ECM_RESPONSE_CDMA:
+                mPendingExitEcbmReq = false;
                 handlePendingMoCall();
                 EcbmHandler.getInstance().unsetOnEcbModeExitResponse(this);
                 break;
 
             case EVENT_EXIT_SCBM_RESPONSE_CDMA:
+                mPendingExitScbmReq = false;
                 handlePendingMoCall();
                 mPhone.mDefaultPhone.unsetOnScbmExitResponse(this);
                 break;
