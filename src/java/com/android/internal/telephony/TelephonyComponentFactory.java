@@ -33,11 +33,12 @@ import android.text.TextUtils;
 import com.android.ims.ImsManager;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.cdma.EriManager;
+import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.internal.telephony.data.DataNetworkController;
-import com.android.internal.telephony.dataconnection.AccessNetworksManager;
+import com.android.internal.telephony.data.LinkBandwidthEstimator;
+import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
-import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.imsphone.ImsExternalCallTracker;
@@ -402,7 +403,7 @@ public class TelephonyComponentFactory {
 
     public ImsExternalCallTracker makeImsExternalCallTracker(ImsPhone imsPhone) {
 
-        return new ImsExternalCallTracker(imsPhone);
+        return new ImsExternalCallTracker(imsPhone, imsPhone.getContext().getMainExecutor());
     }
 
     /**

@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-package com.android.internal.telephony.dataconnection;
+package com.android.internal.telephony.data;
 
+import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
 import android.annotation.StringDef;
 import android.content.BroadcastReceiver;
@@ -39,6 +40,7 @@ import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
 import android.telephony.AccessNetworkConstants.TransportType;
 import android.telephony.Annotation.ApnType;
+import android.telephony.Annotation.NetCapability;
 import android.telephony.AnomalyReporter;
 import android.telephony.CarrierConfigManager;
 import android.telephony.data.ApnSetting;
@@ -47,12 +49,14 @@ import android.telephony.data.IQualifiedNetworksServiceCallback;
 import android.telephony.data.QualifiedNetworksService;
 import android.telephony.data.ThrottleStatus;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.IndentingPrintWriter;
 import android.util.LocalLog;
 import android.util.SparseArray;
 
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.RIL;
+import com.android.internal.telephony.dataconnection.DataThrottler;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -67,6 +71,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
@@ -112,7 +117,7 @@ public class AccessNetworksManager extends Handler {
     private final UUID mAnomalyUUID = UUID.fromString("c2d1a639-00e2-4561-9619-6acf37d90590");
     private String mLastBoundPackageName;
 
-    static final int[] SUPPORTED_APN_TYPES = {
+    public static final int[] SUPPORTED_APN_TYPES = {
             ApnSetting.TYPE_DEFAULT,
             ApnSetting.TYPE_MMS,
             ApnSetting.TYPE_FOTA,
@@ -172,6 +177,12 @@ public class AccessNetworksManager extends Handler {
      * the current transports are updated after handover complete.
      */
     private final Map<Integer, Integer> mPreferredTransports = new ConcurrentHashMap<>();
+
+    /**
+     * Callbacks for passing information to interested clients.
+     */
+    private final @NonNull Set<AccessNetworksManagerCallback> mAccessNetworksManagerCallbacks =
+            new ArraySet<>();
 
     /**
      * Registers the data throttler in order to receive APN status changes.
@@ -346,6 +357,27 @@ public class AccessNetworksManager extends Handler {
     }
 
     /**
+     * Access networks manager callback. This should be only used by {@link DataNetworkController}.
+     */
+    public abstract static class AccessNetworksManagerCallback extends DataCallback {
+        /**
+         * Constructor
+         *
+         * @param executor The executor of the callback.
+         */
+        public AccessNetworksManagerCallback(@NonNull @CallbackExecutor Executor executor) {
+            super(executor);
+        }
+
+        /**
+         * Called when preferred transport changed.
+         *
+         * @param networkCapability The network capability.
+         */
+        public abstract void onPreferredTransportChanged(@NetCapability int networkCapability);
+    }
+
+    /**
      * Constructor
      *
      * @param phone The phone object
@@ -376,6 +408,24 @@ public class AccessNetworksManager extends Handler {
                 loge("Package name not found: ", e);
             }
             bindQualifiedNetworksService();
+        }
+
+        if (phone.isUsingNewDataStack()) {
+            // Using post to delay the registering because data retry manager instance is created
+            // later than access networks manager.
+            post(() -> mPhone.getDataNetworkController().getDataRetryManager().registerCallback(
+                    new DataRetryManager.DataRetryManagerCallback(this::post) {
+                        @Override
+                        public void onThrottleStatusChanged(List<ThrottleStatus> throttleStatuses) {
+                            try {
+                                logl("onThrottleStatusChanged: " + throttleStatuses);
+                                mIQualifiedNetworksService.reportThrottleStatusChanged(
+                                        mPhone.getPhoneId(), throttleStatuses);
+                            } catch (Exception ex) {
+                                loge("onThrottleStatusChanged: ", ex);
+                            }
+                        }
+                    }));
         }
     }
 
@@ -546,12 +596,23 @@ public class AccessNetworksManager extends Handler {
     }
 
     /**
+     * Get the transport based on the network capability.
+     *
+     * @param netCap The network capability.
+     * @return The transport type.
+     */
+    public @TransportType int getCurrentTransportByNetworkCapability(@NetCapability int netCap) {
+        return getCurrentTransport(DataUtils.networkCapabilityToApnType(netCap));
+    }
+
+    /**
      * Get the transport based on the APN type.
      *
      * @param apnType APN type
      * @return The transport type
      */
-    public int getCurrentTransport(@ApnType int apnType) {
+    // TODO: Remove this after TransportManager is removed.
+    public @TransportType int getCurrentTransport(@ApnType int apnType) {
         // In legacy mode, always route to cellular.
         if (isInLegacyMode()) {
             return AccessNetworkConstants.TRANSPORT_TYPE_WWAN;
@@ -572,12 +633,24 @@ public class AccessNetworksManager extends Handler {
     }
 
     /**
+     * Set the current transport of a network capability.
+     *
+     * @param netCap The network capability.
+     * @param transport The transport.
+     */
+    public void setCurrentTransportByNetworkCapability(@NetCapability int netCap,
+            @TransportType int transport) {
+        setCurrentTransport(DataUtils.networkCapabilityToApnType(netCap), transport);
+    }
+
+    /**
      * Set the current transport of apn type.
      *
      * @param apnType The APN type
-     * @param transport The transport. Must be WWAN or WLAN.
+     * @param transport The transport.
      */
-    public void setCurrentTransport(@ApnType int apnType, int transport) {
+    // TODO: Remove this after TransportManager is removed.
+    public void setCurrentTransport(@ApnType int apnType, @TransportType int transport) {
         Integer previousTransport = mCurrentTransports.put(apnType, transport);
         if (previousTransport == null || previousTransport != transport) {
             logl("setCurrentTransport: apnType=" + ApnSetting.getApnTypeString(apnType)
@@ -602,10 +675,16 @@ public class AccessNetworksManager extends Handler {
         for (QualifiedNetworks networks : networksList) {
             if (networks.qualifiedNetworks.length > 0) {
                 int transport = getTransportFromAccessNetwork(networks.qualifiedNetworks[0]);
-                mPreferredTransports.put(networks.apnType, transport);
-                logl("setPreferredTransports: apnType="
-                        + ApnSetting.getApnTypeString(networks.apnType)
-                        + ", transport=" + AccessNetworkConstants.transportTypeToString(transport));
+                if (getPreferredTransport(networks.apnType) != transport) {
+                    mAccessNetworksManagerCallbacks.forEach(callback ->
+                            callback.invokeFromExecutor(() ->
+                                    callback.onPreferredTransportChanged(DataUtils
+                                            .apnTypeToNetworkCapability(networks.apnType))));
+                    mPreferredTransports.put(networks.apnType, transport);
+                    logl("setPreferredTransports: apnType="
+                            + ApnSetting.getApnTypeString(networks.apnType) + ", transport="
+                            + AccessNetworkConstants.transportTypeToString(transport));
+                }
             }
         }
     }
@@ -624,6 +703,24 @@ public class AccessNetworksManager extends Handler {
 
         return mPreferredTransports.get(apnType) == null
                 ? AccessNetworkConstants.TRANSPORT_TYPE_WWAN : mPreferredTransports.get(apnType);
+    }
+
+    /**
+     * Get the  preferred transport by network capability.
+     *
+     * @param networkCapability The network capability. (Note that only APN-type capabilities are
+     * supported.
+     * @return The preferred transport.
+     */
+    public @TransportType int getPreferredTransportByNetworkCapability(
+            @NetCapability int networkCapability) {
+        int apnType = DataUtils.networkCapabilityToApnType(networkCapability);
+        if (apnType == ApnSetting.TYPE_NONE) {
+            // The network capability can't be converted to APN type.
+            throw new IllegalArgumentException("Illegal network capability "
+                    + DataUtils.networkCapabilityToString(networkCapability) + " provided.");
+        }
+        return getPreferredTransport(apnType);
     }
 
     /**
@@ -649,6 +746,25 @@ public class AccessNetworksManager extends Handler {
         if (h != null) {
             mQualifiedNetworksChangedRegistrants.remove(h);
         }
+    }
+
+    /**
+     * Register the callback for receiving information from {@link AccessNetworksManager}.
+     *
+     * @param callback The callback.
+     */
+    public void registerCallback(@NonNull AccessNetworksManagerCallback callback) {
+        mAccessNetworksManagerCallbacks.add(callback);
+    }
+
+    /**
+     * Unregister the callback which was previously registered through
+     * {@link #registerCallback(AccessNetworksManagerCallback)}.
+     *
+     * @param callback The callback to unregister.
+     */
+    public void unregisterCallback(@NonNull AccessNetworksManagerCallback callback) {
+        mAccessNetworksManagerCallbacks.remove(callback);
     }
 
     private void log(String s) {

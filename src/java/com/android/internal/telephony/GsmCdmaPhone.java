@@ -15,6 +15,7 @@
  */
 
 package com.android.internal.telephony;
+
 import static com.android.internal.telephony.CommandException.Error.GENERIC_FAILURE;
 import static com.android.internal.telephony.CommandException.Error.SIM_BUSY;
 import static com.android.internal.telephony.CommandsInterface.CF_ACTION_DISABLE;
@@ -44,6 +45,7 @@ import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerExecutor;
 import android.os.Looper;
 import android.os.Message;
 import android.os.PersistableBundle;
@@ -89,11 +91,11 @@ import com.android.ims.ImsManager;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.cdma.CdmaMmiCode;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
+import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.internal.telephony.data.DataNetworkController;
-import com.android.internal.telephony.dataconnection.AccessNetworksManager;
+import com.android.internal.telephony.data.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
-import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.gsm.GsmMmiCode;
@@ -263,6 +265,8 @@ public class GsmCdmaPhone extends Phone {
     private final ImsManagerFactory mImsManagerFactory;
     private final CarrierPrivilegesTracker mCarrierPrivilegesTracker;
 
+    private final SubscriptionManager.OnSubscriptionsChangedListener mSubscriptionsChangedListener;
+
     // Constructors
 
     public GsmCdmaPhone(Context context, CommandsInterface ci, PhoneNotifier notifier, int phoneId,
@@ -330,7 +334,7 @@ public class GsmCdmaPhone extends Phone {
             mTransportManager.registerDataThrottler(dcTracker.getDataThrottler());
         }
 
-        if (false/*isUsingNewDataStack()*/) {
+        if (isUsingNewDataStack()) {
             mDataNetworkController = mTelephonyComponentFactory.inject(
                     DataNetworkController.class.getName())
                     .makeDataNetworkController(this, getLooper());
@@ -347,6 +351,7 @@ public class GsmCdmaPhone extends Phone {
         mSST.registerForNetworkAttached(this, EVENT_REGISTERED_TO_NETWORK, null);
         mSST.registerForVoiceRegStateOrRatChanged(this, EVENT_VRS_OR_RAT_CHANGED, null);
 
+        // TODO: Remove SettingsObserver and provisioning events when DataEnabledSettings is removed
         mSettingsObserver = new SettingsObserver(context, this);
         mSettingsObserver.observe(
                 Settings.Global.getUriFor(Settings.Global.DEVICE_PROVISIONED),
@@ -365,6 +370,19 @@ public class GsmCdmaPhone extends Phone {
         loadTtyMode();
 
         CallManager.getInstance().registerPhone(this);
+
+        mSubscriptionsChangedListener =
+                new SubscriptionManager.OnSubscriptionsChangedListener() {
+            @Override
+            public void onSubscriptionsChanged() {
+                sendEmptyMessage(EVENT_SUBSCRIPTIONS_CHANGED);
+            }
+        };
+
+        SubscriptionManager subMan = context.getSystemService(SubscriptionManager.class);
+        subMan.addOnSubscriptionsChangedListener(
+                new HandlerExecutor(this), mSubscriptionsChangedListener);
+
         logd("GsmCdmaPhone: constructor: sub = " + mPhoneId);
     }
 
@@ -477,6 +495,13 @@ public class GsmCdmaPhone extends Phone {
             if (isInEcm) {
                 try {
                     mEcbmHandler.exitEmergencyCallbackMode();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+            if (isInScbm() && isExitScbmFeatureSupported()) {
+                try {
+                    exitScbm();
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -2652,6 +2677,9 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public boolean getDataRoamingEnabled() {
+        if (isUsingNewDataStack()) {
+            return getDataSettingsManager().isDataRoamingEnabled();
+        }
         if (getDcTracker(AccessNetworkConstants.TRANSPORT_TYPE_WWAN) != null) {
             return getDcTracker(AccessNetworkConstants.TRANSPORT_TYPE_WWAN).getDataRoamingEnabled();
         }
@@ -2660,6 +2688,10 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void setDataRoamingEnabled(boolean enable) {
+        if (isUsingNewDataStack()) {
+            getDataSettingsManager().setDataRoamingEnabled(enable);
+            return;
+        }
         if (getDcTracker(AccessNetworkConstants.TRANSPORT_TYPE_WWAN) != null) {
             getDcTracker(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
                     .setDataRoamingEnabledByUser(enable);
@@ -2712,6 +2744,10 @@ public class GsmCdmaPhone extends Phone {
      */
     @Override
     public boolean isUserDataEnabled() {
+        if (isUsingNewDataStack()) {
+            return getDataSettingsManager().isDataEnabledForReason(
+                    TelephonyManager.DATA_ENABLED_REASON_USER);
+        }
         if (mDataEnabledSettings.isProvisioning()) {
             return mDataEnabledSettings.isProvisioningDataEnabled();
         } else {
@@ -3239,14 +3275,23 @@ public class GsmCdmaPhone extends Phone {
             case EVENT_SET_CARRIER_DATA_ENABLED:
                 ar = (AsyncResult) msg.obj;
                 boolean enabled = (boolean) ar.result;
+                if (isUsingNewDataStack()) {
+                    getDataSettingsManager().setDataEnabled(
+                            TelephonyManager.DATA_ENABLED_REASON_CARRIER, enabled);
+                    return;
+                }
                 mDataEnabledSettings.setDataEnabled(TelephonyManager.DATA_ENABLED_REASON_CARRIER,
                         enabled);
                 break;
             case EVENT_DEVICE_PROVISIONED_CHANGE:
-                mDataEnabledSettings.updateProvisionedChanged();
+                if (!isUsingNewDataStack()) {
+                    mDataEnabledSettings.updateProvisionedChanged();
+                }
                 break;
             case EVENT_DEVICE_PROVISIONING_DATA_SETTING_CHANGE:
-                mDataEnabledSettings.updateProvisioningDataEnabled();
+                if (!isUsingNewDataStack()) {
+                    mDataEnabledSettings.updateProvisioningDataEnabled();
+                }
                 break;
             case EVENT_GET_AVAILABLE_NETWORKS_DONE:
                 ar = (AsyncResult) msg.obj;
@@ -3316,6 +3361,10 @@ public class GsmCdmaPhone extends Phone {
             }
             case EVENT_SET_VONR_ENABLED_DONE:
                 logd("EVENT_SET_VONR_ENABLED_DONE is done");
+                break;
+            case EVENT_SUBSCRIPTIONS_CHANGED:
+                logd("EVENT_SUBSCRIPTIONS_CHANGED");
+                updateUsageSetting();
                 break;
 
             default:
@@ -4529,8 +4578,11 @@ public class GsmCdmaPhone extends Phone {
             return;
         }
 
-        String iccId = slot.getIccId();
-        if (iccId == null) return;
+        UiccPort port = mUiccController.getUiccPort(mPhoneId);
+        String iccId = (port == null) ? null : port.getIccId();
+        if (iccId == null) {
+            return;
+        }
 
         SubscriptionInfo info = SubscriptionController.getInstance().getSubInfoForIccId(
                 IccUtils.stripTrailingFs(iccId));
@@ -4590,6 +4642,9 @@ public class GsmCdmaPhone extends Phone {
      * @return Currently bound data service package names.
      */
     public @NonNull List<String> getDataServicePackages() {
+        if (isUsingNewDataStack()) {
+            return getDataNetworkController().getDataServicePackages();
+        }
         List<String> packages = new ArrayList<>();
         int[] transports = new int[]{AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
                 AccessNetworkConstants.TRANSPORT_TYPE_WLAN};
@@ -4632,6 +4687,13 @@ public class GsmCdmaPhone extends Phone {
     }
 
     private void updateVoNrSettings(PersistableBundle config) {
+        UiccSlot slot = mUiccController.getUiccSlotForPhone(mPhoneId);
+
+        // If no card is present, do nothing.
+        if (slot == null || slot.getCardState() != IccCardStatus.CardState.CARDSTATE_PRESENT) {
+            return;
+        }
+
         if (config == null) {
             loge("didn't get the vonr_enabled_bool from the carrier config.");
             return;

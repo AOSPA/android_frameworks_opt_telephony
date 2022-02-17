@@ -22,7 +22,7 @@ import android.hardware.radio.data.IRadioDataResponse;
 import android.telephony.data.DataCallResponse;
 import android.telephony.data.NetworkSlicingConfig;
 
-import com.android.internal.telephony.dataconnection.KeepaliveStatus;
+import com.android.internal.telephony.data.KeepaliveStatus;
 
 import java.util.ArrayList;
 
@@ -51,7 +51,7 @@ public class DataResponse extends IRadioDataResponse.Stub {
      * @param id The pdu session id allocated
      */
     public void allocatePduSessionIdResponse(RadioResponseInfo responseInfo, int id) {
-        RILRequest rr = mRil.processResponse(responseInfo);
+        RILRequest rr = mRil.processResponse(RIL.DATA_SERVICE, responseInfo);
         if (rr != null) {
             if (responseInfo.error == RadioError.NONE) {
                 RadioResponse.sendMessageResponse(rr.mResult, id);
@@ -64,14 +64,14 @@ public class DataResponse extends IRadioDataResponse.Stub {
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void cancelHandoverResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(mRil, responseInfo);
+        RadioResponse.responseVoid(RIL.DATA_SERVICE, mRil, responseInfo);
     }
 
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void deactivateDataCallResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(mRil, responseInfo);
+        RadioResponse.responseVoid(RIL.DATA_SERVICE, mRil, responseInfo);
     }
 
     /**
@@ -80,7 +80,7 @@ public class DataResponse extends IRadioDataResponse.Stub {
      */
     public void getDataCallListResponse(RadioResponseInfo responseInfo,
             android.hardware.radio.data.SetupDataCallResult[] dataCallResultList) {
-        RILRequest rr = mRil.processResponse(responseInfo);
+        RILRequest rr = mRil.processResponse(RIL.DATA_SERVICE, responseInfo);
 
         if (rr != null) {
             ArrayList<DataCallResponse> response =
@@ -98,7 +98,7 @@ public class DataResponse extends IRadioDataResponse.Stub {
      */
     public void getSlicingConfigResponse(RadioResponseInfo responseInfo,
                 android.hardware.radio.data.SlicingConfig slicingConfig) {
-        RILRequest rr = mRil.processResponse(responseInfo);
+        RILRequest rr = mRil.processResponse(RIL.DATA_SERVICE, responseInfo);
 
         if (rr != null) {
             NetworkSlicingConfig ret = RILUtils.convertHalSlicingConfig(slicingConfig);
@@ -113,35 +113,35 @@ public class DataResponse extends IRadioDataResponse.Stub {
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void releasePduSessionIdResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(mRil, responseInfo);
+        RadioResponse.responseVoid(RIL.DATA_SERVICE, mRil, responseInfo);
     }
 
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void setDataAllowedResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(mRil, responseInfo);
+        RadioResponse.responseVoid(RIL.DATA_SERVICE, mRil, responseInfo);
     }
 
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void setDataProfileResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(mRil, responseInfo);
+        RadioResponse.responseVoid(RIL.DATA_SERVICE, mRil, responseInfo);
     }
 
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void setDataThrottlingResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(mRil, responseInfo);
+        RadioResponse.responseVoid(RIL.DATA_SERVICE, mRil, responseInfo);
     }
 
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void setInitialAttachApnResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(mRil, responseInfo);
+        RadioResponse.responseVoid(RIL.DATA_SERVICE, mRil, responseInfo);
     }
 
     /**
@@ -150,7 +150,7 @@ public class DataResponse extends IRadioDataResponse.Stub {
      */
     public void setupDataCallResponse(RadioResponseInfo responseInfo,
             android.hardware.radio.data.SetupDataCallResult setupDataCallResult) {
-        RILRequest rr = mRil.processResponse(responseInfo);
+        RILRequest rr = mRil.processResponse(RIL.DATA_SERVICE, responseInfo);
 
         if (rr != null) {
             DataCallResponse response = RILUtils.convertHalDataCallResult(setupDataCallResult);
@@ -165,7 +165,7 @@ public class DataResponse extends IRadioDataResponse.Stub {
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void startHandoverResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(mRil, responseInfo);
+        RadioResponse.responseVoid(RIL.DATA_SERVICE, mRil, responseInfo);
     }
 
     /**
@@ -175,7 +175,7 @@ public class DataResponse extends IRadioDataResponse.Stub {
     public void startKeepaliveResponse(RadioResponseInfo responseInfo,
             android.hardware.radio.data.KeepaliveStatus keepaliveStatus) {
 
-        RILRequest rr = mRil.processResponse(responseInfo);
+        RILRequest rr = mRil.processResponse(RIL.DATA_SERVICE, responseInfo);
         if (rr == null) return;
 
         KeepaliveStatus ret = null;
@@ -187,7 +187,8 @@ public class DataResponse extends IRadioDataResponse.Stub {
                     if (convertedStatus < 0) {
                         ret = new KeepaliveStatus(KeepaliveStatus.ERROR_UNSUPPORTED);
                     } else {
-                        ret = new KeepaliveStatus(keepaliveStatus.sessionHandle, convertedStatus);
+                        ret = new KeepaliveStatus(
+                                keepaliveStatus.sessionHandle, convertedStatus);
                     }
                     // If responseInfo.error is NONE, response function sends the response message
                     // even if result is actually an error.
@@ -213,7 +214,7 @@ public class DataResponse extends IRadioDataResponse.Stub {
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void stopKeepaliveResponse(RadioResponseInfo responseInfo) {
-        RILRequest rr = mRil.processResponse(responseInfo);
+        RILRequest rr = mRil.processResponse(RIL.DATA_SERVICE, responseInfo);
         if (rr == null) return;
 
         try {

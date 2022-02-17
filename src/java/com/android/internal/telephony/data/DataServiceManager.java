@@ -208,7 +208,7 @@ public class DataServiceManager extends Handler {
     private final class CellularDataServiceConnection implements ServiceConnection {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            if (DBG) log("onServiceConnected");
+            if (DBG) log("onServiceConnected: " + name);
             mIDataService = IDataService.Stub.asInterface(service);
             mDeathRecipient = new DataServiceManagerDeathRecipient();
             mBound = true;
@@ -320,12 +320,23 @@ public class DataServiceManager extends Handler {
             sendCompleteMessage(msg, resultCode);
         }
 
+        @Override
         public void onApnUnthrottled(String apn) {
             if (apn != null) {
                 mApnUnthrottledRegistrants.notifyRegistrants(
                         new AsyncResult(null, apn, null));
             } else {
                 loge("onApnUnthrottled: apn is null");
+            }
+        }
+
+        @Override
+        public void onDataProfileUnthrottled(DataProfile dataProfile) {
+            if (dataProfile != null) {
+                mApnUnthrottledRegistrants.notifyRegistrants(
+                        new AsyncResult(null, dataProfile, null));
+            } else {
+                loge("onDataProfileUnthrottled: dataProfile is null");
             }
         }
     }
@@ -342,8 +353,8 @@ public class DataServiceManager extends Handler {
         super(looper);
         mPhone = phone;
         mTransportType = transportType;
-        mTag = "DSM-" + (mTransportType == AccessNetworkConstants.TRANSPORT_TYPE_WWAN ? "C" : "I")
-                + mPhone.getPhoneId();
+        mTag = "DSM-" + (mTransportType == AccessNetworkConstants.TRANSPORT_TYPE_WWAN ? "C-"
+                : "I-") + mPhone.getPhoneId();
         mBound = false;
         mCarrierConfigManager = (CarrierConfigManager) phone.getContext().getSystemService(
                 Context.CARRIER_CONFIG_SERVICE);
@@ -875,7 +886,7 @@ public class DataServiceManager extends Handler {
      */
     public void registerForDataCallListChanged(Handler h, int what) {
         if (h != null) {
-            mDataCallListChangedRegistrants.addUnique(h, what, null);
+            mDataCallListChangedRegistrants.addUnique(h, what, mTransportType);
         }
     }
 
@@ -898,7 +909,7 @@ public class DataServiceManager extends Handler {
      */
     public void registerForApnUnthrottled(Handler h, int what) {
         if (h != null) {
-            mApnUnthrottledRegistrants.addUnique(h, what, null);
+            mApnUnthrottledRegistrants.addUnique(h, what, mTransportType);
         }
     }
 
@@ -918,11 +929,10 @@ public class DataServiceManager extends Handler {
      *
      * @param h The target to post the event message to.
      * @param what The event.
-     * @param obj The user object.
      */
-    public void registerForServiceBindingChanged(Handler h, int what, Object obj) {
+    public void registerForServiceBindingChanged(Handler h, int what) {
         if (h != null) {
-            mServiceBindingChangedRegistrants.addUnique(h, what, obj);
+            mServiceBindingChangedRegistrants.addUnique(h, what, mTransportType);
         }
 
     }

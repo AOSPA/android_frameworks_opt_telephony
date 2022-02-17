@@ -31,7 +31,7 @@ import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IMS_SEND_S
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SEND_SMS;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SEND_SMS_EXPECT_MORE;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SETUP_DATA_CALL;
-import static com.android.internal.telephony.dataconnection.LinkBandwidthEstimator.NUM_SIGNAL_LEVEL;
+import static com.android.internal.telephony.data.LinkBandwidthEstimator.NUM_SIGNAL_LEVEL;
 import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_IP;
 import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_IPV4V6;
 import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_IPV6;
@@ -85,7 +85,7 @@ import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.SmsController;
 import com.android.internal.telephony.SmsResponse;
 import com.android.internal.telephony.UUSInfo;
-import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
+import com.android.internal.telephony.data.LinkBandwidthEstimator;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
 import com.android.internal.telephony.nano.TelephonyProto;
@@ -290,12 +290,14 @@ public class TelephonyMetrics {
                     break;
                 case "--metricsproto":
                     pw.println(convertProtoToBase64String(buildProto()));
+                    pw.println(RcsStats.getInstance().buildLog());
                     if (reset) {
                         reset();
                     }
                     break;
                 case "--metricsprototext":
                     pw.println(buildProto().toString());
+                    pw.println(RcsStats.getInstance().buildProto().toString());
                     break;
             }
         }
@@ -747,6 +749,8 @@ public class TelephonyMetrics {
                     .setRadioState(mLastRadioState.get(key)).build();
             addTelephonyEvent(event);
         }
+
+        RcsStats.getInstance().reset();
     }
 
     /**
@@ -2194,6 +2198,13 @@ public class TelephonyMetrics {
             cq.rtpInactivityDetected = callQuality.isRtpInactivityDetected();
             cq.rxSilenceDetected = callQuality.isIncomingSilenceDetectedAtCallSetup();
             cq.txSilenceDetected = callQuality.isOutgoingSilenceDetectedAtCallSetup();
+            cq.voiceFrames = callQuality.getNumVoiceFrames();
+            cq.noDataFrames = callQuality.getNumNoDataFrames();
+            cq.rtpDroppedPackets = callQuality.getNumDroppedRtpPackets();
+            cq.minPlayoutDelayMillis = callQuality.getMinPlayoutDelayMillis();
+            cq.maxPlayoutDelayMillis = callQuality.getMaxPlayoutDelayMillis();
+            cq.rxRtpSidPackets = callQuality.getNumRtpSidPacketsRx();
+            cq.rtpDuplicatePackets = callQuality.getNumRtpDuplicatePackets();
         }
         return cq;
     }

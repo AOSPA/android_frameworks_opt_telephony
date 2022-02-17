@@ -31,7 +31,6 @@ import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SWITCH_DUA
 import android.content.Context;
 import android.os.AsyncResult;
 import android.os.Handler;
-import android.os.HwBinder;
 import android.os.IBinder;
 import android.os.Message;
 import android.os.Registrant;
@@ -40,6 +39,7 @@ import android.os.ServiceManager;
 import android.os.SystemProperties;
 import android.os.WorkSource;
 import android.telephony.TelephonyManager;
+import android.telephony.UiccSlotMapping;
 import android.util.SparseArray;
 
 import com.android.telephony.Rlog;
@@ -56,10 +56,11 @@ import java.util.concurrent.atomic.AtomicLong;
 public class RadioConfig extends Handler {
     private static final String TAG = "RadioConfig";
     private static final boolean DBG = true;
-    private static final boolean VDBG = false;   //STOPSHIP if true
-    private static final int EVENT_SERVICE_DEAD = 1;
+    private static final boolean VDBG = false; //STOPSHIP if true
     private static final Object sLock = new Object();
 
+    static final int EVENT_HIDL_SERVICE_DEAD = 1;
+    static final int EVENT_AIDL_SERVICE_DEAD = 2;
     static final HalVersion RADIO_CONFIG_HAL_VERSION_UNKNOWN = new HalVersion(-1, -1);
     static final HalVersion RADIO_CONFIG_HAL_VERSION_1_0 = new HalVersion(1, 0);
     static final HalVersion RADIO_CONFIG_HAL_VERSION_1_1 = new HalVersion(1, 1);
@@ -67,211 +68,18 @@ public class RadioConfig extends Handler {
     static final HalVersion RADIO_CONFIG_HAL_VERSION_2_0 = new HalVersion(2, 0);
 
     private final boolean mIsMobileNetworkSupported;
-    private final HwServiceDeathRecipient mHwServiceDeathRecipient;
-    private final RadioConfigBinderServiceDeathRecipient mBinderServiceDeathRecipient;
-    private final RadioConfigResponse mRadioConfigResponse;
-    private final RadioConfigIndication mRadioConfigIndication;
     private final SparseArray<RILRequest> mRequestList = new SparseArray<>();
     /* default work source which will blame phone process */
     private final WorkSource mDefaultWorkSource;
     private final int[] mDeviceNrCapabilities;
     private final AtomicLong mRadioConfigProxyCookie = new AtomicLong(0);
+    private final RadioConfigProxy mRadioConfigProxy;
+    private MockModem mMockModem;
+    private static Context sContext;
 
     private static RadioConfig sRadioConfig;
 
-    private final RadioConfigProxy mRadioConfigProxy = new RadioConfigProxy();
-
     protected Registrant mSimSlotStatusRegistrant;
-
-    final class HwServiceDeathRecipient implements HwBinder.DeathRecipient {
-        @Override
-        public void serviceDied(long cookie) {
-            // Deal with service going away
-            logd("serviceDied");
-            sendMessage(obtainMessage(EVENT_SERVICE_DEAD, cookie));
-        }
-    }
-
-    final class RadioConfigBinderServiceDeathRecipient implements IBinder.DeathRecipient {
-        private IBinder mBinder;
-
-        public void linkToDeath(IBinder service) throws RemoteException {
-            if (service != null) {
-                mBinder = service;
-                mBinder.linkToDeath(this, (int) mRadioConfigProxyCookie.incrementAndGet());
-            }
-        }
-
-        public synchronized void unlinkToDeath() {
-            if (mBinder != null) {
-                mBinder.unlinkToDeath(this, 0);
-                mBinder = null;
-            }
-        }
-
-        @Override
-        public void binderDied() {
-            logd("RadioConfigService has died.");
-            unlinkToDeath();
-        }
-
-    }
-
-    private final class RadioConfigProxy {
-        private boolean mIsAidl;
-
-        private volatile android.hardware.radio.config.V1_0.IRadioConfig mRadioConfigProxyV1 = null;
-        private volatile android.hardware.radio.config.IRadioConfig mRadioConfigProxyV2 = null;
-        private HalVersion mHalVersion = RADIO_CONFIG_HAL_VERSION_UNKNOWN;
-
-        public boolean isV2OrHigher() {
-            return mIsAidl;
-        }
-
-        public void setV1(
-                HalVersion halVersion, android.hardware.radio.config.V1_0.IRadioConfig config) {
-            mHalVersion = halVersion;
-            mRadioConfigProxyV1 = config;
-            mIsAidl = false;
-        }
-
-        public android.hardware.radio.config.V1_0.IRadioConfig getV1() {
-            return mRadioConfigProxyV1;
-        }
-
-        public void setV2(
-                HalVersion halVersion, android.hardware.radio.config.IRadioConfig config) {
-            mHalVersion = halVersion;
-            mRadioConfigProxyV2 = config;
-            mIsAidl = true;
-        }
-
-        public android.hardware.radio.config.IRadioConfig getV2() {
-            return mRadioConfigProxyV2;
-        }
-
-        public void clear() {
-            mHalVersion = RADIO_CONFIG_HAL_VERSION_UNKNOWN;
-            mRadioConfigProxyV1 = null;
-            mRadioConfigProxyV2 = null;
-        }
-
-        public boolean isEmpty() {
-            return mRadioConfigProxyV1 == null && mRadioConfigProxyV2 == null;
-        }
-
-        public void linkToDeath() {
-            if (isEmpty()) return;
-
-            if (isV2OrHigher()) {
-                try {
-                    // Link to death
-                    mBinderServiceDeathRecipient.linkToDeath(mRadioConfigProxyV2.asBinder());
-
-                    // Set response. If fails, set proxy to null and return.
-                    mRadioConfigProxyV2.setResponseFunctions(
-                            mRadioConfigResponse.getV2(), mRadioConfigIndication.getV2());
-                } catch (RemoteException | RuntimeException e) {
-                    mRadioConfigProxyV2 = null;
-                    loge("getRadioConfigProxyV2: RadioConfigProxy setResponseFunctions: " + e);
-                }
-            } else {
-                try {
-                    // Link to death recipient and set response.
-                    // If fails, set proxy to null and return.
-                    mRadioConfigProxyV1.linkToDeath(
-                            mHwServiceDeathRecipient, mRadioConfigProxyCookie.incrementAndGet());
-                    mRadioConfigProxyV1.setResponseFunctions(
-                            mRadioConfigResponse.getV1(), mRadioConfigIndication.getV1());
-                } catch (RemoteException | RuntimeException e) {
-                    mRadioConfigProxyV1 = null;
-                    loge("getRadioConfigProxyV1: RadioConfigProxy setResponseFunctions: " + e);
-                }
-            }
-        }
-
-        public void getPhoneCapability(int serial) throws RemoteException {
-            if (isEmpty()) return;
-            if (mHalVersion.less(RADIO_CONFIG_HAL_VERSION_1_1)) return;
-
-            if (isV2OrHigher()) {
-                mRadioConfigProxyV2.getPhoneCapability(serial);
-            } else {
-                ((android.hardware.radio.config.V1_1.IRadioConfig) mRadioConfigProxyV1)
-                        .getPhoneCapability(serial);
-            }
-        }
-
-        public void getSimSlotsStatus(int serial) throws RemoteException {
-            if (isEmpty()) return;
-
-            if (isV2OrHigher()) {
-                mRadioConfigProxyV2.getSimSlotsStatus(serial);
-            } else {
-                mRadioConfigProxyV1.getSimSlotsStatus(serial);
-            }
-        }
-
-        public void setPreferredDataModem(int serial, byte modemId) throws RemoteException {
-            if (isEmpty()) return;
-            if (mHalVersion.less(RADIO_CONFIG_HAL_VERSION_1_1)) return;
-
-            if (isV2OrHigher()) {
-                mRadioConfigProxyV2.setPreferredDataModem(serial, modemId);
-            } else {
-                ((android.hardware.radio.config.V1_1.IRadioConfig) mRadioConfigProxyV1)
-                        .setPreferredDataModem(serial, modemId);
-            }
-        }
-
-        public void setSimSlotsMapping(int serial, int[] list)
-                throws RemoteException {
-            if (isEmpty()) return;
-
-            if (isV2OrHigher()) {
-                mRadioConfigProxyV2.setSimSlotsMapping(serial,
-                        RILUtils.convertSimSlotsMapping(list));
-            } else {
-                mRadioConfigProxyV1.setSimSlotsMapping(serial,
-                        RILUtils.primitiveArrayToArrayList(list));
-            }
-        }
-
-        public void setModemsConfig(
-                int serial,
-                android.hardware.radio.config.V1_1.ModemsConfig modemsConfig)
-                throws RemoteException {
-            if (isEmpty()) return;
-            if (mHalVersion.less(RADIO_CONFIG_HAL_VERSION_1_1)) return;
-            if (mHalVersion.greaterOrEqual(RADIO_CONFIG_HAL_VERSION_2_0)) return;
-
-            ((android.hardware.radio.config.V1_1.IRadioConfig) mRadioConfigProxyV1)
-                    .setModemsConfig(serial, modemsConfig);
-        }
-
-        public void setNumOfLiveModems(int serial, byte numOfLiveModems) throws RemoteException {
-            if (isEmpty()) return;
-            if (mHalVersion.less(RADIO_CONFIG_HAL_VERSION_2_0)) return;
-
-            mRadioConfigProxyV2.setNumOfLiveModems(serial, numOfLiveModems);
-        }
-
-        public HalVersion getVersion() {
-            return mHalVersion;
-        }
-
-        public void getHalDeviceCapabilities(int serial) throws RemoteException {
-            if (isEmpty()) return;
-            if (mHalVersion.less(RADIO_CONFIG_HAL_VERSION_1_3)) return;
-
-            if (isV2OrHigher()) {
-                mRadioConfigProxyV2.getHalDeviceCapabilities(serial);
-            } else {
-                ((android.hardware.radio.config.V1_3.IRadioConfig) mRadioConfigProxyV1)
-                        .getHalDeviceCapabilities(serial);
-            }
-        }
-    }
 
     private boolean isMobileDataCapable(Context context) {
         if(SystemProperties.getBoolean("ro.radio.noril", false)) {
@@ -283,13 +91,9 @@ public class RadioConfig extends Handler {
 
     private RadioConfig(Context context, HalVersion radioHalVersion) {
         mIsMobileNetworkSupported = isMobileDataCapable(context);
-
-        mRadioConfigResponse = new RadioConfigResponse(this, radioHalVersion);
-        mRadioConfigIndication = new RadioConfigIndication(this, radioHalVersion);
-        mHwServiceDeathRecipient = new HwServiceDeathRecipient();
-        mBinderServiceDeathRecipient = new RadioConfigBinderServiceDeathRecipient();
-        mDefaultWorkSource = new WorkSource(
-                context.getApplicationInfo().uid, context.getPackageName());
+        mRadioConfigProxy = new RadioConfigProxy(this, radioHalVersion);
+        mDefaultWorkSource = new WorkSource(context.getApplicationInfo().uid,
+                context.getPackageName());
 
         boolean is5gStandalone = context.getResources().getBoolean(
                 com.android.internal.R.bool.config_telephony5gStandalone);
@@ -331,6 +135,7 @@ public class RadioConfig extends Handler {
             if (sRadioConfig != null) {
                 throw new RuntimeException("RadioConfig.make() should only be called once");
             }
+            sContext = c;
             sRadioConfig = new RadioConfig(c, radioHalVersion);
             return sRadioConfig;
         }
@@ -338,12 +143,16 @@ public class RadioConfig extends Handler {
 
     @Override
     public void handleMessage(Message message) {
-        if (message.what == EVENT_SERVICE_DEAD) {
-            logd("handleMessage: EVENT_SERVICE_DEAD cookie = " + message.obj
+        if (message.what == EVENT_HIDL_SERVICE_DEAD) {
+            logd("handleMessage: EVENT_HIDL_SERVICE_DEAD cookie = " + message.obj
                     + " mRadioConfigProxyCookie = " + mRadioConfigProxyCookie.get());
             if ((long) message.obj == mRadioConfigProxyCookie.get()) {
-                resetProxyAndRequestList("EVENT_SERVICE_DEAD", null);
+                resetProxyAndRequestList("EVENT_HIDL_SERVICE_DEAD", null);
             }
+        } else if (message.what == EVENT_AIDL_SERVICE_DEAD) {
+            logd("handleMessage: EVENT_AIDL_SERVICE_DEAD mRadioConfigProxyCookie = "
+                    + mRadioConfigProxyCookie.get());
+            resetProxyAndRequestList("EVENT_AIDL_SERVICE_DEAD", null);
         }
     }
 
@@ -400,7 +209,8 @@ public class RadioConfig extends Handler {
                         CommandException.fromRilErrno(RADIO_NOT_AVAILABLE));
                 result.sendToTarget();
             }
-            return null;
+            mRadioConfigProxy.clear();
+            return mRadioConfigProxy;
         }
 
         if (!mRadioConfigProxy.isEmpty()) {
@@ -408,7 +218,6 @@ public class RadioConfig extends Handler {
         }
 
         updateRadioConfigProxy();
-        mRadioConfigProxy.linkToDeath();
 
         if (mRadioConfigProxy.isEmpty() && result != null) {
             AsyncResult.forMessage(
@@ -419,49 +228,120 @@ public class RadioConfig extends Handler {
         return mRadioConfigProxy;
     }
 
-    private void updateRadioConfigProxy() {
-        // Try to get service from different versions.
+    /**
+     * Request to enable/disable the mock modem service.
+     * This is invoked from shell commands during CTS testing only.
+     *
+     * @param serviceName the service name we want to bind to
+     */
+    public boolean setModemService(String serviceName) {
+        boolean serviceBound = true;
 
-        // Try to get AIDL variant first
-        IBinder service = ServiceManager.waitForDeclaredService(
+        if (serviceName != null) {
+            logd("Overriding connected service to MockModemService");
+            mMockModem = null;
+
+            mMockModem = new MockModem(sContext, serviceName);
+            if (mMockModem == null) {
+                loge("MockModem creation failed.");
+                return false;
+            }
+
+            mMockModem.bindToMockModemService(MockModem.RADIOCONFIG_SERVICE);
+
+            int retryCount = 0;
+            IBinder binder;
+            do {
+                binder = mMockModem.getServiceBinder(MockModem.RADIOCONFIG_SERVICE);
+
+                retryCount++;
+                if (binder == null) {
+                    logd("Retry(" + retryCount + ") Mock RadioConfig");
+                    try {
+                        Thread.sleep(MockModem.BINDER_RETRY_MILLIS);
+                    } catch (InterruptedException e) {
+                    }
+                }
+            } while ((binder == null) && (retryCount < MockModem.BINDER_MAX_RETRY));
+
+            if (binder == null) {
+                loge("Mock RadioConfig bind fail");
+                serviceBound = false;
+            }
+
+            if (serviceBound) resetProxyAndRequestList("EVENT_HIDL_SERVICE_DEAD", null);
+        }
+
+        if ((serviceName == null) || (!serviceBound)) {
+            if (serviceBound) logd("Unbinding to mock RadioConfig service");
+
+            if (mMockModem != null) {
+                mMockModem.unbindMockModemService(MockModem.RADIOCONFIG_SERVICE);
+                mMockModem = null;
+            }
+        }
+
+        return serviceBound;
+    }
+
+    private void updateRadioConfigProxy() {
+        IBinder service;
+        if (mMockModem == null) {
+            service = ServiceManager.waitForDeclaredService(
                 android.hardware.radio.config.IRadioConfig.DESCRIPTOR + "/default");
+        } else {
+            // Binds to Mock RadioConfig Service
+            service = mMockModem.getServiceBinder(MockModem.RADIOCONFIG_SERVICE);
+        }
 
         if (service != null) {
-            mRadioConfigProxy.setV2(
+            mRadioConfigProxy.setAidl(
                     RADIO_CONFIG_HAL_VERSION_2_0,
                     android.hardware.radio.config.IRadioConfig.Stub.asInterface(service));
-            return;
         }
 
-        // Now HIDL 1.3
-        try {
-            mRadioConfigProxy.setV1(
-                    RADIO_CONFIG_HAL_VERSION_1_3,
-                    android.hardware.radio.config.V1_3.IRadioConfig.getService(true));
-            return;
-        } catch (NoSuchElementException | RemoteException ignored) {
+        if (mRadioConfigProxy.isEmpty()) {
+            try {
+                mRadioConfigProxy.setHidl(RADIO_CONFIG_HAL_VERSION_1_3,
+                        android.hardware.radio.config.V1_3.IRadioConfig.getService(true));
+            } catch (RemoteException | NoSuchElementException e) {
+                mRadioConfigProxy.clear();
+                loge("getHidlRadioConfigProxy1_3: RadioConfigProxy getService: " + e);
+            }
         }
 
-        // HIDL 1.1
-        try {
-            mRadioConfigProxy.setV1(
-                    RADIO_CONFIG_HAL_VERSION_1_1,
-                    android.hardware.radio.config.V1_1.IRadioConfig.getService(true));
-            return;
-        } catch (NoSuchElementException | RemoteException ignored) {
+        if (mRadioConfigProxy.isEmpty()) {
+            try {
+                mRadioConfigProxy.setHidl(RADIO_CONFIG_HAL_VERSION_1_1,
+                        android.hardware.radio.config.V1_1.IRadioConfig.getService(true));
+            } catch (RemoteException | NoSuchElementException e) {
+                mRadioConfigProxy.clear();
+                loge("getHidlRadioConfigProxy1_1: RadioConfigProxy getService | linkToDeath: " + e);
+            }
         }
 
-        // HIDL 1.0
-        try {
-            mRadioConfigProxy.setV1(
-                    RADIO_CONFIG_HAL_VERSION_1_0,
-                    android.hardware.radio.config.V1_0.IRadioConfig.getService(true));
-            return;
-        } catch (NoSuchElementException | RemoteException ignored) {
+        if (mRadioConfigProxy.isEmpty()) {
+            try {
+                mRadioConfigProxy.setHidl(RADIO_CONFIG_HAL_VERSION_1_0,
+                        android.hardware.radio.config.V1_0.IRadioConfig.getService(true));
+            } catch (RemoteException | NoSuchElementException e) {
+                mRadioConfigProxy.clear();
+                loge("getHidlRadioConfigProxy1_0: RadioConfigProxy getService | linkToDeath: " + e);
+            }
         }
 
-        // Couldn't bind to anything!
-        loge("getRadioConfigProxy: mRadioConfigProxyHolder == null");
+        if (!mRadioConfigProxy.isEmpty()) {
+            try {
+                mRadioConfigProxy.linkToDeath(mRadioConfigProxyCookie.incrementAndGet());
+                mRadioConfigProxy.setResponseFunctions(this);
+                return;
+            } catch (RemoteException e) {
+                mRadioConfigProxy.clear();
+                loge("RadioConfigProxy: failed to linkToDeath() or setResponseFunction()");
+            }
+        }
+
+        loge("getRadioConfigProxy: mRadioConfigProxy == null");
     }
 
     private RILRequest obtainRequest(int request, Message result, WorkSource workSource) {
@@ -561,19 +441,16 @@ public class RadioConfig extends Handler {
      */
     public void getSimSlotsStatus(Message result) {
         RadioConfigProxy proxy = getRadioConfigProxy(result);
+        if (proxy.isEmpty()) return;
 
-        if (!proxy.isEmpty()) {
-            RILRequest rr = obtainRequest(RIL_REQUEST_GET_SLOT_STATUS, result, mDefaultWorkSource);
-
-            if (DBG) {
-                logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
-            }
-
-            try {
-                proxy.getSimSlotsStatus(rr.mSerial);
-            } catch (RemoteException | RuntimeException e) {
-                resetProxyAndRequestList("getSimSlotsStatus", e);
-            }
+        RILRequest rr = obtainRequest(RIL_REQUEST_GET_SLOT_STATUS, result, mDefaultWorkSource);
+        if (DBG) {
+            logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
+        }
+        try {
+            proxy.getSimSlotStatus(rr.mSerial);
+        } catch (RemoteException | RuntimeException e) {
+            resetProxyAndRequestList("getSimSlotsStatus", e);
         }
     }
 
@@ -596,9 +473,8 @@ public class RadioConfig extends Handler {
         if (DBG) {
             logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
         }
-
         try {
-            proxy.setPreferredDataModem(rr.mSerial, (byte) modemId);
+            proxy.setPreferredDataModem(rr.mSerial, modemId);
         } catch (RemoteException | RuntimeException e) {
             resetProxyAndRequestList("setPreferredDataModem", e);
         }
@@ -619,11 +495,9 @@ public class RadioConfig extends Handler {
         }
 
         RILRequest rr = obtainRequest(RIL_REQUEST_GET_PHONE_CAPABILITY, result, mDefaultWorkSource);
-
         if (DBG) {
             logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
         }
-
         try {
             proxy.getPhoneCapability(rr.mSerial);
         } catch (RemoteException | RuntimeException e) {
@@ -644,25 +518,21 @@ public class RadioConfig extends Handler {
 
     /**
      * Wrapper function for IRadioConfig.setSimSlotsMapping(int32_t serial, vec<uint32_t> slotMap).
-     * TODO(ag/15898089): Interface for setSimSlotsMapping was changes but underlying implementation
-     *                    was not provided. Need to update this with proper implementation.
      */
-    public void setSimSlotsMapping(int[] physicalSlots, Message result) {
+    public void setSimSlotsMapping(List<UiccSlotMapping> slotMapping, Message result) {
         RadioConfigProxy proxy = getRadioConfigProxy(result);
-        if (!proxy.isEmpty()) {
-            RILRequest rr = obtainRequest(RIL_REQUEST_SET_LOGICAL_TO_PHYSICAL_SLOT_MAPPING, result,
-                    mDefaultWorkSource);
+        if (proxy.isEmpty()) return;
 
-            if (DBG) {
-                logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest)
-                        + " " + Arrays.toString(physicalSlots));
-            }
-
-            try {
-                proxy.setSimSlotsMapping(rr.mSerial, physicalSlots);
-            } catch (RemoteException | RuntimeException e) {
-                resetProxyAndRequestList("setSimSlotsMapping", e);
-            }
+        RILRequest rr = obtainRequest(RIL_REQUEST_SET_LOGICAL_TO_PHYSICAL_SLOT_MAPPING, result,
+                mDefaultWorkSource);
+        if (DBG) {
+            logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest) + " "
+                    + slotMapping);
+        }
+        try {
+            proxy.setSimSlotsMapping(rr.mSerial, slotMapping);
+        } catch (RemoteException | RuntimeException e) {
+            resetProxyAndRequestList("setSimSlotsMapping", e);
         }
     }
 
@@ -683,25 +553,15 @@ public class RadioConfig extends Handler {
 
         RILRequest rr = obtainRequest(RIL_REQUEST_SWITCH_DUAL_SIM_CONFIG,
                 result, mDefaultWorkSource);
-
         if (DBG) {
             logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest)
                     + ", numOfLiveModems = " + numOfLiveModems);
         }
-
         try {
-            if (proxy.getVersion().greaterOrEqual(RADIO_CONFIG_HAL_VERSION_2_0)) {
-                proxy.setNumOfLiveModems(rr.mSerial, (byte) numOfLiveModems);
-            } else {
-                android.hardware.radio.config.V1_1.ModemsConfig modemsConfig =
-                        new android.hardware.radio.config.V1_1.ModemsConfig();
-                modemsConfig.numOfLiveModems = (byte) numOfLiveModems;
-                proxy.setModemsConfig(rr.mSerial, modemsConfig);
-            }
+            proxy.setNumOfLiveModems(rr.mSerial, numOfLiveModems);
         } catch (RemoteException | RuntimeException e) {
-            resetProxyAndRequestList("setModemsConfig", e);
+            resetProxyAndRequestList("setNumOfLiveModems", e);
         }
-
     }
 
     /**
@@ -734,7 +594,7 @@ public class RadioConfig extends Handler {
                 AsyncResult.forMessage(result,
                         /* Send response such that all capabilities are supported (depending on
                            the hal version of course.) */
-                        mRadioConfigResponse.getFullCapabilitySet(),
+                        proxy.getFullCapabilitySet(),
                         CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
                 result.sendToTarget();
             } else {
@@ -748,11 +608,9 @@ public class RadioConfig extends Handler {
 
         RILRequest rr = obtainRequest(RIL_REQUEST_GET_HAL_DEVICE_CAPABILITIES,
                 result, mDefaultWorkSource);
-
         if (DBG) {
             logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
         }
-
         try {
             proxy.getHalDeviceCapabilities(rr.mSerial);
         } catch (RemoteException | RuntimeException e) {

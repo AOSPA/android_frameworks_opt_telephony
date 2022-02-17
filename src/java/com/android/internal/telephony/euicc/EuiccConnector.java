@@ -286,6 +286,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         @Nullable String mIccid;
         boolean mForceDeactivateSim;
         SwitchCommandCallback mCallback;
+        boolean mUsePortIndex;
     }
 
     /** Callback class for {@link #switchToSubscription}. */
@@ -493,13 +494,14 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
 
     /** Asynchronously switch to the given subscription. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void switchToSubscription(int cardId, @Nullable String iccid, boolean forceDeactivateSim,
-            SwitchCommandCallback callback) {
+    public void switchToSubscription(int cardId, int portIndex, @Nullable String iccid,
+            boolean forceDeactivateSim, SwitchCommandCallback callback, boolean usePortIndex) {
         SwitchRequest request = new SwitchRequest();
         request.mIccid = iccid;
         request.mForceDeactivateSim = forceDeactivateSim;
         request.mCallback = callback;
-        sendMessage(CMD_SWITCH_TO_SUBSCRIPTION, cardId, 0 /* arg2 */, request);
+        request.mUsePortIndex = usePortIndex;
+        sendMessage(CMD_SWITCH_TO_SUBSCRIPTION, cardId, portIndex, request);
     }
 
     /** Asynchronously update the nickname of the given subscription. */
@@ -838,7 +840,9 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                         }
                         case CMD_SWITCH_TO_SUBSCRIPTION: {
                             SwitchRequest request = (SwitchRequest) message.obj;
-                            mEuiccService.switchToSubscription(slotId, request.mIccid,
+                            final int portIndex = message.arg2;
+                            mEuiccService.switchToSubscription(slotId, portIndex,
+                                    request.mIccid,
                                     request.mForceDeactivateSim,
                                     new ISwitchToSubscriptionCallback.Stub() {
                                         @Override
@@ -849,7 +853,8 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                                                 onCommandEnd(callback);
                                             });
                                         }
-                                    });
+                                    },
+                                    request.mUsePortIndex);
                             break;
                         }
                         case CMD_UPDATE_SUBSCRIPTION_NICKNAME: {
@@ -1042,7 +1047,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         int slotId = SubscriptionManager.INVALID_SIM_SLOT_INDEX;
         for (UiccCardInfo info : infos) {
             if (info.getCardId() == cardId) {
-                slotId = info.getSlotIndex();
+                slotId = info.getPhysicalSlotIndex();
             }
         }
         return slotId;

@@ -114,11 +114,12 @@ import com.android.internal.telephony.ITelephony;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
-import com.android.internal.telephony.PhoneSwitcher;
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.RetryManager;
 import com.android.internal.telephony.SettingsObserver;
 import com.android.internal.telephony.SubscriptionInfoUpdater;
+import com.android.internal.telephony.data.DataConfigManager;
+import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons.DataAllowedReasonType;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons.DataDisallowedReasonType;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings.DataEnabledChangedReason;
@@ -213,14 +214,14 @@ public class DcTracker extends Handler {
     public static final int RELEASE_TYPE_HANDOVER = 3;
 
     /** The extras for handover completion message */
-    static final String DATA_COMPLETE_MSG_EXTRA_NETWORK_REQUEST = "extra_network_request";
-    static final String DATA_COMPLETE_MSG_EXTRA_TRANSPORT_TYPE = "extra_transport_type";
-    static final String DATA_COMPLETE_MSG_EXTRA_SUCCESS = "extra_success";
+    public static final String DATA_COMPLETE_MSG_EXTRA_NETWORK_REQUEST = "extra_network_request";
+    public static final String DATA_COMPLETE_MSG_EXTRA_TRANSPORT_TYPE = "extra_transport_type";
+    public static final String DATA_COMPLETE_MSG_EXTRA_SUCCESS = "extra_success";
     /**
      * The flag indicates whether after handover failure, the data connection should remain on the
      * original transport.
      */
-    static final String DATA_COMPLETE_MSG_EXTRA_HANDOVER_FAILURE_FALLBACK =
+    public static final String DATA_COMPLETE_MSG_EXTRA_HANDOVER_FAILURE_FALLBACK =
             "extra_handover_failure_fallback";
 
     private final String mLogTag;
@@ -359,11 +360,8 @@ public class DcTracker extends Handler {
     private boolean mNrSaSub6Unmetered = false;
     private boolean mNrNsaRoamingUnmetered = false;
 
-    // it effect the PhysicalLinkStateChanged
+    // it effect the PhysicalLinkStatusChanged
     private boolean mLteEndcUsingUserDataForRrcDetection = false;
-
-    // stats per data call recovery event
-    private DataStallRecoveryStats mDataStallRecoveryStats;
 
     /* List of SubscriptionPlans, updated when initialized and when plans are changed. */
     private List<SubscriptionPlan> mSubscriptionPlans = null;
@@ -803,7 +801,9 @@ public class DcTracker extends Handler {
         mDcTesterFailBringUpAll = new DcTesterFailBringUpAll(mPhone, dcHandler);
 
         mDataConnectionTracker = this;
-        registerForAllEvents();
+        if (!mPhone.isUsingNewDataStack()) {
+            registerForAllEvents();
+        }
         mApnObserver = new ApnChangeObserver();
         phone.getContext().getContentResolver().registerContentObserver(
                 Telephony.Carriers.CONTENT_URI, true, mApnObserver);
@@ -2313,6 +2313,7 @@ public class DcTracker extends Handler {
     }
 
     protected void setInitialAttachApn() {
+        if (mPhone.isUsingNewDataStack()) return;
         ApnSetting apnSetting = null;
         int preferredApnSetId = getPreferredApnSetId();
         ArrayList<ApnSetting> allApnSettings = new ArrayList<>();
@@ -2409,6 +2410,7 @@ public class DcTracker extends Handler {
      * @return true if only single DataConnection is allowed
      */
     private boolean isOnlySingleDcAllowed(int rilRadioTech) {
+        int networkType = ServiceState.rilRadioTechnologyToNetworkType(rilRadioTech);
         // Default single dc rats with no knowledge of carrier
         int[] singleDcRats = null;
         // get the carrier specific value, if it exists, from CarrierConfigManager.
@@ -2429,12 +2431,17 @@ public class DcTracker extends Handler {
             onlySingleDcAllowed = true;
         }
         if (singleDcRats != null) {
-            for (int i=0; i < singleDcRats.length && onlySingleDcAllowed == false; i++) {
-                if (rilRadioTech == singleDcRats[i]) onlySingleDcAllowed = true;
+            for (int i = 0; i < singleDcRats.length && !onlySingleDcAllowed; i++) {
+                if (networkType == singleDcRats[i]) {
+                    onlySingleDcAllowed = true;
+                }
             }
         }
 
-        if (DBG) log("isOnlySingleDcAllowed(" + rilRadioTech + "): " + onlySingleDcAllowed);
+        if (DBG) {
+            log("isOnlySingleDcAllowed(" + TelephonyManager.getNetworkTypeName(networkType) + "): "
+                    + onlySingleDcAllowed);
+        }
         return onlySingleDcAllowed;
     }
 
@@ -3562,6 +3569,7 @@ public class DcTracker extends Handler {
 
     protected void setDataProfilesAsNeeded() {
         if (DBG) log("setDataProfilesAsNeeded");
+        if (mPhone.isUsingNewDataStack()) return;
 
         ArrayList<DataProfile> dataProfileList = new ArrayList<>();
 
@@ -4439,15 +4447,18 @@ public class DcTracker extends Handler {
             }
         }
         if (useLte) {
-            Pair<Integer, Integer> ltePair = temp.get(DctConstants.RAT_NAME_LTE);
+            Pair<Integer, Integer> ltePair =
+                    temp.get(DataConfigManager.DATA_CONFIG_NETWORK_TYPE_LTE);
             if (ltePair != null) {
-                if (temp.containsKey(DctConstants.RAT_NAME_NR_NSA)) {
-                    temp.put(DctConstants.RAT_NAME_NR_NSA, new Pair<>(
-                            temp.get(DctConstants.RAT_NAME_NR_NSA).first, ltePair.second));
+                if (temp.containsKey(DataConfigManager.DATA_CONFIG_NETWORK_TYPE_NR_NSA)) {
+                    temp.put(DataConfigManager.DATA_CONFIG_NETWORK_TYPE_NR_NSA, new Pair<>(
+                            temp.get(DataConfigManager.DATA_CONFIG_NETWORK_TYPE_NR_NSA).first,
+                            ltePair.second));
                 }
-                if (temp.containsKey(DctConstants.RAT_NAME_NR_NSA_MMWAVE)) {
-                    temp.put(DctConstants.RAT_NAME_NR_NSA_MMWAVE, new Pair<>(
-                            temp.get(DctConstants.RAT_NAME_NR_NSA_MMWAVE).first, ltePair.second));
+                if (temp.containsKey(DataConfigManager.DATA_CONFIG_NETWORK_TYPE_NR_NSA_MMWAVE)) {
+                    temp.put(DataConfigManager.DATA_CONFIG_NETWORK_TYPE_NR_NSA_MMWAVE, new Pair<>(
+                            temp.get(DataConfigManager.DATA_CONFIG_NETWORK_TYPE_NR_NSA_MMWAVE)
+                                    .first, ltePair.second));
                 }
             }
         }
@@ -4545,7 +4556,7 @@ public class DcTracker extends Handler {
         int rat = mPhone.getDisplayInfoController().getTelephonyDisplayInfo().getNetworkType();
         // congested override and either network is specified or unknown and all networks specified
         boolean isCongested = mCongestedOverride && (mCongestedNetworkTypes.contains(rat)
-                || mUnmeteredNetworkTypes.containsAll(Arrays.stream(
+                || mCongestedNetworkTypes.containsAll(Arrays.stream(
                 TelephonyManager.getAllNetworkTypes()).boxed().collect(Collectors.toSet())));
         for (DataConnection dataConnection : mDataConnections.values()) {
             dataConnection.onCongestednessChanged(isCongested);
@@ -5743,7 +5754,7 @@ public class DcTracker extends Handler {
                     bandwidths = b.getStringArray(CarrierConfigManager.KEY_BANDWIDTH_STRING_ARRAY);
                 }
                 useLte = b.getBoolean(CarrierConfigManager
-                        .KEY_BANDWIDTH_NR_NSA_USE_LTE_VALUE_FOR_UPSTREAM_BOOL);
+                        .KEY_BANDWIDTH_NR_NSA_USE_LTE_VALUE_FOR_UPLINK_BOOL);
                 mWatchdogTimeMs = b.getLong(CarrierConfigManager.KEY_5G_WATCHDOG_TIME_MS_LONG);
                 mNrNsaAllUnmetered = b.getBoolean(CarrierConfigManager.KEY_UNMETERED_NR_NSA_BOOL);
                 mNrNsaMmwaveUnmetered = b.getBoolean(
@@ -5769,24 +5780,24 @@ public class DcTracker extends Handler {
     }
 
     /**
-     * Register for physical link state (i.e. RRC state) changed event.
+     * Register for physical link status (i.e. RRC state) changed event.
      * if {@link CarrierConfigManager.KEY_LTE_ENDC_USING_USER_DATA_FOR_RRC_DETECTION_BOOL} is true,
      * then physical link state is focusing on "internet data connection" instead of RRC state.
      *
      * @param h The handler
      * @param what The event
      */
-    public void registerForPhysicalLinkStateChanged(Handler h, int what) {
-        mDcc.registerForPhysicalLinkStateChanged(h, what);
+    public void registerForPhysicalLinkStatusChanged(Handler h, int what) {
+        mDcc.registerForPhysicalLinkStatusChanged(h, what);
     }
 
     /**
-     * Unregister from physical link state (i.e. RRC state) changed event.
+     * Unregister from physical link status (i.e. RRC state) changed event.
      *
      * @param h The previously registered handler
      */
-    public void unregisterForPhysicalLinkStateChanged(Handler h) {
-        mDcc.unregisterForPhysicalLinkStateChanged(h);
+    public void unregisterForPhysicalLinkStatusChanged(Handler h) {
+        mDcc.unregisterForPhysicalLinkStatusChanged(h);
     }
 
     // We use a specialized equals function in Apn setting when checking if an active

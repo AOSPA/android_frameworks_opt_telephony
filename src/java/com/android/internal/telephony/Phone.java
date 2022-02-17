@@ -79,12 +79,13 @@ import com.android.ims.ImsException;
 import com.android.ims.ImsManager;
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.internal.telephony.data.DataNetworkController;
-import com.android.internal.telephony.dataconnection.AccessNetworksManager;
+import com.android.internal.telephony.data.DataSettingsManager;
+import com.android.internal.telephony.data.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
-import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.EcbmHandler;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
@@ -243,8 +244,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected static final int EVENT_LINK_CAPACITY_CHANGED = 59;
     protected static final int EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION = 60;
     protected static final int EVENT_SET_VONR_ENABLED_DONE = 61;
+    protected static final int EVENT_SUBSCRIPTIONS_CHANGED = 62;
+    protected static final int EVENT_GET_USAGE_SETTING_DONE = 63;
+    protected static final int EVENT_SET_USAGE_SETTING_DONE = 64;
 
-    protected static final int EVENT_LAST = EVENT_SET_VONR_ENABLED_DONE;
+    protected static final int EVENT_LAST = EVENT_SET_USAGE_SETTING_DONE;
 
     // For shared prefs.
     private static final String GSM_ROAMING_LIST_OVERRIDE_PREFIX = "gsm_roaming_list_";
@@ -379,6 +383,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected TelephonyComponentFactory mTelephonyComponentFactory;
     protected EcbmHandler mEcbmHandler;
 
+    private int mPreferredUsageSetting = SubscriptionManager.USAGE_SETTING_UNKNOWN;
+    private int mUsageSettingFromModem = SubscriptionManager.USAGE_SETTING_UNKNOWN;
+    private boolean mIsUsageSettingSupported = true;
+
     //IMS
     /**
      * {@link CallStateException} message text used to indicate that an IMS call has failed because
@@ -481,6 +489,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected SmsStats mSmsStats;
 
     protected LinkBandwidthEstimator mLinkBandwidthEstimator;
+
+    // TODO: Temp code. Use cl/399526916 for future canary process. After rolling out to 100%
+    //  dogfooders, the code below should be completely removed.
+    private final boolean mNewDataStackEnabled;
 
     public IccRecords getIccRecords() {
         return mIccRecords.get();
@@ -622,6 +634,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
         // Initialize SMS stats
         mSmsStats = new SmsStats(this);
+
+        mNewDataStackEnabled = Boolean.parseBoolean(DeviceConfig.getProperty(
+                DeviceConfig.NAMESPACE_TELEPHONY, "enable_new_data_stack"));
 
         if (getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
             return;
@@ -821,6 +836,48 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             case EVENT_ALL_DATA_DISCONNECTED:
                 if (areAllDataDisconnected()) {
                     mAllDataDisconnectedRegistrants.notifyRegistrants();
+                }
+                break;
+            case EVENT_GET_USAGE_SETTING_DONE:
+                ar = (AsyncResult) msg.obj;
+                if (ar.exception == null) {
+                    try {
+                        int mUsageSettingFromModem = ((int[]) ar.result)[0];
+                    } catch (NullPointerException | ClassCastException e) {
+                        Rlog.e(LOG_TAG, "Invalid response for usage setting " + ar.result);
+                        break;
+                    }
+
+                    if (mUsageSettingFromModem != mPreferredUsageSetting) {
+                        mCi.setUsageSetting(obtainMessage(EVENT_SET_USAGE_SETTING_DONE),
+                                mPreferredUsageSetting);
+                    }
+                } else {
+                    try {
+                        CommandException ce = (CommandException) ar.exception;
+                        if (ce.getCommandError() == CommandException.Error.REQUEST_NOT_SUPPORTED) {
+                            mIsUsageSettingSupported = false;
+                        }
+                        Rlog.w(LOG_TAG, "Unexpected failure to retrieve usage setting " + ce);
+                    } catch (ClassCastException unused) {
+                        Rlog.e(LOG_TAG, "Invalid Exception for usage setting " + ar.exception);
+                        break; // technically extraneous, but good hygiene
+                    }
+                }
+                break;
+            case EVENT_SET_USAGE_SETTING_DONE:
+                ar = (AsyncResult) msg.obj;
+                if (ar.exception != null) {
+                    try {
+                        CommandException ce = (CommandException) ar.exception;
+                        if (ce.getCommandError() == CommandException.Error.REQUEST_NOT_SUPPORTED) {
+                            mIsUsageSettingSupported = false;
+                        }
+                        Rlog.w(LOG_TAG, "Unexpected failure to set usage setting " + ce);
+                    } catch (ClassCastException unused) {
+                        Rlog.e(LOG_TAG, "Invalid Exception for usage setting " + ar.exception);
+                        break; // technically extraneous, but good hygiene
+                    }
                 }
                 break;
             default:
@@ -4515,7 +4572,59 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         if (restoreNetworkSelection) {
             restoreSavedNetworkSelection(null);
         }
+
+        updateUsageSetting();
     }
+
+    // Need a magic little helper function to avoid a static call via SubscriptionManager
+    private int getPreferredUsageSetting() {
+        String result = SubscriptionController.getInstance().getSubscriptionProperty(
+                getSubId(), SubscriptionManager.USAGE_SETTING);
+        try {
+            return Integer.parseInt(result);
+        } catch (NumberFormatException nfe) {
+        }
+        return SubscriptionManager.USAGE_SETTING_UNKNOWN;
+    }
+
+    /**
+     * Attempt to update the usage setting.
+     *
+     * @return whether the usage setting will be updated (used for test)
+     */
+    public boolean updateUsageSetting() {
+        if (!mIsUsageSettingSupported) return false;
+
+        final int subId = getSubId();
+        if (!SubscriptionManager.isValidSubscriptionId(subId)) return false;
+
+        int lastPreferredUsageSetting = mPreferredUsageSetting;
+
+        int mPreferredUsageSetting = getPreferredUsageSetting();
+
+        // We might get a lot of requests to update, so definitely we don't want to hammer
+        // the modem with multiple duplicate requests for usage setting updates
+        if (mPreferredUsageSetting == lastPreferredUsageSetting) return false;
+
+        // If the user prefers the default setting, we now need to resolve that into a concrete
+        // value, since the modem will have a "concrete" value.
+        if (mPreferredUsageSetting == SubscriptionManager.USAGE_SETTING_DEFAULT) {
+            mPreferredUsageSetting = mContext.getResources().getInteger(
+                    com.android.internal.R.integer.config_default_cellular_usage_setting);
+        }
+
+        // If the modem value hasn't been updated, request it.
+        if (mUsageSettingFromModem == SubscriptionManager.USAGE_SETTING_UNKNOWN) {
+            mCi.getUsageSetting(obtainMessage(EVENT_GET_USAGE_SETTING_DONE));
+            // If the modem value is already known, and the value has changed, proceed to update.
+        } else if (mPreferredUsageSetting != mUsageSettingFromModem) {
+            mCi.setUsageSetting(obtainMessage(EVENT_SET_USAGE_SETTING_DONE),
+                    mPreferredUsageSetting);
+        }
+        return true;
+    }
+
+
 
     /**
      * Registers the handler when phone radio  capability is changed.
@@ -4993,6 +5102,35 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return mDataNetworkController;
     }
 
+    /**
+     * @return The data settings manager
+     */
+    public @Nullable DataSettingsManager getDataSettingsManager() {
+        if (mDataNetworkController == null) return null;
+        return mDataNetworkController.getDataSettingsManager();
+    }
+
+    /**
+     * Used in unit tests to set whether the AllowedNetworkTypes is loaded from Db.  Should not
+     * be used otherwise.
+     *
+     * @return {@code true} if the AllowedNetworkTypes is loaded from Db,
+     * {@code false} otherwise.
+     */
+    @VisibleForTesting
+    public boolean isAllowedNetworkTypesLoadedFromDb() {
+        return mIsAllowedNetworkTypesLoadedFromDb;
+    }
+
+    /**
+     * @return {@code true} if using the new telephony data stack. See go/atdr for the design.
+     */
+    // TODO: Temp code. Use cl/421423121 for future canary process. After rolling out to 100%
+    //  dogfooders, the code below should be completely removed before T AOSP release.
+    public boolean isUsingNewDataStack() {
+        return mNewDataStackEnabled;
+    }
+
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("Phone: subId=" + getSubId());
         pw.println(" mPhoneId=" + mPhoneId);
@@ -5165,8 +5303,14 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             pw.println("++++++++++++++++++++++++++++++++");
         }
 
-        if (mTransportManager != null) {
-            mTransportManager.dump(fd, pw, args);
+        if (isUsingNewDataStack()) {
+            if (mAccessNetworksManager != null) {
+                mAccessNetworksManager.dump(fd, pw, args);
+            }
+        } else {
+            if (mTransportManager != null) {
+                mTransportManager.dump(fd, pw, args);
+            }
         }
 
         if (mCi != null && mCi instanceof RIL) {
@@ -5220,31 +5364,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return Rlog.pii(LOG_TAG, s);
     }
 
-    /**
-     * Used in unit tests to set whether the AllowedNetworkTypes is loaded from Db.  Should not
-     * be used otherwise.
-     *
-     * @return {@code true} if the AllowedNetworkTypes is loaded from Db,
-     * {@code false} otherwise.
-     */
-    @VisibleForTesting
-    public boolean isAllowedNetworkTypesLoadedFromDb() {
-        return mIsAllowedNetworkTypesLoadedFromDb;
-    }
-
     public boolean isEmergencyNumber(String address) {
         return PhoneNumberUtils.isEmergencyNumber(getSubId(), address);
-    }
-
-    /**
-     * @return {@code true} if using the new telephony data stack. See go/atdr for the design.
-     */
-    // TODO: Temp code. Use cl/399526916 for future canary process. After rolling out to 100%
-    //  dogfooders, the code below should be completely removed.
-    public boolean isUsingNewDataStack() {
-        String configValue = DeviceConfig.getProperty(DeviceConfig.NAMESPACE_TELEPHONY,
-                "new_telephony_data_enabled");
-        return configValue != null && Boolean.parseBoolean(configValue);
     }
 
     public void exitScbm() {
@@ -5274,9 +5395,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     public boolean isExitScbmFeatureSupported() {
         return false;
-    }
-
-    public void handleTimerInScbm(int action) {
     }
 
     public boolean isScbmTimerCanceledForEmergency() {

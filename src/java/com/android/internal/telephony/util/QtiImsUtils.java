@@ -55,7 +55,8 @@ public class QtiImsUtils {
     public static final int DOMAIN_CS = 1;
     public static final int DOMAIN_PS = 2;
 
-    public static final int CODE_IS_PS_ONLY_ATTACHED = 3002;
+    public static final int CODE_IS_PS_ONLY_ATTACHED = 4001;
+    public static final int CODE_IS_NOT_PS_ONLY_ATTACHED = 4002;
 
     public static final int RETRY_ON_IMS_WITHOUT_RTT = 301;
     //value of below constant needs to have same value as QtiCallConstants.java
@@ -66,6 +67,9 @@ public class QtiImsUtils {
     //holds the call radiotech on which lower layers may try attempting redial
     public static final String EXTRA_RETRY_CALL_FAIL_RADIOTECH = "RetryCallFailRadioTech";
     public static final String EXTRA_EMERGENCY_SERVICE_CATEGORY = "EmergencyServiceCategory";
+
+    public static final String SIMLESS_RTT_SUPPORTED = "simless_rtt_supported";
+    public static final String SIMLESS_RTT_DOWNGRADE_SUPPORTED = "simless_rtt_downgrade_supported";
 
     // RTT Off
     public static final int RTT_MODE_DISABLED = 0;
@@ -81,6 +85,12 @@ public class QtiImsUtils {
     public static final int RTT_UPON_REQUEST_MODE = 0;
     // All the calls dialed are RTT calls by default.
     public static final int RTT_AUTOMATIC_MODE = 1;
+
+    /*RTT not supported */
+    public static final int RTT_SUPPORTED = 1;
+    public static final int RTT_NOT_SUPPORTED = 0;
+    public static final int RTT_DOWNGRADE_SUPPORTED = 1;
+    public static final int RTT_DOWNGRADE_NOT_SUPPORTED = 0;
 
     /**
      * RTT Operating mode
@@ -180,6 +190,14 @@ public class QtiImsUtils {
         return isRttSupported;
     }
 
+    // Returns true if Previous Carrier supported RTT
+    public static boolean isSimLessRttSupported(int phoneId, Context context) {
+        int simLessRttSupportedValue = android.provider.Settings.Secure.getInt(
+                context.getContentResolver(),
+                SIMLESS_RTT_SUPPORTED + convertRttPhoneId(phoneId), RTT_NOT_SUPPORTED);
+        return simLessRttSupportedValue != RTT_NOT_SUPPORTED;
+    }
+
     private static PersistableBundle getConfigForPhoneId(Context context, int phoneId) {
         SubscriptionManager subManager = (SubscriptionManager) context.getSystemService(
                  Context.TELEPHONY_SUBSCRIPTION_SERVICE);
@@ -208,6 +226,20 @@ public class QtiImsUtils {
         }
 
         return mgr.getConfigForSubId(subId);
+    }
+
+    public static void updateRttConfigCache(Context context, int phoneId,
+            PersistableBundle carrierConfig) {
+        android.provider.Settings.Secure.putInt(context.getContentResolver(),
+                SIMLESS_RTT_SUPPORTED + convertRttPhoneId(phoneId), carrierConfig.getBoolean(
+                CarrierConfigManager.KEY_RTT_SUPPORTED_BOOL) ? RTT_SUPPORTED
+                : RTT_NOT_SUPPORTED);
+
+        android.provider.Settings.Secure.putInt(context.getContentResolver(),
+                SIMLESS_RTT_DOWNGRADE_SUPPORTED + convertRttPhoneId(phoneId),
+                carrierConfig.getBoolean(CarrierConfigManager.
+                KEY_RTT_DOWNGRADE_SUPPORTED_BOOL) ? RTT_DOWNGRADE_SUPPORTED
+                : RTT_DOWNGRADE_NOT_SUPPORTED);
     }
 
     // Utility to get the RTT Mode that is set through adb property

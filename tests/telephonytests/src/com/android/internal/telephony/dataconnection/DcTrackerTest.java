@@ -101,6 +101,7 @@ import com.android.internal.telephony.ISub;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RetryManager;
 import com.android.internal.telephony.TelephonyTest;
+import com.android.internal.telephony.data.CellularDataService;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons.DataDisallowedReasonType;
 
 import org.junit.After;
@@ -233,12 +234,16 @@ public class DcTrackerTest extends TelephonyTest {
                 Telephony.Carriers.WAIT_TIME_RETRY,
                 Telephony.Carriers.TIME_LIMIT_FOR_MAX_CONNECTIONS,
                 Telephony.Carriers.MTU,
+                Telephony.Carriers.MTU_V4,
+                Telephony.Carriers.MTU_V6,
                 Telephony.Carriers.MVNO_TYPE,
                 Telephony.Carriers.MVNO_MATCH_DATA,
                 Telephony.Carriers.NETWORK_TYPE_BITMASK,
+                Telephony.Carriers.LINGERING_NETWORK_TYPE_BITMASK,
                 Telephony.Carriers.APN_SET_ID,
                 Telephony.Carriers.CARRIER_ID,
-                Telephony.Carriers.SKIP_464XLAT
+                Telephony.Carriers.SKIP_464XLAT,
+                Telephony.Carriers.ALWAYS_ON
         };
 
         private int mPreferredApnSet = 0;
@@ -299,12 +304,16 @@ public class DcTrackerTest extends TelephonyTest {
                     0,                      // wait_time
                     0,                      // max_conns_time
                     0,                      // mtu
+                    0,                      // mtu_v4
+                    0,                      // mtu_v6
                     "",                     // mvno_type
                     "",                     // mnvo_match_data
                     mFakeApn1Bitmask,       // network_type_bitmask
+                    0,                      // lingering_network_type_bitmask
                     0,                      // apn_set_id
                     -1,                     // carrier_id
-                    -1                      // skip_464xlat
+                    -1,                     // skip_464xlat
+                    0                       // always_on
             };
         }
 
@@ -334,12 +343,16 @@ public class DcTrackerTest extends TelephonyTest {
                     0,                      // wait_time
                     0,                      // max_conns_time
                     0,                      // mtu
+                    0,                      // mtu_v4
+                    0,                      // mtu_v6
                     "",                     // mvno_type
                     "",                     // mnvo_match_data
                     NETWORK_TYPE_LTE_BITMASK, // network_type_bitmask
+                    0,                      // lingering_network_type_bitmask
                     0,                      // apn_set_id
                     -1,                     // carrier_id
-                    -1                      // skip_464xlat
+                    -1,                     // skip_464xlat
+                    0                       // always_on
             };
         }
 
@@ -369,12 +382,16 @@ public class DcTrackerTest extends TelephonyTest {
                     0,                      // wait_time
                     0,                      // max_conns_time
                     0,                      // mtu
+                    0,                      // mtu_v4
+                    0,                      // mtu_v6
                     "",                     // mvno_type
                     "",                     // mnvo_match_data
                     0,                      // network_type_bitmask
+                    0,                      // lingering_network_type_bitmask
                     0,                      // apn_set_id
                     -1,                     // carrier_id
-                    -1                      // skip_464xlat
+                    -1,                     // skip_464xlat
+                    0                       // always_on
             };
         }
 
@@ -404,12 +421,16 @@ public class DcTrackerTest extends TelephonyTest {
                     0,                      // wait_time
                     0,                      // max_conns_time
                     0,                      // mtu
+                    0,                      // mtu_v4
+                    0,                      // mtu_v6
                     "",                     // mvno_type
                     "",                     // mnvo_match_data
                     NETWORK_TYPE_EHRPD_BITMASK, // network_type_bitmask
+                    0,                      // lingering_network_type_bitmask
                     0,                      // apn_set_id
                     -1,                     // carrier_id
-                    -1                      // skip_464xlat
+                    -1,                     // skip_464xlat
+                    0                       // always_on
             };
         }
 
@@ -439,12 +460,16 @@ public class DcTrackerTest extends TelephonyTest {
                     0,                      // wait_time
                     0,                      // max_conns_time
                     0,                      // mtu
+                    0,                      // mtu_v4
+                    0,                      // mtu_v6
                     "",                     // mvno_type
                     "",                     // mnvo_match_data
                     0,                      // network_type_bitmask
+                    0,                      // lingering_network_type_bitmask
                     0,                      // apn_set_id
                     -1,                     // carrier_id
-                    -1                      // skip_464xlat
+                    -1,                     // skip_464xlat
+                    0                       // always_on
             };
         }
 
@@ -474,12 +499,16 @@ public class DcTrackerTest extends TelephonyTest {
                     0,                      // wait_time
                     0,                      // max_conns_time
                     0,                      // mtu
+                    0,                      // mtu_v4
+                    0,                      // mtu_v6
                     "",                     // mvno_type
                     "",                     // mnvo_match_data
                     NETWORK_TYPE_LTE_BITMASK, // network_type_bitmask
+                    0,                      // lingering_network_type_bitmask
                     0,                      // apn_set_id
                     -1,                     // carrier_id
-                    -1                      // skip_464xlat
+                    -1,                     // skip_464xlat
+                    0                       // always_on
             };
         }
 
@@ -509,12 +538,16 @@ public class DcTrackerTest extends TelephonyTest {
                     0,                      // wait_time
                     0,                      // max_conns_time
                     0,                      // mtu
+                    0,                      // mtu_v4
+                    0,                      // mtu_v6
                     "",                     // mvno_type
                     "",                     // mnvo_match_data
                     NETWORK_TYPE_LTE_BITMASK,  // network_type_bitmask
+                    0,                      // lingering_network_type_bitmask
                     1,                      // apn_set_id
                     -1,                     // carrier_id
-                    -1                      // skip_464xlat
+                    -1,                     // skip_464xlat
+                    0                       // always_on
             };
         }
 
@@ -544,12 +577,16 @@ public class DcTrackerTest extends TelephonyTest {
                     0,                      // wait_time
                     0,                      // max_conns_time
                     0,                      // mtu
+                    0,                      // mtu_v4
+                    0,                      // mtu_v6
                     "",                     // mvno_type
                     "",                     // mnvo_match_data
-                    NETWORK_TYPE_LTE_BITMASK,  // network_type_bitmask
-                    -1,                      // apn_set_id
+                    NETWORK_TYPE_LTE_BITMASK, // network_type_bitmask
+                    0,                      // lingering_network_type_bitmask
+                    -1,                     // apn_set_id
                     -1,                     // carrier_id
-                    -1                      // skip_464xlat
+                    -1,                     // skip_464xlat
+                    0                       // always_on
             };
         }
 
@@ -579,12 +616,16 @@ public class DcTrackerTest extends TelephonyTest {
                     0,                      // wait_time
                     0,                      // max_conns_time
                     0,                      // mtu
+                    0,                      // mtu_v4
+                    0,                      // mtu_v6
                     "",                     // mvno_type
                     "",                     // mnvo_match_data
                     NETWORK_TYPE_NR_BITMASK, // network_type_bitmask
+                    0,                      // lingering_network_type_bitmask
                     0,                      // apn_set_id
                     -1,                     // carrier_id
-                    -1                      // skip_464xlat
+                    -1,                     // skip_464xlat
+                    0                       // always_on
             };
         }
 

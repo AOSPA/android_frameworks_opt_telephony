@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 
-package com.android.internal.telephony.dataconnection;
-
-import static android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+package com.android.internal.telephony.data;
 
 import android.net.NetworkCapabilities;
 import android.net.NetworkFactory;
@@ -37,10 +35,14 @@ import android.util.LocalLog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneSwitcher;
+import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.SubscriptionController;
+import com.android.internal.telephony.dataconnection.ApnContext;
+import com.android.internal.telephony.dataconnection.DataConnection;
+import com.android.internal.telephony.dataconnection.DcTracker;
 import com.android.internal.telephony.dataconnection.DcTracker.ReleaseNetworkType;
 import com.android.internal.telephony.dataconnection.DcTracker.RequestNetworkType;
+import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.dataconnection.TransportManager.HandoverParams;
 import com.android.internal.telephony.metrics.NetworkRequestsStats;
 import com.android.internal.util.IndentingPrintWriter;
@@ -51,6 +53,10 @@ import java.io.PrintWriter;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Telephony network factory is responsible for dispatching network requests from the connectivity
+ * service to the data network controller.
+ */
 public class TelephonyNetworkFactory extends NetworkFactory {
     public final String LOG_TAG;
     protected static final boolean DBG = true;
@@ -78,7 +84,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
 
     // Key: network request. Value: the transport of DcTracker it applies to,
     // AccessNetworkConstants.TRANSPORT_TYPE_INVALID if not applied.
-    private final Map<NetworkRequest, Integer> mNetworkRequests = new HashMap<>();
+    private final Map<TelephonyNetworkRequest, Integer> mNetworkRequests = new HashMap<>();
 
     private final Map<Message, HandoverParams> mPendingHandovers = new HashMap<>();
 
@@ -115,7 +121,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         mTransportManager.registerForHandoverNeededEvent(mInternalHandler,
                 EVENT_DATA_HANDOVER_NEEDED);
 
-        mSubscriptionId = INVALID_SUBSCRIPTION_ID;
+        mSubscriptionId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
         SubscriptionManager.from(mPhone.getContext()).addOnSubscriptionsChangedListener(
                 mSubscriptionsChangedListener);
 
@@ -155,6 +161,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_CBS)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_IA)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_RCS)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_MMTEL)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_XCAP)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_EIMS)
@@ -167,7 +174,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     }
 
     private class InternalHandler extends Handler {
-        public InternalHandler(Looper looper) {
+        InternalHandler(Looper looper) {
             super(looper);
         }
 
@@ -220,9 +227,16 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         }
     }
 
-    private int getTransportTypeFromNetworkRequest(NetworkRequest networkRequest) {
-        int apnType = ApnContext.getApnTypeFromNetworkRequest(networkRequest);
-        return mTransportManager.getCurrentTransport(apnType);
+    private int getTransportTypeFromNetworkRequest(TelephonyNetworkRequest networkRequest) {
+        if (PhoneFactory.getDefaultPhone().isUsingNewDataStack()) {
+            return PhoneFactory.getDefaultPhone().getAccessNetworksManager()
+                    .getPreferredTransportByNetworkCapability(
+                            networkRequest.getApnTypeNetworkCapability());
+        } else {
+            int apnType = ApnContext.getApnTypeFromNetworkRequest(
+                    networkRequest.getNativeNetworkRequest());
+            return mTransportManager.getCurrentTransport(apnType);
+        }
     }
 
     /**
@@ -234,29 +248,33 @@ public class TelephonyNetworkFactory extends NetworkFactory {
      * @param onHandoverCompleteMsg When request type is handover, this message will be sent when
      * handover is completed. For normal request, this should be null.
      */
-    private void requestNetworkInternal(NetworkRequest networkRequest,
+    private void requestNetworkInternal(TelephonyNetworkRequest networkRequest,
             @RequestNetworkType int requestType, int transport, Message onHandoverCompleteMsg) {
-        NetworkRequestsStats.addNetworkRequest(networkRequest, mSubscriptionId);
+        NetworkRequestsStats.addNetworkRequest(networkRequest.getNativeNetworkRequest(),
+                mSubscriptionId);
 
-        if (false/*mPhone.isUsingNewDataStack()*/) {
+        if (mPhone.isUsingNewDataStack()) {
             mPhone.getDataNetworkController().addNetworkRequest(networkRequest);
         } else {
             if (mPhone.getDcTracker(transport) != null) {
-                mPhone.getDcTracker(transport).requestNetwork(networkRequest, requestType,
+                mPhone.getDcTracker(transport).requestNetwork(
+                        networkRequest.getNativeNetworkRequest(), requestType,
                         onHandoverCompleteMsg);
             }
         }
     }
 
-    private void releaseNetworkInternal(NetworkRequest networkRequest,
+    private void releaseNetworkInternal(TelephonyNetworkRequest networkRequest,
                                         @ReleaseNetworkType int releaseType,
                                         int transport) {
-        NetworkRequestsStats.addNetworkRelease(networkRequest, mSubscriptionId);
-        if (false/*mPhone.isUsingNewDataStack()*/) {
+        NetworkRequestsStats.addNetworkRelease(networkRequest.getNativeNetworkRequest(),
+                mSubscriptionId);
+        if (mPhone.isUsingNewDataStack()) {
             mPhone.getDataNetworkController().removeNetworkRequest(networkRequest);
         } else {
             if (mPhone.getDcTracker(transport) != null) {
-                mPhone.getDcTracker(transport).releaseNetwork(networkRequest, releaseType);
+                mPhone.getDcTracker(transport).releaseNetwork(
+                        networkRequest.getNativeNetworkRequest(), releaseType);
             }
         }
     }
@@ -282,8 +300,8 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                     .setTransportPrimary(false).build());
         }
 
-        for (HashMap.Entry<NetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
-            NetworkRequest networkRequest = entry.getKey();
+        for (Map.Entry<TelephonyNetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
+            TelephonyNetworkRequest networkRequest = entry.getKey();
             boolean applied = entry.getValue() != AccessNetworkConstants.TRANSPORT_TYPE_INVALID;
 
             boolean shouldApply = mPhoneSwitcher.shouldApplyNetworkRequest(
@@ -337,12 +355,8 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     }
 
     private void onNeedNetworkFor(Message msg) {
-        NetworkRequest networkRequest = (NetworkRequest) msg.obj;
-        //        if (networkRequest.type != NetworkRequest.Type.REQUEST &&
-        //       networkRequest.type != NetworkRequest.Type.BACKGROUND_REQUEST) {
-        // logl("Skip non REQUEST/BACKGROUND_REQUEST type request: " + networkRequest);
-        // return;
-        //}
+        TelephonyNetworkRequest networkRequest =
+                new TelephonyNetworkRequest((NetworkRequest) msg.obj, mPhone);
         boolean shouldApply = mPhoneSwitcher.shouldApplyNetworkRequest(
                 networkRequest, mPhone.getPhoneId());
 
@@ -366,7 +380,8 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     }
 
     private void onReleaseNetworkFor(Message msg) {
-        NetworkRequest networkRequest = (NetworkRequest) msg.obj;
+        TelephonyNetworkRequest networkRequest =
+                new TelephonyNetworkRequest((NetworkRequest) msg.obj, mPhone);
         if (!mNetworkRequests.containsKey(networkRequest)) {
             return;
         }
@@ -404,11 +419,12 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         }
 
         boolean handoverPending = false;
-        for (HashMap.Entry<NetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
-            NetworkRequest networkRequest = entry.getKey();
+        for (Map.Entry<TelephonyNetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
+            TelephonyNetworkRequest networkRequest = entry.getKey();
             int currentTransport = entry.getValue();
             boolean applied = currentTransport != AccessNetworkConstants.TRANSPORT_TYPE_INVALID;
-            if (ApnContext.getApnTypeFromNetworkRequest(networkRequest) == apnType
+            if (ApnContext.getApnTypeFromNetworkRequest(
+                    networkRequest.getNativeNetworkRequest()) == apnType
                     && applied
                     && currentTransport != targetTransport) {
                 DcTracker dcTracker = mPhone.getDcTracker(currentTransport);
@@ -419,7 +435,8 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                         Message onCompleteMsg = mInternalHandler.obtainMessage(
                                 EVENT_DATA_HANDOVER_COMPLETED);
                         onCompleteMsg.getData().putParcelable(
-                                DcTracker.DATA_COMPLETE_MSG_EXTRA_NETWORK_REQUEST, networkRequest);
+                                DcTracker.DATA_COMPLETE_MSG_EXTRA_NETWORK_REQUEST,
+                                networkRequest.getNativeNetworkRequest());
                         mPendingHandovers.put(onCompleteMsg, handoverParams);
                         requestNetworkInternal(networkRequest, DcTracker.REQUEST_TYPE_HANDOVER,
                                 targetTransport, onCompleteMsg);
@@ -455,21 +472,20 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         }
     }
 
-    private void onDataHandoverSetupCompleted(NetworkRequest networkRequest, boolean success,
+    private void onDataHandoverSetupCompleted(NetworkRequest request, boolean success,
                                               int targetTransport, boolean fallback,
                                               HandoverParams handoverParams) {
-        log("onDataHandoverSetupCompleted: " + networkRequest + ", success=" + success
+        log("onDataHandoverSetupCompleted: " + request + ", success=" + success
                 + ", targetTransport="
                 + AccessNetworkConstants.transportTypeToString(targetTransport)
                 + ", fallback=" + fallback);
 
+        TelephonyNetworkRequest networkRequest = new TelephonyNetworkRequest(request, mPhone);
         // At this point, handover setup has been completed on the target transport.
         // If it succeeded, or it failed without falling back to the original transport,
         // we should release the request from the original transport.
         if (!fallback) {
-            int originTransport = (targetTransport == AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
-                    ? AccessNetworkConstants.TRANSPORT_TYPE_WLAN
-                    : AccessNetworkConstants.TRANSPORT_TYPE_WWAN;
+            int originTransport = DataUtils.getSourceTransport(targetTransport);
             int releaseType = success
                     ? DcTracker.RELEASE_TYPE_HANDOVER
                     // If handover fails, we need to tear down the existing connection, so the
@@ -513,12 +529,19 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         mLocalLog.log(s);
     }
 
+    /**
+     * Dump the state of telephony network factory
+     *
+     * @param fd File descriptor
+     * @param writer Print writer
+     * @param args Arguments
+     */
     public void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
         final IndentingPrintWriter pw = new IndentingPrintWriter(writer, "  ");
         pw.println("Network Requests:");
         pw.increaseIndent();
-        for (HashMap.Entry<NetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
-            NetworkRequest nr = entry.getKey();
+        for (Map.Entry<TelephonyNetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
+            TelephonyNetworkRequest nr = entry.getKey();
             int transport = entry.getValue();
             pw.println(nr + (transport != AccessNetworkConstants.TRANSPORT_TYPE_INVALID
                     ? (" applied on " + transport) : " not applied"));

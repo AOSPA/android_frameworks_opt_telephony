@@ -114,6 +114,7 @@ import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.ServiceStateTracker;
 import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.d2d.RtpTransport;
+import com.android.internal.telephony.data.DataSettingsManager;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings.DataEnabledChangedReason;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
@@ -125,6 +126,7 @@ import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.ImsCommand;
 import com.android.internal.telephony.util.QtiImsUtils;
+import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.telephony.Rlog;
 
@@ -196,8 +198,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     private final MmTelFeatureListener mMmTelFeatureListener = new MmTelFeatureListener();
     private class MmTelFeatureListener extends MmTelFeature.Listener {
-        @Override
-        public void onIncomingCall(IImsCallSession c, Bundle extras) {
+
+        private void processIncomingCall(IImsCallSession c, Bundle extras) {
             if (DBG) log("onReceive : incoming call intent");
             mOperationLocalLog.log("onIncomingCall Received");
 
@@ -300,13 +302,21 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         }
 
         @Override
+        public void onIncomingCall(IImsCallSession c, Bundle extras) {
+            TelephonyUtils.runWithCleanCallingIdentity(()-> processIncomingCall(c, extras),
+                    mExecutor);
+        }
+
+        @Override
         public void onVoiceMessageCountUpdate(int count) {
-            if (mPhone != null && mPhone.mDefaultPhone != null) {
-                if (DBG) log("onVoiceMessageCountChanged :: count=" + count);
-                mPhone.mDefaultPhone.setVoiceMessageCount(count);
-            } else {
-                loge("onVoiceMessageCountUpdate: null phone");
-            }
+            TelephonyUtils.runWithCleanCallingIdentity(()-> {
+                if (mPhone != null && mPhone.mDefaultPhone != null) {
+                    if (DBG) log("onVoiceMessageCountChanged :: count=" + count);
+                    mPhone.mDefaultPhone.setVoiceMessageCount(count);
+                } else {
+                    loge("onVoiceMessageCountUpdate: null phone");
+                }
+            }, mExecutor);
         }
     }
 
@@ -562,6 +572,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     private String mLastDialString = null;
     private ImsDialArgs mLastDialArgs = null;
+    private Executor mExecutor = Runnable::run;
+
+    private boolean mPendingExitEcbmReq;
+    private boolean mPendingExitScbmReq;
 
     /**
      * Listeners to changes in the phone state.  Intended for use by other interested IMS components
@@ -921,6 +935,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         }
     };
 
+    // TODO: make @NonNull after removing DataEnabledSettings
+    private DataSettingsManager.DataSettingsManagerCallback mSettingsCallback;
+
     /**
      * Allows the FeatureConnector used to be swapped for easier testing.
      */
@@ -953,6 +970,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     public ImsPhoneCallTracker(ImsPhone phone, ConnectorFactory factory, Executor executor) {
         this.mPhone = phone;
         mConnectorFactory = factory;
+        if (executor != null) {
+            mExecutor = executor;
+        }
 
         mMetrics = TelephonyMetrics.getInstance();
 
@@ -962,8 +982,38 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         mPhone.getContext().registerReceiver(mReceiver, intentfilter);
         updateCarrierConfiguration(mPhone.getSubId());
 
-        mPhone.getDefaultPhone().getDataEnabledSettings().registerForDataEnabledChanged(
-                this, EVENT_DATA_ENABLED_CHANGED, null);
+        if (mPhone.getDefaultPhone().isUsingNewDataStack()) {
+            mSettingsCallback = new DataSettingsManager.DataSettingsManagerCallback(this::post) {
+                    @Override
+                    public void onDataEnabledChanged(boolean enabled,
+                            @TelephonyManager.DataEnabledChangedReason int reason) {
+                        int internalReason;
+                        switch (reason) {
+                            case TelephonyManager.DATA_ENABLED_REASON_USER:
+                                internalReason = DataEnabledSettings.REASON_USER_DATA_ENABLED;
+                                break;
+                            case TelephonyManager.DATA_ENABLED_REASON_POLICY:
+                                internalReason = DataEnabledSettings.REASON_POLICY_DATA_ENABLED;
+                                break;
+                            case TelephonyManager.DATA_ENABLED_REASON_CARRIER:
+                                internalReason = DataEnabledSettings.REASON_DATA_ENABLED_BY_CARRIER;
+                                break;
+                            case TelephonyManager.DATA_ENABLED_REASON_THERMAL:
+                                internalReason = DataEnabledSettings.REASON_THERMAL_DATA_ENABLED;
+                                break;
+                            case TelephonyManager.DATA_ENABLED_REASON_OVERRIDE:
+                                internalReason = DataEnabledSettings.REASON_OVERRIDE_RULE_CHANGED;
+                                break;
+                            default:
+                                internalReason = DataEnabledSettings.REASON_INTERNAL_DATA_ENABLED;
+                        }
+                        ImsPhoneCallTracker.this.onDataEnabledChanged(enabled, internalReason);
+                    }};
+            mPhone.getDefaultPhone().getDataSettingsManager().registerCallback(mSettingsCallback);
+        } else {
+            mPhone.getDefaultPhone().getDataEnabledSettings().registerForDataEnabledChanged(
+                    this, EVENT_DATA_ENABLED_CHANGED, null);
+        }
 
         final TelecomManager telecomManager =
                 (TelecomManager) mPhone.getContext().getSystemService(Context.TELECOM_SERVICE);
@@ -980,7 +1030,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         mImsManagerConnector = mConnectorFactory.create(mPhone.getContext(), mPhone.getPhoneId(),
                 LOG_TAG, new FeatureConnector.Listener<ImsManager>() {
-                    public void connectionReady(ImsManager manager) throws ImsException {
+                    public void connectionReady(ImsManager manager, int subId) throws ImsException {
                         mImsManager = manager;
                         startListeningForCalls();
                     }
@@ -1054,6 +1104,14 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     e.printStackTrace();
             }
         }
+        if (canExitScbm()) {
+             try {
+                 mPhone.mDefaultPhone.exitScbm();
+             } catch (Exception e) {
+                 e.printStackTrace();
+             }
+         }
+
         int mPreferredTtyMode = Settings.Secure.getInt(
                 mPhone.getContext().getContentResolver(),
                 Settings.Secure.PREFERRED_TTY_MODE,
@@ -1203,7 +1261,11 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         clearDisconnected();
         mPhone.getContext().unregisterReceiver(mReceiver);
-        mPhone.getDefaultPhone().getDataEnabledSettings().unregisterForDataEnabledChanged(this);
+        if (mPhone.getDefaultPhone().isUsingNewDataStack()) {
+            mPhone.getDefaultPhone().getDataSettingsManager().unregisterCallback(mSettingsCallback);
+        } else {
+            mPhone.getDefaultPhone().getDataEnabledSettings().unregisterForDataEnabledChanged(this);
+        }
         mImsManagerConnector.disconnect();
 
         final NetworkStatsManager statsManager =
@@ -1603,6 +1665,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             return;
         }
         mCarrierConfigLoaded = true;
+        QtiImsUtils.updateRttConfigCache(mPhone.getContext(),mPhone.getPhoneId(), carrierConfig);
 
         updateCarrierConfigCache(carrierConfig);
         updateImsServiceConfig();
@@ -1666,6 +1729,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             mUssdMethod = carrierConfig.getInt(CarrierConfigManager.KEY_CARRIER_USSD_METHOD_INT);
         }
 
+        if (!mImsReasonCodeMap.isEmpty()) {
+            mImsReasonCodeMap.clear();
+        }
         String[] mappings = carrierConfig
                 .getStringArray(CarrierConfigManager.KEY_IMS_REASONINFO_MAPPING_STRING_ARRAY);
         if (mappings != null && mappings.length > 0) {
@@ -1686,21 +1752,22 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     if (message == null) {
                         message = "";
                     }
+                    else if (message.equals("*")) {
+                        message = null;
+                    }
                     int toCode = Integer.parseInt(values[2]);
 
                     addReasonCodeRemapping(fromCode, message, toCode);
-                    log("Loaded ImsReasonInfo mapping : fromCode = " +
-                            fromCode == null ? "any" : fromCode + " ; message = " +
-                            message + " ; toCode = " + toCode);
+                    log("Loaded ImsReasonInfo mapping :" +
+                            " fromCode = " + (fromCode == null ? "any" : fromCode) +
+                            " ; message = " + (message == null ? "any" : message) +
+                            " ; toCode = " + toCode);
                 } catch (NumberFormatException nfe) {
                     loge("Invalid ImsReasonInfo mapping found: " + mapping);
                 }
             }
         } else {
             log("No carrier ImsReasonInfo mappings defined.");
-            if (!mImsReasonCodeMap.isEmpty()) {
-                mImsReasonCodeMap.clear();
-            }
         }
 
         mAllowRttWhileRoaming = carrierConfig.getBoolean
@@ -1805,7 +1872,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
                 // Set the RTT mode to 1 if sim supports RTT and if the connection has
                 // valid RTT text stream
-                if (isRttSupported() && conn.hasRttTextStream() && isStartRttCall) {
+                if (isRttSupported() && conn.hasRttTextStream() && isStartRttCall && isRttOn()) {
                     if (DBG) log("dialInternal: setting RTT mode to full");
                     profile.mMediaProfile.mRttMode = ImsStreamMediaProfile.RTT_MODE_FULL;
                 }
@@ -2911,6 +2978,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 + reason);
         Pair<Integer, String> toCheck = new Pair<>(code, reason);
         Pair<Integer, String> wildcardToCheck = new Pair<>(null, reason);
+        Pair<Integer, String> wildcardMessageToCheck = new Pair<>(code, null);
         if (mImsReasonCodeMap.containsKey(toCheck)) {
             int toCode = mImsReasonCodeMap.get(toCheck);
 
@@ -2926,6 +2994,19 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
             log("maybeRemapReasonCode : fromCode(wildcard) = " + reasonInfo.getCode() +
                     " ; message = " + reason + " ; toCode = " + toCode);
+            return toCode;
+        }
+        else if (mImsReasonCodeMap.containsKey(wildcardMessageToCheck)) {
+            // Handle the case where a wildcard is specified for the reason.
+            // For example, we can set these two strings in
+            // CarrierConfigManager.KEY_IMS_REASONINFO_MAPPING_STRING_ARRAY:
+            //   - "1014|call completed elsewhere|1014"
+            //   - "1014|*|510"
+            // to remap CODE_ANSWERED_ELSEWHERE to CODE_USER_TERMINATED_BY_REMOTE
+            // when reason is NOT "call completed elsewhere".
+            int toCode = mImsReasonCodeMap.get(wildcardMessageToCheck);
+            log("maybeRemapReasonCode : fromCode = " + reasonInfo.getCode() +
+                    " ; message(wildcard) = " + reason + " ; toCode = " + toCode);
             return toCode;
         }
         return code;
@@ -3158,6 +3239,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
     private void exitEmergencyMode() throws Exception {
         boolean isPhoneInEcbm = isPhoneInEcbm();
+        boolean isPhoneInScbm = canExitScbm();
         if (isPhoneInEcbm) {
             try {
                 EcbmHandler.getInstance().exitEmergencyCallbackMode();
@@ -3166,7 +3248,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
             EcbmHandler.getInstance().setOnEcbModeExitResponse(this,
                     EVENT_EXIT_ECM_RESPONSE_CDMA, null);
-        } else {
+            mPendingExitEcbmReq = true;
+        }
+        if (isPhoneInScbm) {
             try {
                 mPhone.mDefaultPhone.exitScbm();
             } catch (Exception e) {
@@ -3174,6 +3258,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
             mPhone.mDefaultPhone.setOnScbmExitResponse(this,
               EVENT_EXIT_SCBM_RESPONSE_CDMA, null);
+            mPendingExitScbmReq = true;
         }
     }
 
@@ -3423,7 +3508,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     getNetworkCountryIso(), emergencyNumberTracker != null
                     ? emergencyNumberTracker.getEmergencyNumberDbVersion()
                     : TelephonyManager.INVALID_EMERGENCY_NUMBER_DB_VERSION);
-            mPhone.getVoiceCallSessionStats().onImsCallTerminated(conn, reasonInfo);
+            mPhone.getVoiceCallSessionStats().onImsCallTerminated(conn, new ImsReasonInfo(
+                    maybeRemapReasonCode(reasonInfo),
+                    reasonInfo.mExtraCode, reasonInfo.mExtraMessage));
             // Remove info for the callId from the current calls and add it to the history
             CallQualityMetrics lastCallMetrics = mCallQualityMetrics.remove(callId);
             if (lastCallMetrics != null) {
@@ -4532,7 +4619,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     }
 
     private void handlePendingMoCall() {
-        if (pendingCallInEcm) {
+        if (pendingCallInEcm && !mPendingExitEcbmReq && !mPendingExitScbmReq) {
             dialInternal(mPendingMO, pendingCallClirMode,
                     mPendingCallVideoState, mPendingIntentExtras);
             mPendingIntentExtras = null;
@@ -4598,11 +4685,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 break;
 
             case EVENT_EXIT_ECM_RESPONSE_CDMA:
+                mPendingExitEcbmReq = false;
                 handlePendingMoCall();
                 EcbmHandler.getInstance().unsetOnEcbModeExitResponse(this);
                 break;
 
             case EVENT_EXIT_SCBM_RESPONSE_CDMA:
+                mPendingExitScbmReq = false;
                 handlePendingMoCall();
                 mPhone.mDefaultPhone.unsetOnScbmExitResponse(this);
                 break;
@@ -5268,7 +5357,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
      * @param reason Reason for data enabled/disabled. See {@link DataEnabledChangedReason}.
      */
     private void onDataEnabledChanged(boolean enabled, @DataEnabledChangedReason int reason) {
-
+        // TODO: TelephonyManager.DataEnabledChangedReason instead once DataEnabledSettings is gone
         log("onDataEnabledChanged: enabled=" + enabled + ", reason=" + reason);
 
         mIsDataEnabled = enabled;
@@ -5668,6 +5757,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         return QtiImsUtils.isRttOn(mPhone.getPhoneId(), mPhone.getContext());
     }
 
+    private boolean isSimLessRttSupported() {
+        return QtiImsUtils.isSimLessRttSupported(mPhone.getPhoneId(), mPhone.getContext());
+    }
+
     /**
      * RTT call is allowed if RTT is supported by carrier and RTT setting is ON
      * and call is not a video call or RTT is supported for video calls.
@@ -5675,7 +5768,15 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
      * or device needs to be registered on WIFI or it should be an emergency call.
      */
     private boolean canMakeRttCall(ImsCallProfile profile, boolean isEmergency) {
-        if (!isRttSupported() || !isRttOn()) {
+        Phone defaultPhone = mPhone.getDefaultPhone();
+        IccCardConstants.State state = defaultPhone.getIccCard().getState();
+        /** RTT call needs to allowed based on carrier config if sim is present
+         * else we need to check the saved cache for simless RTT e911 call
+         */
+        if ((state == IccCardConstants.State.READY && !isRttSupported()) ||
+                (state == IccCardConstants.State.ABSENT && isEmergency &&
+                !isSimLessRttSupported())
+                || !isRttOn()) {
             return false;
         }
         if (profile != null && profile.isVideoCall() && !QtiImsUtils.isRttSupportedOnVtCalls(

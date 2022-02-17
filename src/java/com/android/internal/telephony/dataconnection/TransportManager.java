@@ -32,6 +32,7 @@ import android.util.SparseIntArray;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -147,6 +148,7 @@ public class TransportManager extends Handler {
         mHandoverNeededEventRegistrants = new RegistrantList();
         mLogTag = TransportManager.class.getSimpleName() + "-" + mPhone.getPhoneId();
         mAccessNetworksManager = mPhone.getAccessNetworksManager();
+        if (phone.isUsingNewDataStack()) return;
         mAccessNetworksManager.registerForQualifiedNetworksChanged(this,
                 EVENT_QUALIFIED_NETWORKS_CHANGED);
     }

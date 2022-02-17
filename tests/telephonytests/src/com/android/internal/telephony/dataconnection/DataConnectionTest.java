@@ -43,6 +43,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.content.pm.UserInfo;
 import android.net.InetAddresses;
 import android.net.KeepalivePacketData;
 import android.net.LinkAddress;
@@ -54,6 +57,7 @@ import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
+import android.os.UserManager;
 import android.provider.Telephony;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
@@ -61,6 +65,7 @@ import android.telephony.CarrierConfigManager;
 import android.telephony.ServiceState;
 import android.telephony.ServiceState.RegState;
 import android.telephony.ServiceState.RilRadioTechnology;
+import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
 import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataProfile;
@@ -75,6 +80,7 @@ import com.android.internal.R;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RetryManager;
 import com.android.internal.telephony.TelephonyTest;
+import com.android.internal.telephony.data.KeepaliveStatus;
 import com.android.internal.telephony.dataconnection.DataConnection.ConnectionParams;
 import com.android.internal.telephony.dataconnection.DataConnection.DisconnectParams;
 import com.android.internal.telephony.dataconnection.DataConnection.SetupResult;
@@ -865,6 +871,37 @@ public class DataConnectionTest extends TelephonyTest {
     }
 
     @Test
+    public void testOwnerUid() throws Exception {
+        Context mockContext = mContextFixture.getTestDouble();
+        doReturn(mockContext).when(mPhone).getContext();
+
+        String testPkg = "com.android.telephony.test";
+        TelephonyManager telMgr = mockContext.getSystemService(TelephonyManager.class);
+        doReturn(testPkg).when(telMgr).getCarrierServicePackageNameForLogicalSlot(anyInt());
+
+        UserInfo info = new UserInfo(0 /* id */, "TEST_USER", 0 /* flags */);
+        UserManager userMgr = mockContext.getSystemService(UserManager.class);
+        doReturn(Collections.singletonList(info)).when(userMgr).getUsers();
+
+        int carrierConfigPkgUid = 12345;
+        PackageManager pkgMgr = mockContext.getPackageManager();
+        doReturn(carrierConfigPkgUid).when(pkgMgr).getPackageUidAsUser(eq(testPkg), anyInt());
+
+        mContextFixture
+                .getCarrierConfigBundle()
+                .putStringArray(
+                        CarrierConfigManager.KEY_CARRIER_METERED_APN_TYPES_STRINGS,
+                        new String[] {"default"});
+        testConnectEvent();
+        AsyncResult adminUidsResult = new AsyncResult(null, new int[] {carrierConfigPkgUid}, null);
+        mDc.sendMessage(DataConnection.EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED, adminUidsResult);
+        // Wait for carirer privilege UIDs to be updated
+        waitForMs(100);
+
+        assertEquals(carrierConfigPkgUid, getNetworkCapabilities().getOwnerUid());
+    }
+
+    @Test
     public void testSubscriptionIds() throws Exception {
         mContextFixture.getCarrierConfigBundle().putStringArray(
                 CarrierConfigManager.KEY_CARRIER_METERED_APN_TYPES_STRINGS,
@@ -1169,7 +1206,8 @@ public class DataConnectionTest extends TelephonyTest {
         if (useCondensedFlow) {
             // Indicate in the response that the keepalive has failed.
             AsyncResult.forMessage(
-                    kaStarted, new KeepaliveStatus(KeepaliveStatus.ERROR_UNSUPPORTED), null);
+                    kaStarted, new KeepaliveStatus(KeepaliveStatus.ERROR_UNSUPPORTED),
+                    null);
             kaStarted.sendToTarget();
         } else {
             // Indicate that the keepalive is queued, and then signal a failure from the modem

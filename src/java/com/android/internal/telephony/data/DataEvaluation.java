@@ -18,24 +18,44 @@ package com.android.internal.telephony.data;
 
 import android.annotation.CurrentTimeMillisLong;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.telephony.data.DataProfile;
 
-import java.text.DateFormat;
+import com.android.internal.annotations.VisibleForTesting;
+
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
- * The class to describe the result of environment evaluation for whether allowing or disallowing
- * establishing a data network.
+ * The class to describe a data evaluation for whether allowing or disallowing certain operations
+ * like setup a data network, sustaining existing data networks, or handover between IWLAN and
+ * cellular.
  */
-public class DataEvaluationResult {
+public class DataEvaluation {
+    /** The reason for this evaluation */
+    private final DataEvaluationReason mDataEvaluationReason;
+
     /** Data disallowed reasons. There could be multiple reasons for not allowing data. */
-    private @NonNull Set<DataDisallowedReason> mDataDisallowedReasons = new HashSet<>();
+    private final @NonNull Set<DataDisallowedReason> mDataDisallowedReasons = new HashSet<>();
 
     /** Data allowed reason. It is intended to only have one allowed reason. */
     private DataAllowedReason mDataAllowedReason = DataAllowedReason.NONE;
 
+    private @Nullable DataProfile mCandidateDataProfile = null;
+
     /** The timestamp of evaluation time */
     private @CurrentTimeMillisLong long mEvaluatedTime = 0;
+
+    /**
+     * Constructor
+     *
+     * @param reason The reason for this evaluation.
+     */
+    public DataEvaluation(DataEvaluationReason reason) {
+        mDataEvaluationReason = reason;
+    }
 
     /**
      * Add a data disallowed reason. Note that adding a disallowed reason will clean up the
@@ -43,7 +63,7 @@ public class DataEvaluationResult {
      *
      * @param reason Disallowed reason.
      */
-    public void add(DataDisallowedReason reason) {
+    public void addDataDisallowedReason(DataDisallowedReason reason) {
         mDataAllowedReason = DataAllowedReason.NONE;
         mDataDisallowedReasons.add(reason);
         mEvaluatedTime = System.currentTimeMillis();
@@ -55,7 +75,7 @@ public class DataEvaluationResult {
      *
      * @param reason Allowed reason.
      */
-    public void add(DataAllowedReason reason) {
+    public void addDataAllowedReason(DataAllowedReason reason) {
         mDataDisallowedReasons.clear();
 
         // Only higher priority allowed reason can overwrite the old one. See
@@ -66,25 +86,31 @@ public class DataEvaluationResult {
         mEvaluatedTime = System.currentTimeMillis();
     }
 
-    @Override
-    public String toString() {
-        StringBuilder reasonStr = new StringBuilder();
-        reasonStr.append("EvaluationResult: ");
-        if (mDataDisallowedReasons.size() > 0) {
-            reasonStr.append("Data disallowed reasons:");
-            for (DataDisallowedReason reason : mDataDisallowedReasons) {
-                reasonStr.append(" ").append(reason);
-            }
-        } else {
-            reasonStr.append("Data allowed reason:");
-            reasonStr.append(" ").append(mDataAllowedReason);
-        }
-        reasonStr.append(", time=" + DateFormat.getDateTimeInstance().format(mEvaluatedTime));
-        return reasonStr.toString();
+    /**
+     * @return List of data disallowed reasons.
+     */
+    public @NonNull List<DataDisallowedReason> getDataDisallowedReasons() {
+        return new ArrayList<>(mDataDisallowedReasons);
     }
 
     /**
-     * @return {@code true} if data is allowed.
+     * Set the candidate data profile for setup data network.
+     *
+     * @param dataProfile The candidate data profile.
+     */
+    public void setCandidateDataProfile(@NonNull DataProfile dataProfile) {
+        mCandidateDataProfile = dataProfile;
+    }
+
+    /**
+     * @return The candidate data profile for setup data network.
+     */
+    public @Nullable DataProfile getCandidateDataProfile() {
+        return mCandidateDataProfile;
+    }
+
+    /**
+     * @return {@code true} if the operation is allowed.
      */
     public boolean isDataAllowed() {
         return mDataDisallowedReasons.size() == 0;
@@ -132,11 +158,49 @@ public class DataEvaluationResult {
         return false;
     }
 
-    /** Disallowed reasons. There could be multiple reasons if data connection is not allowed. */
+    /**
+     * The reason for evaluating unsatisfied network requests, existing data networks, and handover.
+     */
+    @VisibleForTesting
+    public enum DataEvaluationReason {
+        /** New request from the apps. */
+        NEW_REQUEST,
+        /** Data config changed. */
+        DATA_CONFIG_CHANGED,
+        /** SIM is loaded. */
+        SIM_LOADED,
+        /** SIM is removed. */
+        SIM_REMOVAL,
+        /** Data profiles changed. */
+        DATA_PROFILES_CHANGED,
+        /** When service state changes.(For now only considering data RAT and data registration). */
+        DATA_SERVICE_STATE_CHANGED,
+        /** When data is enabled or disabled (by user, carrier, thermal, etc...) */
+        DATA_ENABLED_CHANGED,
+        /** When data roaming is enabled or disabled. */
+        ROAMING_ENABLED_CHANGED,
+        /** When voice call ended (for concurrent voice/data not supported RAT). */
+        VOICE_CALL_ENDED,
+        /** When network restricts or no longer restricts mobile data. */
+        DATA_RESTRICTED_CHANGED,
+        /** Network capabilities changed. The unsatisfied requests might have chances to attach. */
+        DATA_NETWORK_CAPABILITIES_CHANGED,
+        /** When emergency call started or ended. */
+        EMERGENCY_CALL_CHANGED,
+        /** When data disconnected, re-evaluate later to see if data could be brought up again. */
+        RETRY_AFTER_DISCONNECTED,
+        /** Data setup retry. */
+        DATA_RETRY,
+        /** Handover between IWLAN and cellular. */
+        DATA_HANDOVER,
+        /** Preferred transport changed. */
+        PREFERRED_TRANSPORT_CHANGED,
+    }
+
+    /** Disallowed reasons. There could be multiple reasons if it is not allowed. */
     public enum DataDisallowedReason {
         // Soft failure reasons. A soft reason means that in certain conditions, data is still
         // allowed. Normally those reasons are due to users settings.
-
         /** Data is disabled by the user or policy. */
         DATA_DISABLED(false),
         /** Data roaming is disabled by the user. */
@@ -148,6 +212,8 @@ public class DataEvaluationResult {
         // not be allowed.
         /** Data registration state is not in service. */
         NOT_IN_SERVICE(true),
+        /** Data config is not ready. */
+        DATA_CONFIG_NOT_READY(true),
         /** SIM is not ready. */
         SIM_NOT_READY(true),
         /** Concurrent voice and data is not allowed. */
@@ -156,16 +222,28 @@ public class DataEvaluationResult {
         DATA_RESTRICTED_BY_NETWORK(true),
         /** Radio power is off (i.e. airplane mode on) */
         RADIO_POWER_OFF(true),
-        /** Data disabled by telephony in some scenarios, for example, emergency call. */
-        INTERNAL_DATA_DISABLED(true),
         /** Airplane mode is forcibly turned on by the carrier. */
         RADIO_DISABLED_BY_CARRIER(true),
-        /** certain APNs are only allowed when the device is camped on NR. */
-        NOT_ON_NR(true),
-        /** Data is not allowed while device is in emergency callback mode. */
-        IN_ECBM(true),
         /** Underlying data service is not bound. */
-        DATA_SERVICE_NOT_READY(true);
+        DATA_SERVICE_NOT_READY(true),
+        /** Unable to find a suitable data profile. */
+        NO_SUITABLE_DATA_PROFILE(true),
+        /** Current data network type not allowed. */
+        DATA_NETWORK_TYPE_NOT_ALLOWED(true),
+        /** Device is currently in an emergency call. */
+        EMERGENCY_CALL(true),
+        /** There is already a retry setup/handover scheduled. */
+        RETRY_SCHEDULED(true),
+        /** Network has explicitly request to throttle setup attempt. */
+        DATA_THROTTLED(true),
+        /** Data profile becomes invalid. (could be removed by the user, or SIM refresh, etc..) */
+        DATA_PROFILE_INVALID(true),
+        /** Data profile not preferred (i.e. users switch preferred profile in APN editor.) */
+        DATA_PROFILE_NOT_PREFERRED(true),
+        /** Handover is not allowed by policy. */
+        NOT_ALLOWED_BY_POLICY(true),
+        /** Data network is not in the right state. */
+        ILLEGAL_STATE(true);
 
         private final boolean mIsHardReason;
 
@@ -191,7 +269,7 @@ public class DataEvaluationResult {
     /**
      * Data allowed reasons. There will be only one reason if data is allowed.
      */
-    enum DataAllowedReason {
+    public enum DataAllowedReason {
         // Note that unlike disallowed reasons, we only have one allowed reason every time
         // when we check data is allowed or not. The order of these allowed reasons is very
         // important. The lower ones take precedence over the upper ones.
@@ -209,6 +287,10 @@ public class DataEvaluationResult {
          */
         UNMETERED_USAGE,
         /**
+         * The network request supports MMS and MMS is always allowed.
+         */
+        MMS_REQUEST,
+        /**
          * The network request is restricted (i.e. Only privilege apps can access the network.)
          */
         RESTRICTED_REQUEST,
@@ -218,4 +300,23 @@ public class DataEvaluationResult {
          */
         EMERGENCY_REQUEST,
     }
+
+    @Override
+    public String toString() {
+        StringBuilder evaluationStr = new StringBuilder();
+        evaluationStr.append("Data evaluation: evaluation reason:" + mDataEvaluationReason + ", ");
+        if (mDataDisallowedReasons.size() > 0) {
+            evaluationStr.append("Data disallowed reasons:");
+            for (DataDisallowedReason reason : mDataDisallowedReasons) {
+                evaluationStr.append(" ").append(reason);
+            }
+        } else {
+            evaluationStr.append("Data allowed reason:");
+            evaluationStr.append(" ").append(mDataAllowedReason);
+        }
+        evaluationStr.append(", candidate profile=" + mCandidateDataProfile);
+        evaluationStr.append(", time=" + DataUtils.systemTimeToString(mEvaluatedTime));
+        return evaluationStr.toString();
+    }
+
 }

@@ -47,6 +47,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.GsmCdmaPhone;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCallTracker;
+import java.util.concurrent.Executor;
 
 import static java.util.Arrays.copyOf;
 public class EcbmHandler extends Handler {
@@ -148,7 +149,7 @@ public class EcbmHandler extends Handler {
         if (phoneId >= 0 && phoneId < mNumPhones) {
             if (imsPhone != null) {
                 trackers[phoneId].mImsPhone = (ImsPhone)imsPhone;
-                trackers[phoneId].mImsEcbmStateHandler = new ImsEcbmStateHandler(phoneId);
+                trackers[phoneId].mImsEcbmStateHandler = new ImsEcbmStateHandler(phoneId,imsPhone.getContext().getMainExecutor());
             } else {
                 trackers[phoneId].mImsPhone = null;
                 trackers[phoneId].mImsEcbmStateHandler = null;
@@ -175,11 +176,12 @@ public class EcbmHandler extends Handler {
      */
     public class ImsEcbmStateHandler extends ImsEcbmStateListener {
         int phoneId;
-        public ImsEcbmStateHandler (int id) {
+        public ImsEcbmStateHandler (int id, Executor executor) {
+            super(executor);
             phoneId = id;
         }
         @Override
-        public void onECBMEntered() {
+        public void onECBMEntered(Executor executor) {
             if (DBG) logd("onECBMEntered: " + phoneId);
             mIsEcbmOnIms = true;
             mEcbmPhoneId = phoneId;
@@ -187,7 +189,7 @@ public class EcbmHandler extends Handler {
         }
 
         @Override
-        public void onECBMExited() {
+        public void onECBMExited(Executor executor) {
             if (DBG) logd("onECBMExited: " + phoneId);
             handleExitEmergencyCallbackMode(phoneId);
             mIsEcbmOnIms = false;

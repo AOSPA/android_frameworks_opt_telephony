@@ -25,6 +25,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -54,12 +55,14 @@ import android.provider.Settings;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
+import android.telephony.UiccPortInfo;
 import android.telephony.UiccSlotInfo;
 import android.test.mock.MockContentResolver;
 
 import androidx.test.filters.FlakyTest;
 import androidx.test.filters.SmallTest;
 
+import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.uicc.IccCardStatus;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccController;
@@ -73,6 +76,7 @@ import org.mockito.Mock;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -199,6 +203,42 @@ public class SubscriptionControllerTest extends TelephonyTest {
                     mSubList.get(i).getSubscriptionId()));
             assertTrue(SubscriptionManager.isValidSlotIndex(mSubList.get(i).getSimSlotIndex()));
         }
+    }
+
+    @Test @SmallTest
+    public void testUsageSettingProperty() {
+        testInsertSim();
+        /* Get SUB ID */
+        int[] subIds = mSubscriptionControllerUT.getActiveSubIdList(/*visibleOnly*/false);
+        assertTrue(subIds != null && subIds.length != 0);
+        final int subId = subIds[0];
+
+        /* Getting, there is no direct getter function for each fields of property */
+        SubscriptionInfo subInfo = mSubscriptionControllerUT
+                .getActiveSubscriptionInfo(subId, mCallingPackage, mCallingFeature);
+
+        // assertEquals(SubscriptionManager.USAGE_SETTING_UNKNOWN, subInfo.getUsageSetting());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> mSubscriptionControllerUT.setUsageSetting(
+                        SubscriptionManager.USAGE_SETTING_UNKNOWN,
+                        subId,
+                        mCallingPackage));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> mSubscriptionControllerUT.setUsageSetting(
+                        SubscriptionManager.USAGE_SETTING_DEFAULT,
+                        SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
+                        mCallingPackage));
+
+        mSubscriptionControllerUT.setUsageSetting(
+                SubscriptionManager.USAGE_SETTING_DATA_CENTRIC,
+                subId,
+                mCallingPackage);
+
+        subInfo = mSubscriptionControllerUT
+                .getActiveSubscriptionInfo(subId, mCallingPackage, mCallingFeature);
+        assertEquals(SubscriptionManager.USAGE_SETTING_DATA_CENTRIC, subInfo.getUsageSetting());
     }
 
     @Test @SmallTest
@@ -1798,8 +1838,8 @@ public class SubscriptionControllerTest extends TelephonyTest {
     public void testGetEnabledSubscriptionIdSingleSIM() {
         // A single SIM device may have logical slot 0 mapped to physical slot 1
         // (i.e. logical slot -1 mapped to physical slot 0)
-        UiccSlotInfo slot0 = getFakeUiccSlotInfo(false, -1);
-        UiccSlotInfo slot1 = getFakeUiccSlotInfo(true, 0);
+        UiccSlotInfo slot0 = getFakeUiccSlotInfo(false, -1, null);
+        UiccSlotInfo slot1 = getFakeUiccSlotInfo(true, 0, null);
         UiccSlotInfo [] uiccSlotInfos = {slot0, slot1};
         UiccSlot [] uiccSlots = {mUiccSlot, mUiccSlot};
 
@@ -1822,8 +1862,8 @@ public class SubscriptionControllerTest extends TelephonyTest {
         doReturn(SINGLE_SIM).when(mTelephonyManager).getActiveModemCount();
         // A dual SIM device may have logical slot 0 mapped to physical slot 0
         // (i.e. logical slot 1 mapped to physical slot 1)
-        UiccSlotInfo slot0 = getFakeUiccSlotInfo(true, 0);
-        UiccSlotInfo slot1 = getFakeUiccSlotInfo(true, 1);
+        UiccSlotInfo slot0 = getFakeUiccSlotInfo(true, 0, null);
+        UiccSlotInfo slot1 = getFakeUiccSlotInfo(true, 1, null);
         UiccSlotInfo [] uiccSlotInfos = {slot0, slot1};
         UiccSlot [] uiccSlots = {mUiccSlot, mUiccSlot};
 
@@ -1845,13 +1885,17 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
 
-    private UiccSlotInfo getFakeUiccSlotInfo(boolean active, int logicalSlotIndex) {
-        return getFakeUiccSlotInfo(active, logicalSlotIndex, "fake card Id");
+    private UiccSlotInfo getFakeUiccSlotInfo(boolean active, int logicalSlotIndex, String iccId) {
+        return getFakeUiccSlotInfo(active, logicalSlotIndex, "fake card Id", iccId);
     }
 
-    private UiccSlotInfo getFakeUiccSlotInfo(boolean active, int logicalSlotIndex, String cardId) {
-        return new UiccSlotInfo(active, false, cardId,
-                UiccSlotInfo.CARD_STATE_INFO_PRESENT, logicalSlotIndex, true, true);
+    private UiccSlotInfo getFakeUiccSlotInfo(
+            boolean active, int logicalSlotIndex, String cardId, String iccId) {
+        return new UiccSlotInfo(false, cardId,
+                UiccSlotInfo.CARD_STATE_INFO_PRESENT, true, true,
+                Collections.singletonList(
+                        new UiccPortInfo(iccId, 0, logicalSlotIndex, active)
+                ));
     }
 
     @Test
@@ -1900,7 +1944,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
         IccCardStatus.CardState cardState = CARDSTATE_PRESENT;
         doReturn(uiccSlots).when(mUiccController).getUiccSlots();
         doReturn(cardState).when(mUiccSlot).getCardState();
-        doReturn("123").when(mUiccSlot).getIccId();
+        doReturn("123").when(mUiccSlot).getIccId(0); // default port index
         mSubscriptionControllerUT.clearSubInfoRecord(1);
 
         // Active sub list should return 1 now.
@@ -1934,7 +1978,8 @@ public class SubscriptionControllerTest extends TelephonyTest {
         doReturn(uiccSlots).when(mUiccController).getUiccSlots();
         doReturn(cardState).when(mUiccSlot).getCardState();
         // IccId ends with a 'F' which should be ignored and taking into account.
-        doReturn("123F").when(mUiccSlot).getIccId();
+        doReturn("123F").when(mUiccSlot).getIccId(0); // default port index
+
         mSubscriptionControllerUT.clearSubInfoRecord(1);
 
         // Active sub list should return 1 now.
@@ -1976,7 +2021,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
         when(UiccController.getInstance().getUiccCardForPhone(0)).thenReturn(mUiccCard);
         mSubscriptionControllerUT.addSubInfoRecord(iccId, 0);
         mSubscriptionControllerUT.registerForUiccAppsEnabled(mHandler, 0, null, false);
-        UiccSlotInfo slot = getFakeUiccSlotInfo(true, 0, iccId + "FF");
+        UiccSlotInfo slot = getFakeUiccSlotInfo(true, 0, iccId + "FF", iccId);
         UiccSlotInfo[] uiccSlotInfos = {slot};
         doReturn(uiccSlotInfos).when(mTelephonyManager).getUiccSlotsInfo();
 
