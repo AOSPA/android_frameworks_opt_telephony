@@ -138,11 +138,10 @@ java_library {
         },
     },
 
-//Temporarly disable proguard
-//    optimize: {
-//        enabled: true,
-//        shrink: true,
-//        obfuscate: false,
-//        proguard_flags_files: ["proguard.flags"],
-//    },
+    optimize: {
+        enabled: true,
+        shrink: true,
+        obfuscate: false,
+        proguard_flags_files: ["proguard.flags"],
+    },
 }
