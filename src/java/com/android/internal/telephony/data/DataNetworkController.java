@@ -1695,8 +1695,8 @@ public class DataNetworkController extends Handler {
 
         if (networkRequest.getAttachedNetwork() != null) {
             networkRequest.getAttachedNetwork().detachNetworkRequest(networkRequest);
+            log("onRemoveNetworkRequest: Network request Removed: " + networkRequest);
         }
-        logv("onRemoveNetworkRequest: Removed " + networkRequest);
     }
 
     /**
