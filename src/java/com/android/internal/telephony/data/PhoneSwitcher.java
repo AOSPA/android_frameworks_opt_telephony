@@ -307,6 +307,7 @@ public class PhoneSwitcher extends Handler {
     protected static final int EVENT_OEM_HOOK_SERVICE_READY       = 123;
     protected static final int EVENT_SUB_INFO_READY               = 124;
     protected static final int EVENT_RECONNECT_EXT_TELEPHONY_SERVICE = 125;
+    protected static final int EVENT_DATA_ENABLED_OVERRIDE_RULE_CHANGED = 126;
 
     // List of events triggers re-evaluations
     private static final String EVALUATION_REASON_RADIO_ON = "EVENT_RADIO_ON";
@@ -520,6 +521,12 @@ public class PhoneSwitcher extends Handler {
                     mDataSettingsManagerCallbacks.computeIfAbsent(phone.getPhoneId(),
                             v -> new DataSettingsManagerCallback(this::post) {
                                 @Override
+                                public void onDataDuringCallChanged(boolean enabled) {
+                                    evaluateIfDataSwitchIsNeeded(
+                                            "EVENT_DATA_DURING_CALL_ENABLED_CHANGED");
+                                }
+
+                                @Override
                                 public void onDataEnabledChanged(boolean enabled,
                                         @TelephonyManager.DataEnabledChangedReason int reason) {
                                     evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
@@ -529,6 +536,11 @@ public class PhoneSwitcher extends Handler {
                 } else {
                     phone.getDataEnabledSettings().registerForDataEnabledChanged(
                             this, EVENT_DATA_ENABLED_CHANGED, null);
+                    // When call is ongoing, need to evaluate it after "data during call" option
+                    // is turned on.
+                    // Because when data is on, EVENT_DATA_ENABLED_CHANGED can't cover this case.
+                    phone.getDataEnabledSettings().registerForDataEnabledOverrideChanged(this,
+                            EVENT_DATA_ENABLED_OVERRIDE_RULE_CHANGED);
                 }
 
                 registerForImsRadioTechChange(context, i);
@@ -749,6 +761,9 @@ public class PhoneSwitcher extends Handler {
                 break;
             }
 
+            case EVENT_DATA_ENABLED_OVERRIDE_RULE_CHANGED:
+                evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_OVERRIDE_RULE_CHANGED");
+                break;
             case EVENT_DATA_ENABLED_CHANGED:
                 evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
                 break;
@@ -1417,6 +1432,20 @@ public class PhoneSwitcher extends Handler {
                 } else {
                     isDataAllowedOnVoiceCallSub &= preferredDataPhone
                             .getDataEnabledSettings().isDataEnabled();
+                }
+            }
+            // As per customizations, the data of nDDS SUB is no longer disabled, so the API
+            // isDataEnabled(apn) can't control "data during call" individually.
+            // Here it is not intended to change the logic for the API, but only consider the
+            // option "data during call" separately once again, and when data is off, data still
+            // works as long as the "data during call" is enabled in case of nDDS voice call.
+            if (voicePhone != null) {
+                if (voicePhone.isUsingNewDataStack()) {
+                    isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
+                            && voicePhone.getDataSettingsManager().isDataAllowedInVoiceCall();
+                } else {
+                    isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
+                            && voicePhone.getDataEnabledSettings().isDataAllowedInVoiceCall();
                 }
             }
         }
