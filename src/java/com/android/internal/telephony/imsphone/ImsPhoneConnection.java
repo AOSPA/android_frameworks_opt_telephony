@@ -486,14 +486,28 @@ public class ImsPhoneConnection extends Connection implements
         }
     }
 
+    private boolean canTransfer(ImsPhoneConnection connection) {
+        ImsCall bgImsCall = connection != null ? connection.getImsCall() : null;
+        return (mImsCall != null && mParent != null
+                && mParent.getState() == ImsPhoneCall.State.ACTIVE && bgImsCall != null
+                && connection.mParent != null
+                && connection.mParent.getState() == ImsPhoneCall.State.HOLDING);
+    }
+
     @Override
     public void consultativeTransfer(Connection other) throws CallStateException {
+        ImsPhoneConnection bgConnection = (ImsPhoneConnection) other;
+        ImsCall bgImsCall = bgConnection != null ? bgConnection.getImsCall() : null;
+
+        if (!canTransfer(bgConnection)) {
+            throw new CallStateException("no valid ims call to transfer");
+        }
+
         try {
-            if (mImsCall != null) {
-                mImsCall.consultativeTransfer(((ImsPhoneConnection) other).getImsCall());
-            } else {
-                throw new CallStateException("no valid ims call to transfer");
-            }
+            // Per 3GPP TS 24.629 - A.2, the signalling for a consultative transfer should send the
+            // REFER on the background held call with the foreground call specified as the
+            // destination.
+            bgImsCall.consultativeTransfer(mImsCall);
         } catch (ImsException e) {
             throw new CallStateException("cannot transfer call");
         }
