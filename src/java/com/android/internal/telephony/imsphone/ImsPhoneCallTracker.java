@@ -4486,14 +4486,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         @Override
         public void onProvisioningIntChanged(int item, int value) {
             sendConfigChangedIntent(item, Integer.toString(value));
-            if ((mImsManager != null)
-                    && (item == ImsConfig.ConfigConstants.VOICE_OVER_WIFI_SETTING_ENABLED
-                    || item == ImsConfig.ConfigConstants.VLT_SETTING_ENABLED
-                    || item == ImsConfig.ConfigConstants.LVC_SETTING_ENABLED)) {
-                // Update Ims Service state to make sure updated provisioning values take effect
-                // immediately.
-                updateImsServiceConfig();
-            }
+
+            // mImsManager.updateImsServiceConfig() will be called by ImsProvisioningController
+            // when provisioning status is changed. The implementation is removed to avoid calling
+            // the updateImsServiceConfig twice.
         }
 
         @Override
@@ -5773,8 +5769,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         /** RTT call needs to allowed based on carrier config if sim is present
          * else we need to check the saved cache for simless RTT e911 call
          */
-        if ((state == IccCardConstants.State.READY && !isRttSupported()) ||
-                (state == IccCardConstants.State.ABSENT && isEmergency &&
+        if ((state.iccCardExist() && !isRttSupported()) ||
+                (!state.iccCardExist() && isEmergency &&
                 !isSimLessRttSupported())
                 || !isRttOn()) {
             return false;
