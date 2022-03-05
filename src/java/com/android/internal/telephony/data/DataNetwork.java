@@ -76,6 +76,7 @@ import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
+import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.data.DataNetworkController.NetworkRequestList;
 import com.android.internal.telephony.data.DataRetryManager.DataHandoverRetryEntry;
 import com.android.internal.telephony.data.DataRetryManager.DataRetryEntry;
@@ -692,7 +693,9 @@ public class DataNetwork extends StateMachine {
                 mPhone.getPhoneId());
         final NetworkProvider provider = (null == factory) ? null : factory.getProvider();
 
-        return new TelephonyNetworkAgent(mPhone, getHandler().getLooper(), this,
+        return TelephonyComponentFactory.getInstance().inject(
+                TelephonyNetworkAgent.class.getName()).makeTelephonyNetworkAgent(
+                mPhone, getHandler().getLooper(), this,
                 getNetworkScore(), configBuilder.build(), provider,
                 new TelephonyNetworkAgentCallback(getHandler()::post) {
                     @Override

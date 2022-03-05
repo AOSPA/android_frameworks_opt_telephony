@@ -77,6 +77,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.SubscriptionInfoUpdater;
+import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.data.AccessNetworksManager.AccessNetworksManagerCallback;
 import com.android.internal.telephony.data.DataEvaluation.DataAllowedReason;
 import com.android.internal.telephony.data.DataEvaluation.DataDisallowedReason;
@@ -201,7 +202,7 @@ public class DataNetworkController extends Handler {
     private static final long REEVALUATE_PREFERRED_TRANSPORT_DELAY_MILLIS =
             TimeUnit.SECONDS.toMillis(3);
 
-    private final Phone mPhone;
+    protected final Phone mPhone;
     private final String mLogTag;
     private final LocalLog mLocalLog = new LocalLog(128);
 
@@ -684,6 +685,31 @@ public class DataNetworkController extends Handler {
         }
     }
 
+    protected void onDataEnabledChanged(boolean enabled,
+            @TelephonyManager.DataEnabledChangedReason int reason) {
+        // If mobile data is enabled by the user, evaluate the unsatisfied network
+        // requests and then attempt to setup data networks to satisfy them.
+        // If mobile data is disabled, evaluate the existing data networks and
+        // see if they need to be torn down.
+        logl("onDataEnabledChanged: enabled=" + enabled + " reason="+reason);
+        sendMessage(obtainMessage(enabled
+                        ? EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS
+                        : EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
+                DataEvaluationReason.DATA_ENABLED_CHANGED));
+    }
+
+    protected void onDataRoamingEnabledChanged(boolean enabled) {
+        // If data roaming is enabled by the user, evaluate the unsatisfied network
+        // requests and then attempt to setup data networks to satisfy them.
+        // If data roaming is disabled, evaluate the existing data networks and
+        // see if they need to be torn down.
+        logl("onDataRoamingEnabledChanged: enabled=" + enabled);
+        sendMessage(obtainMessage(enabled
+                        ? EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS
+                        : EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
+                DataEvaluationReason.ROAMING_ENABLED_CHANGED));
+    }
+
     /**
      * Constructor
      *
@@ -705,36 +731,24 @@ public class DataNetworkController extends Handler {
                     new DataServiceManager(mPhone, looper,
                             AccessNetworkConstants.TRANSPORT_TYPE_WLAN));
         }
-        mDataConfigManager = new DataConfigManager(mPhone, looper);
+        mDataConfigManager = TelephonyComponentFactory.getInstance().inject(
+                DataConfigManager.class.getName())
+                .makeDataConfigManager(mPhone, looper);
         mDataSettingsManager = new DataSettingsManager(mPhone, this, looper,
                 new DataSettingsManagerCallback(this::post) {
                     @Override
                     public void onDataEnabledChanged(boolean enabled,
                             @TelephonyManager.DataEnabledChangedReason int reason) {
-                        // If mobile data is enabled by the user, evaluate the unsatisfied network
-                        // requests and then attempt to setup data networks to satisfy them.
-                        // If mobile data is disabled, evaluate the existing data networks and
-                        // see if they need to be torn down.
-                        logl("onDataEnabledChanged: enabled=" + enabled);
-                        sendMessage(obtainMessage(enabled
-                                        ? EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS
-                                        : EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
-                                DataEvaluationReason.DATA_ENABLED_CHANGED));
+                        DataNetworkController.this.onDataEnabledChanged(enabled, reason);
                     }
                     @Override
                     public void onDataRoamingEnabledChanged(boolean enabled) {
-                        // If data roaming is enabled by the user, evaluate the unsatisfied network
-                        // requests and then attempt to setup data networks to satisfy them.
-                        // If data roaming is disabled, evaluate the existing data networks and
-                        // see if they need to be torn down.
-                        logl("onDataRoamingEnabledChanged: enabled=" + enabled);
-                        sendMessage(obtainMessage(enabled
-                                        ? EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS
-                                        : EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
-                                DataEvaluationReason.ROAMING_ENABLED_CHANGED));
+                        DataNetworkController.this.onDataRoamingEnabledChanged(enabled);
                     }
                 });
-        mDataProfileManager = new DataProfileManager(mPhone, this, mDataServiceManagers
+        mDataProfileManager = TelephonyComponentFactory.getInstance().inject(
+                DataProfileManager.class.getName())
+                .makeDataProfileManager(mPhone, this, mDataServiceManagers
                 .get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN), looper,
                 new DataProfileManagerCallback(this::post) {
                     @Override
@@ -753,7 +767,9 @@ public class DataNetworkController extends Handler {
                         DataNetworkController.this.onDataStallReestablishInternet();
                     }
                 });
-        mDataRetryManager = new DataRetryManager(mPhone, this,
+        mDataRetryManager = TelephonyComponentFactory.getInstance().inject(
+                DataRetryManager.class.getName())
+                .makeDataRetryManager(mPhone, this,
                 mDataServiceManagers, looper,
                 new DataRetryManagerCallback(this::post) {
                     @Override
@@ -1938,7 +1954,7 @@ public class DataNetworkController extends Handler {
      *
      * @param dataSetupRetryEntry The data setup retry entry scheduled by {@link DataRetryManager}.
      */
-    private void onDataNetworkSetupRetry(@NonNull DataSetupRetryEntry dataSetupRetryEntry) {
+    protected void onDataNetworkSetupRetry(@NonNull DataSetupRetryEntry dataSetupRetryEntry) {
         TelephonyNetworkRequest telephonyNetworkRequest =
                 dataSetupRetryEntry.networkRequestList.get(0);
         int networkCapability = telephonyNetworkRequest.getApnTypeNetworkCapability();
@@ -2719,7 +2735,7 @@ public class DataNetworkController extends Handler {
      * Log debug messages.
      * @param s debug messages
      */
-    private void log(@NonNull String s) {
+    protected void log(@NonNull String s) {
         Rlog.d(mLogTag, s);
     }
 
@@ -2727,7 +2743,7 @@ public class DataNetworkController extends Handler {
      * Log error messages.
      * @param s error messages
      */
-    private void loge(@NonNull String s) {
+    protected void loge(@NonNull String s) {
         Rlog.e(mLogTag, s);
     }
 
@@ -2735,7 +2751,7 @@ public class DataNetworkController extends Handler {
      * Log verbose messages.
      * @param s debug messages.
      */
-    private void logv(@NonNull String s) {
+    protected void logv(@NonNull String s) {
         if (VDBG) Rlog.v(mLogTag, s);
     }
 
