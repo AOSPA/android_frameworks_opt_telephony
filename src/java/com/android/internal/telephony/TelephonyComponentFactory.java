@@ -21,6 +21,9 @@ import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.XmlResourceParser;
 import android.database.Cursor;
+import android.net.NetworkAgentConfig;
+import android.net.NetworkProvider;
+import android.net.NetworkScore;
 import android.os.Handler;
 import android.os.Looper;
 import android.system.ErrnoException;
@@ -29,14 +32,25 @@ import android.system.OsConstants;
 import android.system.StructStatVfs;
 import android.telephony.AccessNetworkConstants.TransportType;
 import android.text.TextUtils;
+import android.util.SparseArray;
 
 import com.android.ims.ImsManager;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.cdma.EriManager;
 import com.android.internal.telephony.data.AccessNetworksManager;
+import com.android.internal.telephony.data.DataConfigManager;
+import com.android.internal.telephony.data.DataNetwork;
 import com.android.internal.telephony.data.DataNetworkController;
+import com.android.internal.telephony.data.DataProfileManager;
+import com.android.internal.telephony.data.DataProfileManager.DataProfileManagerCallback;
+import com.android.internal.telephony.data.DataRetryManager;
+import com.android.internal.telephony.data.DataRetryManager.DataRetryManagerCallback;
+import com.android.internal.telephony.data.DataServiceManager;
+import com.android.internal.telephony.data.DataSettingsManager;
 import com.android.internal.telephony.data.LinkBandwidthEstimator;
 import com.android.internal.telephony.data.PhoneSwitcher;
+import com.android.internal.telephony.data.TelephonyNetworkAgent;
+import com.android.internal.telephony.data.TelephonyNetworkAgent.TelephonyNetworkAgentCallback;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.dataconnection.DcTracker;
 import com.android.internal.telephony.dataconnection.TransportManager;
@@ -525,5 +539,37 @@ public class TelephonyComponentFactory {
      */
     public DataNetworkController makeDataNetworkController(Phone phone, Looper looper) {
         return new DataNetworkController(phone, looper);
+    }
+
+    public DataConfigManager makeDataConfigManager(Phone phone, Looper looper) {
+        Rlog.i(TAG, "makeDataConfigManager");
+        return new DataConfigManager(phone, looper);
+    }
+
+    public DataProfileManager makeDataProfileManager(Phone phone,
+            DataNetworkController dataNetworkController,
+            DataServiceManager dataServiceManager, Looper looper,
+            DataProfileManagerCallback callback) {
+        Rlog.i(TAG, "makeDataProfileManager");
+        return new DataProfileManager(phone, dataNetworkController, dataServiceManager,
+                looper, callback);
+    }
+
+    public DataRetryManager makeDataRetryManager(Phone phone,
+            DataNetworkController dataNetworkController,
+            SparseArray<DataServiceManager> dataServiceManagers,
+            Looper looper, DataRetryManager.DataRetryManagerCallback dataRetryManagerCallback) {
+        Rlog.i(TAG, "makeDataRetryManager");
+        return new DataRetryManager(phone, dataNetworkController, dataServiceManagers,
+                looper, dataRetryManagerCallback);
+    }
+
+    public TelephonyNetworkAgent makeTelephonyNetworkAgent(Phone phone, Looper looper,
+            DataNetwork dataNetwork, NetworkScore score, NetworkAgentConfig config,
+            NetworkProvider provider,
+            TelephonyNetworkAgent.TelephonyNetworkAgentCallback callback) {
+        Rlog.i(TAG, "makeTelephonyNetworkAgent");
+        return new TelephonyNetworkAgent(phone, looper, dataNetwork, score, config,
+                provider, callback);
     }
 }

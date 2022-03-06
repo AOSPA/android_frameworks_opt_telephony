@@ -191,7 +191,7 @@ public class DataConfigManager extends Handler {
     private @NonNull final RegistrantList mConfigUpdateRegistrants = new RegistrantList();
 
     private @NonNull final CarrierConfigManager mCarrierConfigManager;
-    private @NonNull PersistableBundle mCarrierConfig = null;
+    protected @NonNull PersistableBundle mCarrierConfig = null;
     private @NonNull Resources mResources = null;
 
     /** The network capability priority map */
@@ -275,6 +275,12 @@ public class DataConfigManager extends Handler {
     }
 
     /**
+     * This can be overridden by vendors classes to load other configs.
+     */
+    protected void updateOtherConfigs() {
+    }
+
+    /**
      * Update the configuration.
      */
     private void updateConfig() {
@@ -294,6 +300,7 @@ public class DataConfigManager extends Handler {
         updateUnmeteredNetworkTypes();
         updateBandwidths();
         updateHandoverRules();
+        updateOtherConfigs();
 
         log("Data config updated. Config is " + (isConfigCarrierSpecific() ? "" : "not ")
                 + "carrier specific.");
@@ -821,7 +828,7 @@ public class DataConfigManager extends Handler {
      * Log debug messages.
      * @param s debug messages
      */
-    private void log(@NonNull String s) {
+    protected void log(@NonNull String s) {
         Rlog.d(mLogTag, s);
     }
 
@@ -829,7 +836,7 @@ public class DataConfigManager extends Handler {
      * Log error messages.
      * @param s error messages
      */
-    private void loge(@NonNull String s) {
+    protected void loge(@NonNull String s) {
         Rlog.e(mLogTag, s);
     }
 

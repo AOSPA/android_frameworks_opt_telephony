@@ -76,10 +76,10 @@ public class DataProfileManager extends Handler {
     private final LocalLog mLocalLog = new LocalLog(128);
 
     /** Data network controller. */
-    private final @NonNull DataNetworkController mDataNetworkController;
+    protected final @NonNull DataNetworkController mDataNetworkController;
 
     /** Data config manager. */
-    private final @NonNull DataConfigManager mDataConfigManager;
+    protected final @NonNull DataConfigManager mDataConfigManager;
 
     /** Cellular data service. */
     private final @NonNull DataServiceManager mWwanDataServiceManager;
@@ -201,6 +201,8 @@ public class DataProfileManager extends Handler {
      * Also send those profiles down to the modem if needed.
      */
     private void updateDataProfiles() {
+        /** All APN settings applicable to the current carrier */
+        ArrayList<ApnSetting> allApnSettings = new ArrayList<>();
         List<DataProfile> profiles = new ArrayList<>();
         if (mDataConfigManager.isConfigCarrierSpecific()) {
             Cursor cursor = mPhone.getContext().getContentResolver().query(
@@ -213,18 +215,27 @@ public class DataProfileManager extends Handler {
 
             while (cursor.moveToNext()) {
                 ApnSetting apn = ApnSetting.makeApnSetting(cursor);
-                if (apn != null) {
-                    DataProfile dataProfile = new DataProfile.Builder()
-                            .setApnSetting(apn)
-                            // TODO: Support TD correctly once ENTERPRISE becomes an APN type.
-                            .setTrafficDescriptor(new TrafficDescriptor(apn.getApnName(), null))
-                            .setPreferred(false)
-                            .build();
-                    profiles.add(dataProfile);
-                    log("Added " + dataProfile);
+                if (apn == null) {
+                    continue;
                 }
+                allApnSettings.add(apn);
             }
             cursor.close();
+
+            if (!allApnSettings.isEmpty()) {
+                filterApnSettingsWithRadioCapability(allApnSettings);
+            }
+
+            for (ApnSetting apn : allApnSettings) {
+                DataProfile dataProfile = new DataProfile.Builder()
+                        .setApnSetting(apn)
+                        // TODO: Support TD correctly once ENTERPRISE becomes an APN type.
+                        .setTrafficDescriptor(new TrafficDescriptor(apn.getApnName(), null))
+                        .setPreferred(false)
+                        .build();
+                profiles.add(dataProfile);
+                log("Added " + dataProfile);
+            }
         }
 
         // Check if any of the profile already supports IMS, if not, add the default one.
@@ -279,6 +290,13 @@ public class DataProfileManager extends Handler {
             mDataProfileManagerCallbacks.forEach(callback -> callback.invokeFromExecutor(
                     callback::onDataProfilesChanged));
         }
+    }
+
+    /**
+     * Filters out multiple APNs based on radio capability if the APN's GID value is listed in
+     * CarrierConfigManager#KEY_MULTI_APN_ARRAY_FOR_SAME_GID as per the operator requirement.
+     */
+    protected void filterApnSettingsWithRadioCapability(ArrayList<ApnSetting> allApnSettings) {
     }
 
     /**
@@ -599,7 +617,7 @@ public class DataProfileManager extends Handler {
      * Log debug messages.
      * @param s debug messages
      */
-    private void log(@NonNull String s) {
+    protected void log(@NonNull String s) {
         Rlog.d(mLogTag, s);
     }
 
@@ -607,7 +625,7 @@ public class DataProfileManager extends Handler {
      * Log error messages.
      * @param s error messages
      */
-    private void loge(@NonNull String s) {
+    protected void loge(@NonNull String s) {
         Rlog.e(mLogTag, s);
     }
 
@@ -615,7 +633,7 @@ public class DataProfileManager extends Handler {
      * Log debug messages and also log into the local log.
      * @param s debug messages
      */
-    private void logl(@NonNull String s) {
+    protected void logl(@NonNull String s) {
         log(s);
         mLocalLog.log(s);
     }

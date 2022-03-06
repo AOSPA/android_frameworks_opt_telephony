@@ -1474,7 +1474,7 @@ public class DataRetryManager extends Handler {
      * Log debug messages.
      * @param s debug messages
      */
-    private void log(@NonNull String s) {
+    protected void log(@NonNull String s) {
         Rlog.d(mLogTag, s);
     }
 
@@ -1482,7 +1482,7 @@ public class DataRetryManager extends Handler {
      * Log error messages.
      * @param s error messages
      */
-    private void loge(@NonNull String s) {
+    protected void loge(@NonNull String s) {
         Rlog.e(mLogTag, s);
     }
 
@@ -1490,7 +1490,7 @@ public class DataRetryManager extends Handler {
      * Log verbose messages.
      * @param s debug messages.
      */
-    private void logv(@NonNull String s) {
+    protected void logv(@NonNull String s) {
         if (VDBG) Rlog.v(mLogTag, s);
     }
 
