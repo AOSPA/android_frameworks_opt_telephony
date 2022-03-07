@@ -293,7 +293,7 @@ public class DataNetworkController extends Handler {
     private final @NonNull SparseBooleanArray mDataServiceBound = new SparseBooleanArray();
 
     /** SIM state. */
-    private @SimState int mSimState = TelephonyManager.SIM_STATE_UNKNOWN;
+    protected @SimState int mSimState = TelephonyManager.SIM_STATE_UNKNOWN;
 
     /**
      * IMS state callbacks. Key is the IMS feature, value is the callback.
@@ -1177,9 +1177,7 @@ public class DataNetworkController extends Handler {
         }
 
         // Check SIM state
-        if (mSimState != TelephonyManager.SIM_STATE_LOADED) {
-            evaluation.addDataDisallowedReason(DataDisallowedReason.SIM_NOT_READY);
-        }
+        checkSimStateForDataEvaluation(evaluation);
 
         // Check if carrier specific config is loaded or not.
         if (!mDataConfigManager.isConfigCarrierSpecific()) {
@@ -1299,6 +1297,19 @@ public class DataNetworkController extends Handler {
     }
 
     /**
+     * Evaluate if data setup should be allowed with the current SIM state.
+     *
+     * @param evaluation The evaluation result from
+     * {@link #evaluateDataNetwork(DataNetwork, DataEvaluationReason)} or
+     * {@link #evaluateNetworkRequest(TelephonyNetworkRequest, DataEvaluationReason)}
+     */
+    protected void checkSimStateForDataEvaluation(DataEvaluation evaluation) {
+        if (mSimState != TelephonyManager.SIM_STATE_LOADED) {
+            evaluation.addDataDisallowedReason(DataDisallowedReason.SIM_NOT_READY);
+        }
+    }
+
+    /**
      * @return The grouped unsatisfied network requests. The network requests that have the same
      * network capabilities is grouped into one {@link NetworkRequestList}.
      */
@@ -1368,9 +1379,7 @@ public class DataNetworkController extends Handler {
         }
 
         // Check SIM state
-        if (mSimState != TelephonyManager.SIM_STATE_LOADED) {
-            evaluation.addDataDisallowedReason(DataDisallowedReason.SIM_NOT_READY);
-        }
+        checkSimStateForDataEvaluation(evaluation);
 
         // Check if data is restricted by the network.
         if (mPsRestricted) {
@@ -2248,7 +2257,7 @@ public class DataNetworkController extends Handler {
      *
      * @param simState SIM state. (Note this is mixed with card state and application state.)
      */
-    private void onSimStateChanged(@SimState int simState) {
+    protected void onSimStateChanged(@SimState int simState) {
         log("onSimStateChanged: state=" + SubscriptionInfoUpdater.simStateString(simState));
         if (mSimState != simState) {
             mSimState = simState;
@@ -2619,6 +2628,15 @@ public class DataNetworkController extends Handler {
     public void unregisterDataNetworkControllerCallback(
             @NonNull DataNetworkControllerCallback callback) {
         sendMessage(obtainMessage(EVENT_UNREGISTER_DATA_NETWORK_CONTROLLER_CALLBACK, callback));
+    }
+
+    /**
+     * Called when CarrierConfigs have been fetched after reading the essential SIM records.
+     */
+    public void onCarrierConfigLoadedForEssentialRecords() {
+    }
+
+    public void setEssentialRecordsLoaded(boolean isLoaded) {
     }
 
     /**
