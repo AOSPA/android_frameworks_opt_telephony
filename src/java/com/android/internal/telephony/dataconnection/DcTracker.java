@@ -3252,6 +3252,9 @@ public class DcTracker extends Handler {
                 // A connection is setup
                 apnContext.setState(DctConstants.State.CONNECTED);
 
+                // Reset the waiting apns, so that the accumulated retry count gets cleared.
+                apnContext.setWaitingApns(apnContext.getWaitingApns());
+
                 checkDataRoamingStatus(false);
 
                 boolean isProvApn = apnContext.isProvisioningApn();
