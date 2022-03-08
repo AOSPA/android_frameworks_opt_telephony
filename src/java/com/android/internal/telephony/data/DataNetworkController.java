@@ -300,8 +300,8 @@ public class DataNetworkController extends Handler {
      */
     private final @NonNull SparseArray<ImsStateCallback> mImsStateCallbacks = new SparseArray<>();
 
-    /** IMS feature registration state. Key is the IMS feature, value is the registration state. */
-    private final @NonNull SparseArray<Boolean> mImsFeatureRegistrationState = new SparseArray<>();
+    /** Registered IMS features. Unregistered IMS features are removed from the set. */
+    private final @NonNull Set<Integer> mRegisteredImsFeatures = new ArraySet<>();
 
     /** IMS feature package names. Key is the IMS feature, value is the package name. */
     private final @NonNull SparseArray<String> mImsFeaturePackageName = new SparseArray<>();
@@ -320,6 +320,12 @@ public class DataNetworkController extends Handler {
      */
     private final @NonNull SparseArray<RegistrationManager.RegistrationCallback>
             mImsFeatureRegistrationCallbacks = new SparseArray<>();
+
+    /**
+     * {@code true} if {@link #tearDownAllDataNetworks(int)} was invoked and waiting for all
+     * networks torn down.
+     */
+    private boolean mPendingTearDownAllNetworks = false;
 
     /** The broadcast receiver. */
     private final BroadcastReceiver mIntentReceiver = new BroadcastReceiver() {
@@ -839,7 +845,6 @@ public class DataNetworkController extends Handler {
                         networkTypes).sendToTarget();
             }
         });
-        updateSubscriptionPlans();
 
         mPhone.getServiceStateTracker().registerForDataRegStateOrRatChanged(
                 AccessNetworkConstants.TRANSPORT_TYPE_WWAN, this, EVENT_SERVICE_STATE_CHANGED,
@@ -1095,7 +1100,8 @@ public class DataNetworkController extends Handler {
      * of the satisfiable requests to the network). All requests must be satisfied so they can be
      * attached.
      *
-     * @param requestList The network request list to attach.
+     * @param requestList The network request list to attach. It is expected that every network
+     * request in this list has the same network capabilities.
      *
      * @return {@code false} if can't find the data network to to satisfy the network requests, even
      * if only one of network request can't be satisfied. {@code true} if the network request
@@ -1134,6 +1140,7 @@ public class DataNetworkController extends Handler {
      */
     private boolean shouldCheckRegistrationState() {
         // Always don't check registration state on non-DDS sub.
+        log("shouldCheckRegistrationState: phoneSwitcher=" + PhoneSwitcher.getInstance());
         if (mPhone.getPhoneId() != PhoneSwitcher.getInstance().getPreferredDataPhoneId()) {
             return false;
         }
@@ -1207,6 +1214,11 @@ public class DataNetworkController extends Handler {
         // Check if data is restricted by the network.
         if (mPsRestricted) {
             evaluation.addDataDisallowedReason(DataDisallowedReason.DATA_RESTRICTED_BY_NETWORK);
+        }
+
+        // Check if there are pending tear down all networks request.
+        if (mPendingTearDownAllNetworks) {
+            evaluation.addDataDisallowedReason(DataDisallowedReason.PENDING_TEAR_DOWN_ALL);
         }
 
         // Check if the request is preferred on cellular and radio is/will be turned off.
@@ -1617,14 +1629,14 @@ public class DataNetworkController extends Handler {
                     public void onRegistered(ImsRegistrationAttributes attributes) {
                         log("IMS " + DataUtils.imsFeatureToString(imsFeature)
                                 + " registered. Attributes=" + attributes);
-                        mImsFeatureRegistrationState.put(imsFeature, true);
+                        mRegisteredImsFeatures.add(imsFeature);
                     }
 
                     @Override
                     public void onUnregistered(ImsReasonInfo info) {
                         log("IMS " + DataUtils.imsFeatureToString(imsFeature)
                                 + " deregistered. Info=" + info);
-                        mImsFeatureRegistrationState.put(imsFeature, false);
+                        mRegisteredImsFeatures.remove(imsFeature);
                         evaluatePendingImsDeregDataNetworks();
                     }
                 };
@@ -1795,7 +1807,7 @@ public class DataNetworkController extends Handler {
         return new NetworkRequestList(mAllNetworkRequestList.stream()
                 .filter(request -> request.getState()
                         == TelephonyNetworkRequest.REQUEST_STATE_UNSATISFIED)
-                .filter(request -> dataProfile.canSatisfy(request.getCapabilities()))
+                .filter(request -> request.canBeSatisfiedBy(dataProfile))
                 .collect(Collectors.toList()));
     }
 
@@ -1911,7 +1923,13 @@ public class DataNetworkController extends Handler {
                     public void onPcoDataChanged(@NonNull DataNetwork dataNetwork) {
                         DataNetworkController.this.onPcoDataChanged(dataNetwork);
                     }
-                }));
+
+                    @Override
+                    public void onNetworkCapabilitiesChanged(@NonNull DataNetwork dataNetwork) {
+                        DataNetworkController.this.onNetworkCapabilitiesChanged(dataNetwork);
+                    }
+                }
+        ));
         if (!mAnyDataNetworkExisting) {
             mAnyDataNetworkExisting = true;
             mDataNetworkControllerCallbacks.forEach(callback -> callback.invokeFromExecutor(
@@ -1935,6 +1953,7 @@ public class DataNetworkController extends Handler {
                 + "), retryDelayMillis=" + retryDelayMillis + "ms.");
         mDataNetworkList.remove(dataNetwork);
         if (mAnyDataNetworkExisting && mDataNetworkList.isEmpty()) {
+            mPendingTearDownAllNetworks = false;
             mAnyDataNetworkExisting = false;
             mDataNetworkControllerCallbacks.forEach(callback -> callback.invokeFromExecutor(
                     () -> callback.onAnyDataNetworkExistingChanged(mAnyDataNetworkExisting)));
@@ -2118,6 +2137,7 @@ public class DataNetworkController extends Handler {
 
         if (mAnyDataNetworkExisting && mDataNetworkList.isEmpty()) {
             log("All data networks disconnected now.");
+            mPendingTearDownAllNetworks = false;
             mAnyDataNetworkExisting = false;
             mDataNetworkControllerCallbacks.forEach(callback -> callback.invokeFromExecutor(
                     () -> callback.onAnyDataNetworkExistingChanged(mAnyDataNetworkExisting)));
@@ -2324,12 +2344,18 @@ public class DataNetworkController extends Handler {
         //   data network's link status. Consider expanding to all data networks if needed, and
         //   should use CarrierConfigManager.KEY_LTE_ENDC_USING_USER_DATA_FOR_RRC_DETECTION_BOOL
         //   to determine if using all data networks or only internet data networks.
-        boolean anyActive = mDataNetworkList.stream()
-                .filter(DataNetwork::isInternetSupported)
-                .anyMatch(network -> network.getLinkStatus()
-                        == DataCallResponse.LINK_STATUS_ACTIVE);
-        int status = anyActive ? DataCallResponse.LINK_STATUS_ACTIVE
-                : DataCallResponse.LINK_STATUS_DORMANT;
+        int status = DataCallResponse.LINK_STATUS_INACTIVE;
+        boolean anyInternet = mDataNetworkList.stream()
+                .anyMatch(network -> network.isInternetSupported() && network.isConnected());
+        if (anyInternet) {
+            status = mDataNetworkList.stream()
+                    .anyMatch(network -> network.isInternetSupported()
+                            && network.isConnected() && network.getLinkStatus()
+                            == DataCallResponse.LINK_STATUS_ACTIVE)
+                    ? DataCallResponse.LINK_STATUS_ACTIVE
+                    : DataCallResponse.LINK_STATUS_DORMANT;
+        }
+
         if (mInternetLinkStatus != status) {
             log("Internet link status changed to " + DataUtils.linkStatusToString(status));
             mInternetLinkStatus = status;
@@ -2363,6 +2389,29 @@ public class DataNetworkController extends Handler {
                 mDataNetworkControllerCallbacks.forEach(callback -> callback.invokeFromExecutor(
                         () -> callback.onNrAdvancedCapableByPcoChanged(mNrAdvancedCapableByPco)));
             }
+        }
+    }
+
+    /**
+     * Called when network capabilities changed.
+     *
+     * @param dataNetwork The data network.
+     */
+    private void onNetworkCapabilitiesChanged(@NonNull DataNetwork dataNetwork) {
+        // The network capabilities changed. See if there are unsatisfied network requests that
+        // become satisfiable.
+        NetworkRequestList networkRequestList = new NetworkRequestList();
+        for (TelephonyNetworkRequest networkRequest : mAllNetworkRequestList) {
+            if (networkRequest.getState() == TelephonyNetworkRequest.REQUEST_STATE_UNSATISFIED) {
+                if (networkRequest.canBeSatisfiedBy(dataNetwork.getNetworkCapabilities())) {
+                    networkRequestList.add(networkRequest);
+                }
+            }
+        }
+
+        if (!networkRequestList.isEmpty()) {
+            log("Found more network requests that can be satisfied. " + networkRequestList);
+            dataNetwork.attachNetworkRequests(networkRequestList);
         }
     }
 
@@ -2505,13 +2554,15 @@ public class DataNetworkController extends Handler {
                     + TelephonyUtils.dataStateToString(mInternetDataNetworkState) + " to "
                     + TelephonyUtils.dataStateToString(dataNetworkState) + ".");
             // TODO: Create a new route to notify TelephonyRegistry.
-            if (dataNetworkState == TelephonyManager.DATA_CONNECTED) {
+            if (dataNetworkState == TelephonyManager.DATA_CONNECTED
+                    && mInternetDataNetworkState == TelephonyManager.DATA_DISCONNECTED) {
                 mDataNetworkControllerCallbacks.forEach(callback -> callback.invokeFromExecutor(
                         () -> callback.onInternetDataNetworkConnected(
                                 allConnectedInternetDataNetworks.stream()
                                         .map(DataNetwork::getDataProfile)
                                         .collect(Collectors.toList()))));
-            } else if (dataNetworkState == TelephonyManager.DATA_DISCONNECTED) {
+            } else if (dataNetworkState == TelephonyManager.DATA_DISCONNECTED
+                    && mInternetDataNetworkState == TelephonyManager.DATA_CONNECTED) {
                 mDataNetworkControllerCallbacks.forEach(callback -> callback.invokeFromExecutor(
                         callback::onInternetDataNetworkDisconnected));
             } // TODO: Add suspended callback if needed.
@@ -2642,6 +2693,7 @@ public class DataNetworkController extends Handler {
             return;
         }
 
+        mPendingTearDownAllNetworks = true;
         for (DataNetwork dataNetwork : mDataNetworkList) {
             if (!dataNetwork.isDisconnecting()) {
                 tearDownGracefully(dataNetwork, reason);
@@ -2683,7 +2735,7 @@ public class DataNetworkController extends Handler {
             if (imsFeaturePackage != null) {
                 if (dataNetwork.getAttachedNetworkRequestList()
                         .hasNetworkRequestsFromPackage(imsFeaturePackage)) {
-                    if (mImsFeatureRegistrationState.get(imsFeature)) {
+                    if (mRegisteredImsFeatures.contains(imsFeature)) {
                         return false;
                     }
                 }
@@ -2711,11 +2763,11 @@ public class DataNetworkController extends Handler {
         if (isImsGracefulTearDownSupported() && !isSafeToTearDown(dataNetwork)) {
             log("tearDownGracefully: Not safe to tear down " + dataNetwork
                     + " at this point. Wait for IMS de-registration or timeout. MMTEL="
-                    + (mImsFeatureRegistrationState.get(ImsFeature.FEATURE_MMTEL)
-                    ? "registered" : "deregistered")
+                    + (mRegisteredImsFeatures.contains(ImsFeature.FEATURE_MMTEL)
+                    ? "registered" : "not registered")
                     + ", RCS="
-                    + (mImsFeatureRegistrationState.get(ImsFeature.FEATURE_RCS)
-                    ? "registered" : "deregistered")
+                    + (mRegisteredImsFeatures.contains(ImsFeature.FEATURE_RCS)
+                    ? "registered" : "not registered")
             );
             mPendingImsDeregDataNetworks.put(dataNetwork,
                     dataNetwork.tearDownWithCondition(reason, deregDelay));
@@ -2826,13 +2878,11 @@ public class DataNetworkController extends Handler {
         pw.decreaseIndent();
 
         pw.println("IMS features registration state: MMTEL="
-                + (mImsFeatureRegistrationState.get(ImsFeature.FEATURE_MMTEL) != null
-                && mImsFeatureRegistrationState.get(ImsFeature.FEATURE_MMTEL)
-                ? "registered" : "deregistered")
+                + (mRegisteredImsFeatures.contains(ImsFeature.FEATURE_MMTEL)
+                ? "registered" : "not registered")
                 + ", RCS="
-                + (mImsFeatureRegistrationState.get(ImsFeature.FEATURE_RCS) != null
-                && mImsFeatureRegistrationState.get(ImsFeature.FEATURE_RCS)
-                ? "registered" : "deregistered"));
+                + (mRegisteredImsFeatures.contains(ImsFeature.FEATURE_RCS)
+                ? "registered" : "not registered"));
         pw.println("mServiceState=" + mServiceState);
         pw.println("mPsRestricted=" + mPsRestricted);
         pw.println("mAnyDataNetworkExisting=" + mAnyDataNetworkExisting);

@@ -70,6 +70,16 @@ public class DataEvaluation {
     }
 
     /**
+     * Remove a data disallowed reason if one exists.
+     *
+     * @param reason Disallowed reason.
+     */
+    public void removeDataDisallowedReason(DataDisallowedReason reason) {
+        mDataDisallowedReasons.remove(reason);
+        mEvaluatedTime = System.currentTimeMillis();
+    }
+
+    /**
      * Add a data allowed reason. Note that adding an allowed reason will clean up the disallowed
      * reasons because they are mutual exclusive.
      *
@@ -224,6 +234,8 @@ public class DataEvaluation {
         DATA_RESTRICTED_BY_NETWORK(true),
         /** Radio power is off (i.e. airplane mode on) */
         RADIO_POWER_OFF(true),
+        /** Data setup now allowed due to pending tear down all networks. */
+        PENDING_TEAR_DOWN_ALL(true),
         /** Airplane mode is forcibly turned on by the carrier. */
         RADIO_DISABLED_BY_CARRIER(true),
         /** Underlying data service is not bound. */
