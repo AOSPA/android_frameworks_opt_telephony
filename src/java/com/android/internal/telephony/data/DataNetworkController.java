@@ -219,7 +219,7 @@ public class DataNetworkController extends Handler {
             new SparseArray<>();
 
     /** The subscription index associated with this data network controller. */
-    private int mSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+    protected int mSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
 
     /** The current service state of the device. */
     // Note that keeping a copy here instead of directly using ServiceStateTracker.getServiceState()
@@ -1757,7 +1757,7 @@ public class DataNetworkController extends Handler {
     }
 
     /** Called when subscription info changed. */
-    private void onSubscriptionChanged() {
+    protected void onSubscriptionChanged() {
         if (mSubId != mPhone.getSubId()) {
             log("onDataConfigUpdated: mSubId changed from " + mSubId + " to "
                     + mPhone.getSubId());
