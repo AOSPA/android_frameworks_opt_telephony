@@ -283,7 +283,7 @@ public class DataConfigManager extends Handler {
     /**
      * Update the configuration.
      */
-    private void updateConfig() {
+    protected void updateConfig() {
         if (mCarrierConfigManager != null) {
             mCarrierConfig = mCarrierConfigManager.getConfigForSubId(mPhone.getSubId());
         }
@@ -713,6 +713,12 @@ public class DataConfigManager extends Handler {
     public long getRetrySetupAfterDisconnectMillis() {
         return mCarrierConfig.getLong(CarrierConfigManager
                 .KEY_CARRIER_DATA_CALL_APN_RETRY_AFTER_DISCONNECT_LONG);
+    }
+
+    /**
+     * Called when CarrierConfigs have been fetched after reading the essential SIM records.
+     */
+    public void onCarrierConfigLoadedForEssentialRecords() {
     }
 
     /**
