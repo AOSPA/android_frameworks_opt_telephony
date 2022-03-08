@@ -1396,30 +1396,30 @@ public class PhoneSwitcher extends Handler {
     // requests.
     protected void updatePreferredDataPhoneId() {
         Phone voicePhone = findPhoneById(mPhoneIdInVoiceCall);
-        boolean isDataAllowedOnVoiceCallSub = voicePhone != null
-                && voicePhone.getDataEnabledSettings().isDataEnabled(ApnSetting.TYPE_DEFAULT);
+        boolean isDataAllowedOnVoiceCallSub = false;
+        if (voicePhone != null) {
+            if (voicePhone.isUsingNewDataStack()) {
+                isDataAllowedOnVoiceCallSub &= voicePhone.getDataSettingsManager()
+                        .isDataEnabled(ApnSetting.TYPE_DEFAULT);
+            } else {
+                isDataAllowedOnVoiceCallSub &= voicePhone.getDataEnabledSettings()
+                        .isDataEnabled(ApnSetting.TYPE_DEFAULT);
+            }
+        }
         if (mPhoneIdInVoiceCall != mPreferredDataPhoneId) {
             Phone preferredDataPhone = findPhoneById(mPreferredDataPhoneId);
             if (preferredDataPhone != null) {
-                isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
-                        && preferredDataPhone.getDataEnabledSettings().isDataEnabled();
+                if (preferredDataPhone.isUsingNewDataStack()) {
+                    isDataAllowedOnVoiceCallSub &= preferredDataPhone
+                            .getDataSettingsManager().isDataEnabled();
+                } else {
+                    isDataAllowedOnVoiceCallSub &= preferredDataPhone
+                            .getDataEnabledSettings().isDataEnabled();
+                }
             }
         }
         log("updatePreferredDataPhoneId isDataAllowedOnVoiceCallSub: "
                 + isDataAllowedOnVoiceCallSub);
-        /* TODO(b/216830177) Investigate using this logic instead of isDataAllowedOnVoiceCallSub
-        boolean isDataEnabled = false;
-        if (voicePhone != null) {
-            if (voicePhone.isUsingNewDataStack()) {
-                isDataEnabled = voicePhone.getDataSettingsManager()
-                        .isDataEnabled(ApnSetting.TYPE_DEFAULT);
-            } else {
-                isDataEnabled = voicePhone.getDataEnabledSettings()
-                        .isDataEnabled(ApnSetting.TYPE_DEFAULT);
-            }
-        }
-        */
-
         if (mEmergencyOverride != null && findPhoneById(mEmergencyOverride.mPhoneId) != null) {
             // Override DDS for emergency even if user data is not enabled, since it is an
             // emergency.
