@@ -1584,6 +1584,9 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
     @Test
     public void testEventCarrierConfigChanged() {
+        doReturn(null).when(mSubscriptionController).getSubscriptionProperty(anyInt(),
+                eq(SubscriptionManager.NR_ADVANCED_CALLING_ENABLED));
+
         mPhoneUT.mCi = mMockCi;
         mPhoneUT.sendMessage(mPhoneUT.obtainMessage(Phone.EVENT_CARRIER_CONFIG_CHANGED));
         processAllMessages();
