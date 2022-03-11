@@ -316,6 +316,7 @@ public class DataSettingsManager extends Handler {
                 mDataEnabledOverride.setDataAllowedInVoiceCall(allow);
                 if (SubscriptionController.getInstance()
                         .setDataEnabledOverrideRules(mSubId, mDataEnabledOverride.getRules())) {
+                    mPhone.getDataNetworkController().onDataDuringVoiceCallChanged(allow);
                     updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_OVERRIDE);
                 }
                 break;
