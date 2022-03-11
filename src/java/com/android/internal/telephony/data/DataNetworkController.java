@@ -692,6 +692,14 @@ public class DataNetworkController extends Handler {
         }
     }
 
+    /**
+     * Called when "Data During calls" preference is changed
+     *
+     * @param enabled change in preference.
+     */
+    protected void onDataDuringVoiceCallChanged(boolean enabled) {
+    }
+
     protected void onDataEnabledChanged(boolean enabled,
             @TelephonyManager.DataEnabledChangedReason int reason) {
         // If mobile data is enabled by the user, evaluate the unsatisfied network
