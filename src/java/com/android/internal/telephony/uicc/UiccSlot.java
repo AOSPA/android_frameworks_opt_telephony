@@ -239,6 +239,11 @@ public class UiccSlot extends Handler {
         }
     }
 
+    /** Return whether the passing portIndex belong to this physical slot */
+    public boolean isValidPortIndex(int portIndex) {
+        return mPortIdxToPhoneId.containsKey(portIndex);
+    }
+
     public int getPortIndexFromPhoneId(int phoneId) {
         synchronized (mLock) {
             for (Map.Entry<Integer, Integer> entry : mPortIdxToPhoneId.entrySet()) {
@@ -286,7 +291,8 @@ public class UiccSlot extends Handler {
         // even ATR suggest UICC supports multiple enabled profiles, MEP can be disabled per
         // carrier restrictions, so checking the real number of ports reported from modem is
         // necessary.
-        return mPortIdxToPhoneId.size() > 1 && mAtr.isMultipleEnabledProfilesSupported();
+        return mPortIdxToPhoneId.size() > 1 && mAtr != null &&
+                mAtr.isMultipleEnabledProfilesSupported();
     }
 
     private boolean absentStateUpdateNeeded(CardState oldState) {
