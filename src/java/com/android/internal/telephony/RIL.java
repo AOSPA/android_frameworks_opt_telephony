@@ -17,7 +17,6 @@
 package com.android.internal.telephony;
 
 import static com.android.internal.telephony.RILConstants.*;
-import static com.android.internal.util.Preconditions.checkNotNull;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -95,6 +94,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -697,9 +697,10 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
     /**
      * Returns a {@link RadioDataProxy}, {@link RadioMessagingProxy}, {@link RadioModemProxy},
-     * {@link RadioNetworkProxy}, {@link RadioSimProxy}, {@link RadioVoiceProxy}, or null if the
-     * service is not available.
+     * {@link RadioNetworkProxy}, {@link RadioSimProxy}, {@link RadioVoiceProxy}, or an empty {@link RadioServiceProxy}
+     * if the service is not available.
      */
+    @NonNull
     public <T extends RadioServiceProxy> T getRadioServiceProxy(Class<T> serviceClass,
             Message result) {
         if (serviceClass == RadioDataProxy.class) {
@@ -720,16 +721,18 @@ public class RIL extends BaseCommands implements CommandsInterface {
         if (serviceClass == RadioVoiceProxy.class) {
             return (T) getRadioServiceProxy(VOICE_SERVICE, result);
         }
+        riljLoge("getRadioServiceProxy: unrecognized " + serviceClass);
         return null;
     }
 
     /**
-     * Returns a {@link RadioServiceProxy} or null if the service is not available.
+     * Returns a {@link RadioServiceProxy}, which is empty if the service is not available.
      * For RADIO_SERVICE, use {@link #getRadioProxy} instead, as this will always return null.
      */
     @VisibleForTesting
+    @NonNull
     public synchronized RadioServiceProxy getRadioServiceProxy(int service, Message result) {
-        if (!SubscriptionManager.isValidPhoneId(mPhoneId)) return null;
+        if (!SubscriptionManager.isValidPhoneId(mPhoneId)) return mServiceProxies.get(service);
         if (!mIsCellularSupported) {
             if (RILJ_LOGV) riljLog("getRadioServiceProxy: Not calling getService(): wifi-only");
             if (result != null) {
@@ -737,7 +740,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
                         CommandException.fromRilErrno(RADIO_NOT_AVAILABLE));
                 result.sendToTarget();
             }
-            return null;
+            return mServiceProxies.get(service);
         }
 
         RadioServiceProxy serviceProxy = mServiceProxies.get(service);
@@ -4388,7 +4391,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
     @Override
     public void setAllowedCarriers(CarrierRestrictionRules carrierRestrictionRules,
             Message result, WorkSource workSource) {
-        checkNotNull(carrierRestrictionRules, "Carrier restriction cannot be null.");
+        Objects.requireNonNull(carrierRestrictionRules, "Carrier restriction cannot be null.");
 
         RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class, result);
         if (!simProxy.isEmpty()) {
@@ -4542,7 +4545,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
     @Override
     public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
             Message result) {
-        checkNotNull(imsiEncryptionInfo, "ImsiEncryptionInfo cannot be null.");
+        Objects.requireNonNull(imsiEncryptionInfo, "ImsiEncryptionInfo cannot be null.");
         RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class, result);
         if (simProxy.isEmpty()) return;
         if (mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_1_1)) {
@@ -4572,7 +4575,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
     @Override
     public void startNattKeepalive(int contextId, KeepalivePacketData packetData,
             int intervalMillis, Message result) {
-        checkNotNull(packetData, "KeepaliveRequest cannot be null.");
+        Objects.requireNonNull(packetData, "KeepaliveRequest cannot be null.");
         RadioDataProxy dataProxy = getRadioServiceProxy(RadioDataProxy.class, result);
         if (dataProxy.isEmpty()) return;
         if (mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_1_1)) {
