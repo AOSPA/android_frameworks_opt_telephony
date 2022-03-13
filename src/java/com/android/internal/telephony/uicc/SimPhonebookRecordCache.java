@@ -29,12 +29,13 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.RadioInterfaceCapabilityController;
 import com.android.internal.telephony.uicc.AdnCapacity;
+import com.android.internal.telephony.uicc.IccConstants;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +57,7 @@ import java.util.stream.Collectors;
         value = "TelephonyManager.CAPABILITY_SIM_PHONEBOOK_IN_MODEM")
 public class SimPhonebookRecordCache extends Handler {
     // Instance Variables
-    private static final String LOG_TAG = "SimPhonebookRecordCache";
+    private String LOG_TAG = "SimPhonebookRecordCache";
     private static final boolean DBG = true;
 
     @VisibleForTesting
@@ -82,8 +83,8 @@ public class SimPhonebookRecordCache extends Handler {
     // Presenting ADN capacity, including ADN, EMAIL ANR, and so on.
     private AtomicReference<AdnCapacity> mAdnCapacity = new AtomicReference<AdnCapacity>(null);
     private Object mReadLock = new Object();
-    private final ConcurrentHashMap<Integer, AdnRecord> mSimPbRecords =
-            new ConcurrentHashMap<Integer, AdnRecord>();
+    private final ConcurrentSkipListMap<Integer, AdnRecord> mSimPbRecords =
+            new ConcurrentSkipListMap<Integer, AdnRecord>();
     private final List<UpdateRequest> mUpdateRequests =
             Collections.synchronizedList(new ArrayList<UpdateRequest>());
     // If true, clear the records in the cache and re-query from modem
@@ -106,6 +107,7 @@ public class SimPhonebookRecordCache extends Handler {
         mCi = ci;
         mPhoneId = phoneId;
         mContext = context;
+        LOG_TAG += "[" + phoneId + "]";
         mCi.registerForSimPhonebookChanged(this, EVENT_PHONEBOOK_CHANGED, null);
         mCi.registerForIccRefresh(this, EVENT_SIM_REFRESH, null);
         mCi.registerForSimPhonebookRecordsReceived(this, EVENT_PHONEBOOK_RECORDS_RECEIVED, null);
@@ -213,7 +215,7 @@ public class SimPhonebookRecordCache extends Handler {
         synchronized (mReadLock) {
             mAdnLoadingWaiters.add(response);
             final int pendingSize = mAdnLoadingWaiters.size();
-            boolean isCapacityInvalid = getAdnCapacity() == null;
+            final boolean isCapacityInvalid = isAdnCapacityInvalid();
             if (isCapacityInvalid) {
                 getSimPhonebookCapacity();
             }
@@ -235,6 +237,10 @@ public class SimPhonebookRecordCache extends Handler {
         fillCache();
     }
 
+    private boolean isAdnCapacityInvalid() {
+        return getAdnCapacity() == null || !getAdnCapacity().isSimValid();
+    }
+
     @VisibleForTesting
     public boolean isLoading() {
         return mIsRecordLoading.get();
@@ -247,7 +253,7 @@ public class SimPhonebookRecordCache extends Handler {
 
     @VisibleForTesting
     public void clear() {
-        if (ENABLE_INFLATE_WITH_EMPTY_RECORDS) {
+        if (!ENABLE_INFLATE_WITH_EMPTY_RECORDS) {
             mSimPbRecords.clear();
         }
     }
@@ -279,19 +285,17 @@ public class SimPhonebookRecordCache extends Handler {
         }
 
         int recordId = INVALID_RECORD_ID; // The ID isn't specified by caller
-        boolean found = false;
 
         if (oldAdn != null && !oldAdn.isEmpty()) {
             for(AdnRecord adn : mSimPbRecords.values()) {
                 if (oldAdn.isEqual(adn)) {
-                    final int oldRcId = adn.getRecId();
-                    recordId = oldRcId;
-                    found = true;
+                    recordId = adn.getRecId();
                     break;
                 }
             }
         }
-        if (!found && mAdnCapacity.get() != null && mAdnCapacity.get().isSimFull()) {
+        if (recordId == INVALID_RECORD_ID
+                && mAdnCapacity.get() != null && mAdnCapacity.get().isSimFull()) {
             sendErrorResponse(response, "SIM Phonebook record is full");
             return;
         }
@@ -311,7 +315,7 @@ public class SimPhonebookRecordCache extends Handler {
                 .build();
         UpdateRequest updateRequest = new UpdateRequest(recordId, newAdn, updateAdn, response);
         mUpdateRequests.add(updateRequest);
-        boolean isCapacityInvalid = getAdnCapacity() == null;
+        final boolean isCapacityInvalid = isAdnCapacityInvalid();
         if (isCapacityInvalid) {
             getSimPhonebookCapacity();
         }
@@ -357,6 +361,11 @@ public class SimPhonebookRecordCache extends Handler {
                 if (ar != null && ar.exception == null) {
                     AdnCapacity capacity = (AdnCapacity)ar.result;
                     handlePhonebookCapacityChanged(capacity);
+                } else {
+                    if (!isAdnCapacityInvalid()) {
+                        mAdnCapacity.set(new AdnCapacity());
+                    }
+                    invalidateSimPbCache();
                 }
                 break;
             case EVENT_PHONEBOOK_RECORDS_RECEIVED:
@@ -424,11 +433,14 @@ public class SimPhonebookRecordCache extends Handler {
 
     private void handlePhonebookCapacityChanged(AdnCapacity newCapacity) {
         AdnCapacity oldCapacity = mAdnCapacity.get();
+        if (newCapacity == null) {
+            newCapacity = new AdnCapacity();
+        }
         mAdnCapacity.set(newCapacity);
         if (oldCapacity == null && newCapacity != null) {
-            if (newCapacity.getUsedAdnCount() > 0){
-                mSimPbRecords.clear();
-                inflateWithEmptyRecords(newCapacity);
+            inflateWithEmptyRecords(newCapacity);
+            if (!newCapacity.isSimEmpty()){
+                mIsCacheInvalidated.set(true);
                 fillCacheWithoutWaiting();
             } else {
                 notifyAdnLoadingWaiters();
@@ -436,7 +448,9 @@ public class SimPhonebookRecordCache extends Handler {
             mIsInitialized.set(true); // Let's say the whole process is ready
         } else {
             // There is nothing from PB, so notify waiters directly if any
-            if (newCapacity != null && newCapacity.getUsedAdnCount() == 0) {
+            if (newCapacity.isSimEmpty()
+                    || !newCapacity.isSimValid()) {
+                mIsCacheInvalidated.set(false);
                 notifyAdnLoadingWaiters();
             } else if (!mIsUpdateDone) {
                 invalidateSimPbCache();
@@ -451,7 +465,8 @@ public class SimPhonebookRecordCache extends Handler {
             logd("inflateWithEmptyRecords");
             if (capacity != null && mSimPbRecords.isEmpty()) {
                 for (int i = 1; i <= capacity.getMaxAdnCount(); i++) {
-                    mSimPbRecords.put(i, new AdnRecord(0, i, null, null, null, null));
+                    mSimPbRecords.putIfAbsent(i,
+                            new AdnRecord(IccConstants.EF_ADN, i, null, null, null, null));
                 }
             }
         }
@@ -467,6 +482,7 @@ public class SimPhonebookRecordCache extends Handler {
                 populateAdnRecords(records.getPhonebookRecords());
                 mIsRecordLoading.set(false);
                 mIsInRetry.set(false);
+                mIsCacheInvalidated.set(false);
                 notifyAdnLoadingWaiters();
                 tryFireUpdatePendingList();
             } else if (records.isRetryNeeded() && !mIsInRetry.get()) {
@@ -539,7 +555,7 @@ public class SimPhonebookRecordCache extends Handler {
     private void populateAdnRecords(List<SimPhonebookRecord> records) {
         if (records != null) {
             Map<Integer, AdnRecord> newRecords = records.stream().map(record -> {return
-                    new AdnRecord(0, // PBR or ADN
+                    new AdnRecord(IccConstants.EF_ADN,
                     record.getRecordId(),
                     record.getAlphaTag(),
                     record.getNumber(),
@@ -562,14 +578,19 @@ public class SimPhonebookRecordCache extends Handler {
     private void addOrChangeSimPbRecord(AdnRecord record, int recordId) {
         logd("Record number for the added or changed ADN is " + recordId);
         record.setRecId(recordId);
-        mSimPbRecords.put(recordId, record);
+        if (ENABLE_INFLATE_WITH_EMPTY_RECORDS) {
+            mSimPbRecords.replace(recordId, record);
+        } else {
+            mSimPbRecords.put(recordId, record);
+        }
     }
 
 
     private void deleteSimPbRecord(int recordId) {
         logd("Record number for the deleted ADN is " + recordId);
         if (ENABLE_INFLATE_WITH_EMPTY_RECORDS) {
-            mSimPbRecords.put(recordId, new AdnRecord(0, recordId, null, null, null, null));
+            mSimPbRecords.replace(recordId,
+                    new AdnRecord(IccConstants.EF_ADN, recordId, null, null, null, null));
         } else {
             if (mSimPbRecords.containsKey(recordId)) {
                 mSimPbRecords.remove(recordId);
@@ -580,7 +601,12 @@ public class SimPhonebookRecordCache extends Handler {
     private void invalidateSimPbCache() {
         logd("invalidateSimPbCache");
         mIsCacheInvalidated.set(true);
-        mSimPbRecords.clear();
+        if (ENABLE_INFLATE_WITH_EMPTY_RECORDS) {
+            mSimPbRecords.replaceAll((k, v) ->
+                    new AdnRecord(IccConstants.EF_ADN, k, null, null, null, null));
+        } else {
+            mSimPbRecords.clear();
+        }
     }
 
     private void logd(String msg) {

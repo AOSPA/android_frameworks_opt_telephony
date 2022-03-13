@@ -57,17 +57,25 @@ public abstract class RadioServiceProxy {
     /**
      * Reset RadioServiceProxy
      */
-    abstract void clear();
+    public void clear() {
+        mHalVersion = RIL.RADIO_HAL_VERSION_UNKNOWN;
+        mRadioProxy = null;
+    }
 
     /**
      * Check whether an implementation exists for this service
      * @return false if there is neither a HIDL nor AIDL implementation
      */
-    abstract boolean isEmpty();
+    public boolean isEmpty() {
+        return mRadioProxy == null;
+    }
 
     /**
      * Call responseAcknowledgement for the service
      * @throws RemoteException
      */
-    abstract void responseAcknowledgement() throws RemoteException;
+    public void responseAcknowledgement() throws RemoteException {
+        if (isEmpty()) return;
+        if (!isAidl()) mRadioProxy.responseAcknowledgement();
+    }
 }
