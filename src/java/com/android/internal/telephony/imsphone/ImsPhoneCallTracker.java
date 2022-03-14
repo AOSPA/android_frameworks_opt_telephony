@@ -1079,8 +1079,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     null);
         }
 
-        maybeConfigureRtpHeaderExtensions();
-        updateImsServiceConfig();
+        updateCarrierConfiguration(mPhone.getPhoneId());
         // For compatibility with apps that still use deprecated intent
         sendImsServiceStateIntent(ImsManager.ACTION_IMS_SERVICE_UP);
     }
@@ -1610,6 +1609,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         PersistableBundle carrierConfig = carrierConfigManager.getConfigForSubId(subId);
         if (carrierConfig == null) {
             loge("cacheCarrierConfiguration: Empty carrier config.");
+            mCarrierConfigLoaded = false;
+            return;
+        }
+
+        if(!carrierConfigManager.isConfigForIdentifiedCarrier(carrierConfig)) {
+            loge("cacheCarrierConfiguration: config is not identified carrier.");
             mCarrierConfigLoaded = false;
             return;
         }
@@ -5702,8 +5707,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         /** RTT call needs to allowed based on carrier config if sim is present
          * else we need to check the saved cache for simless RTT e911 call
          */
-        if ((state == IccCardConstants.State.READY && !isRttSupported()) ||
-                (state == IccCardConstants.State.ABSENT && isEmergency &&
+        if ((state.iccCardExist() && !isRttSupported()) ||
+                (!state.iccCardExist() && isEmergency &&
                 !isSimLessRttSupported())
                 || !isRttOn()) {
             return false;
