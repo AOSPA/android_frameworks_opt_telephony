@@ -93,6 +93,10 @@ public class CarrierServiceStateTrackerTest extends TelephonyTest {
 
     @After
     public void tearDown() throws Exception {
+        mCarrierSST = null;
+        mSpyCarrierSST = null;
+        mBundle = null;
+        mNotificationManager = null;
         super.tearDown();
     }
 
