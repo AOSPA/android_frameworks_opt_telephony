@@ -290,6 +290,7 @@ public class PhoneSwitcher extends Handler {
     protected static final int EVENT_OEM_HOOK_SERVICE_READY       = 123;
     protected static final int EVENT_SUB_INFO_READY               = 124;
     protected static final int EVENT_RECONNECT_EXT_TELEPHONY_SERVICE = 125;
+    protected static final int EVENT_DATA_ENABLED_OVERRIDE_RULE_CHANGED = 126;
 
     // List of events triggers re-evaluations
     private static final String EVALUATION_REASON_RADIO_ON = "EVENT_RADIO_ON";
@@ -496,6 +497,11 @@ public class PhoneSwitcher extends Handler {
                 }
                 PhoneFactory.getPhone(i).getDataEnabledSettings().registerForDataEnabledChanged(
                         this, EVENT_DATA_ENABLED_CHANGED, null);
+                // When call is ongoing, need to evaluate it after "data during call" is turned on.
+                // Because when data is on, EVENT_DATA_ENABLED_CHANGED can't cover this case.
+                PhoneFactory.getPhone(i).getDataEnabledSettings()
+                        .registerForDataEnabledOverrideChanged(this,
+                        EVENT_DATA_ENABLED_OVERRIDE_RULE_CHANGED);
                 registerForImsRadioTechChange(context, i);
             }
             Set<CommandException.Error> ddsFailure = new HashSet<CommandException.Error>();
@@ -711,6 +717,7 @@ public class PhoneSwitcher extends Handler {
                 break;
             }
 
+            case EVENT_DATA_ENABLED_OVERRIDE_RULE_CHANGED:
             case EVENT_DATA_ENABLED_CHANGED:
                 evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
                 break;
@@ -1319,6 +1326,15 @@ public class PhoneSwitcher extends Handler {
             if (preferredDataPhone != null) {
                 isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
                         && preferredDataPhone.getDataEnabledSettings().isDataEnabled();
+            }
+            // As per custimzations, the data of nDDS SUB isn't no longer disabled, so the API
+            // isDataEnabled(apn) can't control "data during call" individually.
+            // Here it is not intended to change the logic for the API, but only consider the
+            // option "data during call" separately once again, and when data is off, data still
+            // works as long as the "data during call" is enabled in case of nDDS voice call.
+            if (voicePhone != null) {
+                isDataAllowedOnVoiceCallSub &=
+                        voicePhone.getDataEnabledSettings().isDataAllowedInVoiceCall();
             }
         }
         log("updatePreferredDataPhoneId isDataAllowedOnVoiceCallSub: "
