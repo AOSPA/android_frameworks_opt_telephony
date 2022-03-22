@@ -95,7 +95,6 @@ import com.android.internal.telephony.cdnr.CarrierDisplayNameResolver;
 import com.android.internal.telephony.data.DataNetwork;
 import com.android.internal.telephony.data.DataNetworkController.DataNetworkControllerCallback;
 import com.android.internal.telephony.dataconnection.DataConnection;
-import com.android.internal.telephony.dataconnection.DcTracker;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.metrics.ServiceStateStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
@@ -285,6 +284,9 @@ public class ServiceStateTracker extends Handler {
     private static final int EVENT_POWER_OFF_RADIO_IMS_DEREG_TIMEOUT   = 62;
     protected static final int EVENT_RESET_LAST_KNOWN_CELL_IDENTITY    = 63;
     private static final int EVENT_REGISTER_DATA_NETWORK_EXISTING_CHANGED = 64;
+    // Telecom has un/registered a PhoneAccount that provides OTT voice calling capability, e.g.
+    // wi-fi calling.
+    protected static final int EVENT_TELECOM_VOICE_SERVICE_STATE_OVERRIDE_CHANGED = 65;
 
     /**
      * The current service state.
@@ -1749,6 +1751,15 @@ public class ServiceStateTracker extends Handler {
                 break;
             }
 
+            case EVENT_TELECOM_VOICE_SERVICE_STATE_OVERRIDE_CHANGED:
+                if (DBG) log("EVENT_TELECOM_VOICE_SERVICE_STATE_OVERRIDE_CHANGED");
+                // Similar to IMS, OTT voice state will only affect the merged service state if the
+                // CS voice service state of GsmCdma phone is not STATE_IN_SERVICE.
+                if (mSS.getState() != ServiceState.STATE_IN_SERVICE) {
+                    mPhone.notifyServiceStateChanged(mPhone.getServiceState());
+                }
+                break;
+
             default:
                 log("Unhandled message with number: " + msg.what);
                 break;
@@ -2098,21 +2109,29 @@ public class ServiceStateTracker extends Handler {
     private boolean updateNrFrequencyRangeFromPhysicalChannelConfigs(
             List<PhysicalChannelConfig> physicalChannelConfigs, ServiceState ss) {
         int newFrequencyRange = ServiceState.FREQUENCY_RANGE_UNKNOWN;
-
         if (physicalChannelConfigs != null) {
-            DcTracker dcTracker = mPhone.getDcTracker(AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
             for (PhysicalChannelConfig config : physicalChannelConfigs) {
                 if (isNrPhysicalChannelConfig(config)) {
                     // Update the frequency range of the NR parameters if there is an internet data
                     // connection associate to this NR physical channel channel config.
                     int[] contextIds = config.getContextIds();
                     for (int cid : contextIds) {
-                        DataConnection dc = dcTracker.getDataConnectionByContextId(cid);
-                        if (dc != null && dc.getNetworkCapabilities().hasCapability(
-                                NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                            newFrequencyRange = ServiceState.getBetterNRFrequencyRange(
-                                    newFrequencyRange, config.getFrequencyRange());
-                            break;
+                        if (mPhone.isUsingNewDataStack()) {
+                            if (mPhone.getDataNetworkController().isInternetNetwork(cid)) {
+                                newFrequencyRange = ServiceState.getBetterNRFrequencyRange(
+                                        newFrequencyRange, config.getFrequencyRange());
+                                break;
+                            }
+                        } else {
+                            DataConnection dc = mPhone.getDcTracker(
+                                    AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                                    .getDataConnectionByContextId(cid);
+                            if (dc != null && dc.getNetworkCapabilities().hasCapability(
+                                    NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                                newFrequencyRange = ServiceState.getBetterNRFrequencyRange(
+                                        newFrequencyRange, config.getFrequencyRange());
+                                break;
+                            }
                         }
                     }
                 }
@@ -5251,6 +5270,11 @@ public class ServiceStateTracker extends Handler {
             // NV is ready when subscription source is NV
             sendMessage(obtainMessage(EVENT_NV_READY));
         }
+    }
+
+    /** Called when telecom has reported a voice service state change. */
+    public void onTelecomVoiceServiceStateOverrideChanged() {
+        sendMessage(obtainMessage(EVENT_TELECOM_VOICE_SERVICE_STATE_OVERRIDE_CHANGED));
     }
 
     private void dumpCellInfoList(PrintWriter pw) {

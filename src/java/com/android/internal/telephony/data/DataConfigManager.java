@@ -191,7 +191,7 @@ public class DataConfigManager extends Handler {
     private @NonNull final RegistrantList mConfigUpdateRegistrants = new RegistrantList();
 
     private @NonNull final CarrierConfigManager mCarrierConfigManager;
-    private @NonNull PersistableBundle mCarrierConfig = null;
+    protected @NonNull PersistableBundle mCarrierConfig = null;
     private @NonNull Resources mResources = null;
 
     /** The network capability priority map */
@@ -275,9 +275,15 @@ public class DataConfigManager extends Handler {
     }
 
     /**
+     * This can be overridden by vendors classes to load other configs.
+     */
+    protected void updateOtherConfigs() {
+    }
+
+    /**
      * Update the configuration.
      */
-    private void updateConfig() {
+    protected void updateConfig() {
         if (mCarrierConfigManager != null) {
             mCarrierConfig = mCarrierConfigManager.getConfigForSubId(mPhone.getSubId());
         }
@@ -294,6 +300,7 @@ public class DataConfigManager extends Handler {
         updateUnmeteredNetworkTypes();
         updateBandwidths();
         updateHandoverRules();
+        updateOtherConfigs();
 
         log("Data config updated. Config is " + (isConfigCarrierSpecific() ? "" : "not ")
                 + "carrier specific.");
@@ -709,6 +716,12 @@ public class DataConfigManager extends Handler {
     }
 
     /**
+     * Called when CarrierConfigs have been fetched after reading the essential SIM records.
+     */
+    public void onCarrierConfigLoadedForEssentialRecords() {
+    }
+
+    /**
      * Get the data config network type for the given network type
      *
      * @param networkType The network type
@@ -792,11 +805,29 @@ public class DataConfigManager extends Handler {
     }
 
     /**
-     * @return The PCO id used for determine if data networks are using NR advanved networks. 0
+     * @return The PCO id used for determine if data networks are using NR advanced networks. 0
      * indicates this feature is disabled.
      */
     public int getNrAdvancedCapablePcoId() {
         return mCarrierConfig.getInt(CarrierConfigManager.KEY_NR_ADVANCED_CAPABLE_PCO_ID_INT);
+    }
+
+    /**
+     * @return The allowed APN types for initial attach. The order in the list determines the
+     * priority of it being considered as IA APN. Note this should be only used for some exception
+     * cases that we need to use "user-added" APN for initial attach. The regular way to configure
+     * IA APN is by adding "IA" type to the APN in APN config.
+     */
+    public @NonNull @ApnType List<Integer> getAllowedInitialAttachApnTypes() {
+        String[] apnTypesArray = mCarrierConfig.getStringArray(
+                CarrierConfigManager.KEY_ALLOWED_INITIAL_ATTACH_APN_TYPES_STRING_ARRAY);
+        if (apnTypesArray != null) {
+            return Arrays.stream(apnTypesArray)
+                    .map(ApnSetting::getApnTypesBitmaskFromString)
+                    .collect(Collectors.toList());
+        }
+
+        return Collections.emptyList();
     }
 
     /**
@@ -821,7 +852,7 @@ public class DataConfigManager extends Handler {
      * Log debug messages.
      * @param s debug messages
      */
-    private void log(@NonNull String s) {
+    protected void log(@NonNull String s) {
         Rlog.d(mLogTag, s);
     }
 
@@ -829,7 +860,7 @@ public class DataConfigManager extends Handler {
      * Log error messages.
      * @param s error messages
      */
-    private void loge(@NonNull String s) {
+    protected void loge(@NonNull String s) {
         Rlog.e(mLogTag, s);
     }
 

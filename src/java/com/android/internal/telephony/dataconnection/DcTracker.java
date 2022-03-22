@@ -75,7 +75,6 @@ import android.telephony.AccessNetworkConstants.TransportType;
 import android.telephony.Annotation.ApnType;
 import android.telephony.Annotation.DataFailureCause;
 import android.telephony.Annotation.NetworkType;
-import android.telephony.AnomalyReporter;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CellLocation;
 import android.telephony.DataFailCause;
@@ -144,7 +143,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -228,7 +226,7 @@ public class DcTracker extends Handler {
 
     public AtomicBoolean isCleanupRequired = new AtomicBoolean(false);
 
-    private final TelephonyManager mTelephonyManager;
+    protected final TelephonyManager mTelephonyManager;
 
     private final AlarmManager mAlarmManager;
 
@@ -364,7 +362,7 @@ public class DcTracker extends Handler {
     private boolean mLteEndcUsingUserDataForRrcDetection = false;
 
     /* List of SubscriptionPlans, updated when initialized and when plans are changed. */
-    private List<SubscriptionPlan> mSubscriptionPlans = null;
+    private List<SubscriptionPlan> mSubscriptionPlans = new ArrayList<>();
     /* List of network types an unmetered override applies to, set by onSubscriptionOverride
      * and cleared when the device is rebooted or the override expires. */
     private List<Integer> mUnmeteredNetworkTypes = null;
@@ -495,7 +493,7 @@ public class DcTracker extends Handler {
         public void onSubscriptionPlansChanged(int subId, SubscriptionPlan[] plans) {
             if (mPhone == null || mPhone.getSubId() != subId) return;
 
-            mSubscriptionPlans = plans == null ? null : Arrays.asList(plans);
+            mSubscriptionPlans = Arrays.asList(plans);
             if (DBG) log("SubscriptionPlans changed: " + mSubscriptionPlans);
             reevaluateUnmeteredConnections();
         }
@@ -2533,11 +2531,9 @@ public class DcTracker extends Handler {
         registerSettingsObserver();
         SubscriptionPlan[] plans = mNetworkPolicyManager.getSubscriptionPlans(
                 mPhone.getSubId(), mPhone.getContext().getOpPackageName());
-        if (plans != null) {
-            mSubscriptionPlans = Arrays.asList(plans);
-            if (DBG) log("SubscriptionPlans initialized: " + mSubscriptionPlans);
-            reevaluateUnmeteredConnections();
-        }
+        mSubscriptionPlans = plans == null ? Collections.emptyList() : Arrays.asList(plans);
+        if (DBG) log("SubscriptionPlans initialized: " + mSubscriptionPlans);
+        reevaluateUnmeteredConnections();
         mConfigReady = true;
     }
 
@@ -2556,7 +2552,7 @@ public class DcTracker extends Handler {
         return false;
     }
 
-    private void onCarrierConfigChanged() {
+    protected void onCarrierConfigChanged() {
         if (DBG) log("onCarrierConfigChanged");
 
         if (!isCarrierConfigApplied()) {
@@ -2566,7 +2562,8 @@ public class DcTracker extends Handler {
 
         readConfiguration();
 
-        if (mSimState == TelephonyManager.SIM_STATE_LOADED) {
+        if (mSimState == TelephonyManager.SIM_STATE_LOADED
+                || isSimCardPresentAndEssentialRecordsLoaded()) {
             setDefaultDataRoamingEnabled();
             createAllApnList();
             setDataProfilesAsNeeded();
@@ -2575,8 +2572,21 @@ public class DcTracker extends Handler {
             cleanUpConnectionsOnUpdatedApns(true, Phone.REASON_CARRIER_CHANGE);
             setupDataOnAllConnectableApns(Phone.REASON_CARRIER_CHANGE, RetryFailures.ALWAYS);
         } else {
-            log("onCarrierConfigChanged: SIM is not loaded yet.");
+            log("onCarrierConfigChanged: SIM is not loaded yet, state: " + mSimState);
         }
+    }
+
+    public void setEssentialRecordsLoaded(boolean isLoaded) {
+        loge("Error! setEssentialRecordsLoaded should not have been called here!");
+    }
+
+    protected boolean isSimCardPresentAndEssentialRecordsLoaded() {
+        loge("Error! isSimCardPresentAndEssentialRecordsLoaded should not have been called here!");
+        return false;
+    }
+
+    public void onCarrierConfigLoadedForEssentialRecords() {
+        loge("Error! onCarrierConfigLoadedForEssentialRecords should not have been called here!");
     }
 
     private void cleanUpConnectionsAndClearApnSettings() {
@@ -2599,7 +2609,7 @@ public class DcTracker extends Handler {
         setDataProfilesAsNeeded();
     }
 
-    private void onSimStateUpdated(@SimState int simState) {
+    protected void onSimStateUpdated(@SimState int simState) {
         mSimState = simState;
 
         if (DBG) {
@@ -2639,6 +2649,16 @@ public class DcTracker extends Handler {
             }
         } else {
             loge("EVENT_APN_UNTHROTTLED: apn is null");
+        }
+    }
+
+    private void onTrafficDescriptorsUpdated() {
+        for (ApnContext apnContext : mPrioritySortedApnContexts) {
+            if (apnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE
+                    && apnContext.getApnSetting().getPermanentFailed()) {
+                setupDataOnConnectableApn(
+                        apnContext, Phone.REASON_TRAFFIC_DESCRIPTORS_UPDATED, RetryFailures.ALWAYS);
+            }
         }
     }
 
@@ -3237,6 +3257,9 @@ public class DcTracker extends Handler {
 
                 // A connection is setup
                 apnContext.setState(DctConstants.State.CONNECTED);
+
+                // Reset the waiting apns, so that the accumulated retry count gets cleared.
+                apnContext.setWaitingApns(apnContext.getWaitingApns());
 
                 checkDataRoamingStatus(false);
 
@@ -4386,6 +4409,9 @@ public class DcTracker extends Handler {
                 String apn = (String) ar.result;
                 onApnUnthrottled(apn);
                 break;
+            case DctConstants.EVENT_TRAFFIC_DESCRIPTORS_UPDATED:
+                onTrafficDescriptorsUpdated();
+                break;
             default:
                 Rlog.e("DcTracker", "Unhandled event=" + msg);
                 break;
@@ -4578,27 +4604,10 @@ public class DcTracker extends Handler {
     }
 
     private void setDataConnectionUnmetered(boolean isUnmetered) {
-        // TODO: Remove this after b/176119724 is fixed. This is just a workaround to prevent
-        // NET_CAPABILITY_TEMPORARILY_NOT_METERED incorrectly set on devices that are not supposed
-        // to use 5G unmetered network. Currently TEMPORARILY_NOT_METERED can only happen on few
-        // devices and carriers.
-        if (!isUnmetered || (isUnmetered && tempNotMeteredPossible())) {
+        if (!isUnmetered || isTempNotMeteredSupportedByCarrier()) {
             for (DataConnection dataConnection : mDataConnections.values()) {
                 dataConnection.onMeterednessChanged(isUnmetered);
             }
-        } else {
-            // isUnmetered=true but TEMP_NOT_METERED is not possible
-            String message = "Unexpected temp not metered detected. carrier supported="
-                    + isTempNotMeteredSupportedByCarrier() + ", device 5G capable="
-                    + isDevice5GCapable() + ", camped on 5G=" + isCampedOn5G()
-                    + ", timer active=" + mPhone.getDisplayInfoController().is5GHysteresisActive()
-                    + ", display info="
-                    + mPhone.getDisplayInfoController().getTelephonyDisplayInfo()
-                    + ", subscription plans=" + mSubscriptionPlans
-                    + ", Service state=" + mPhone.getServiceState();
-            loge(message);
-            AnomalyReporter.reportAnomaly(
-                    UUID.fromString("9151f0fc-01df-4afb-b744-9c4529055250"), message);
         }
     }
 
@@ -4623,7 +4632,7 @@ public class DcTracker extends Handler {
     }
 
     private boolean isNetworkTypeUnmeteredViaSubscriptionPlan(@NetworkType int networkType) {
-        if (mSubscriptionPlans == null || mSubscriptionPlans.size() == 0) {
+        if (mSubscriptionPlans.isEmpty()) {
             // safe return false if unable to get subscription plans or plans don't exist
             return false;
         }
@@ -4720,18 +4729,6 @@ public class DcTracker extends Handler {
         return false;
     }
 
-    // TODO: Remove this after b/176119724 is fixed. This is just a workaround to prevent
-    // NET_CAPABILITY_TEMPORARILY_NOT_METERED incorrectly set on devices that are not supposed
-    // to use 5G unmetered network. Currently TEMPORARILY_NOT_METERED can only happen on few devices
-    // and carriers.
-    private boolean isDevice5GCapable() {
-        return (mPhone.getRadioAccessFamily() & TelephonyManager.NETWORK_TYPE_BITMASK_NR) != 0;
-    }
-
-    // TODO: Remove this after b/176119724 is fixed. This is just a workaround to prevent
-    // NET_CAPABILITY_TEMPORARILY_NOT_METERED incorrectly set on devices that are not supposed
-    // to use 5G unmetered network. Currently TEMPORARILY_NOT_METERED can only happen on few devices
-    // and carriers.
     private boolean isTempNotMeteredSupportedByCarrier() {
         CarrierConfigManager configManager =
                 mPhone.getContext().getSystemService(CarrierConfigManager.class);
@@ -4744,38 +4741,6 @@ public class DcTracker extends Handler {
         }
 
         return false;
-    }
-
-    // TODO: Remove this after b/176119724 is fixed. This is just a workaround to prevent
-    // NET_CAPABILITY_TEMPORARILY_NOT_METERED incorrectly set on devices that are not supposed
-    // to use 5G unmetered network. Currently TEMPORARILY_NOT_METERED can only happen on few devices
-    // and carriers.
-    private boolean isCampedOn5G() {
-        TelephonyDisplayInfo displayInfo = mPhone.getDisplayInfoController()
-                .getTelephonyDisplayInfo();
-        int overrideNetworkType = displayInfo.getOverrideNetworkType();
-        NetworkRegistrationInfo nri =  mPhone.getServiceState().getNetworkRegistrationInfo(
-                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
-        int networkType = nri == null ? TelephonyManager.NETWORK_TYPE_UNKNOWN
-                : nri.getAccessNetworkTechnology();
-
-        boolean isNrSa = networkType == TelephonyManager.NETWORK_TYPE_NR;
-        boolean isNrNsa = (networkType == TelephonyManager.NETWORK_TYPE_LTE
-                || networkType == TelephonyManager.NETWORK_TYPE_LTE_CA)
-                && (overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA
-                || overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED);
-        boolean is5GHysteresisActive = mPhone.getDisplayInfoController().is5GHysteresisActive();
-
-        // True if device is on NR SA or NR NSA, or neither but 5G hysteresis is active
-        return isNrSa || isNrNsa || is5GHysteresisActive;
-    }
-
-    // TODO: Remove this after b/176119724 is fixed. This is just a workaround to prevent
-    // NET_CAPABILITY_TEMPORARILY_NOT_METERED incorrectly set on devices that are not supposed
-    // to use 5G unmetered network. Currently TEMPORARILY_NOT_METERED can only happen on few devices
-    // and carriers.
-    private boolean tempNotMeteredPossible() {
-        return isDevice5GCapable() && isTempNotMeteredSupportedByCarrier() && isCampedOn5G();
     }
 
     protected void log(String s) {
