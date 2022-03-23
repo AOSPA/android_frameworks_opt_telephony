@@ -138,7 +138,7 @@ public class DcNetworkAgent extends NetworkAgent {
         mInternalHandler = new InternalHandler(dc.getHandler().getLooper());
         mPhoneSwitcher.registerForActivePhoneSwitch(mInternalHandler, EVENT_ACTIVE_PHONE_SWITCH,
                 null);
-        mQosCallbackTracker = new QosCallbackTracker(this);
+        mQosCallbackTracker = new QosCallbackTracker(this, mPhone.getPhoneId());
     }
 
     private class InternalHandler extends Handler {
