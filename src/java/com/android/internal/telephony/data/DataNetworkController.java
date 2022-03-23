@@ -1385,6 +1385,9 @@ public class DataNetworkController extends Handler {
             evaluation.addDataDisallowedReason(DataDisallowedReason.NOT_IN_SERVICE);
         }
 
+        // Add data disallowed reason when in Secure Mode
+        addDataDisallowedReasonWhenInSecureMode(evaluation);
+
         // Check SIM state
         checkSimStateForDataEvaluation(evaluation);
 
@@ -1540,6 +1543,16 @@ public class DataNetworkController extends Handler {
     }
 
     /**
+     * Add data disallow reason when device is in Secure Mode.
+     *
+     * @param evaluation The evaluation result from
+     * {@link #evaluateDataNetwork(DataNetwork, DataEvaluationReason)} or
+     * {@link #evaluateNetworkRequest(TelephonyNetworkRequest, DataEvaluationReason)}
+     */
+    protected void addDataDisallowedReasonWhenInSecureMode(DataEvaluation evaluation) {
+    }
+
+    /**
      * Evaluate if data setup should be allowed with the current SIM state.
      *
      * @param evaluation The evaluation result from
@@ -1621,6 +1634,9 @@ public class DataNetworkController extends Handler {
             log(evaluation.toString());
             return evaluation;
         }
+
+        // Add data disallowed reason when in Secure Mode
+        addDataDisallowedReasonWhenInSecureMode(evaluation);
 
         // Check SIM state
         checkSimStateForDataEvaluation(evaluation);
