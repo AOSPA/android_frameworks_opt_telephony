@@ -42,7 +42,6 @@ import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.dataconnection.DcTracker;
 import com.android.internal.telephony.dataconnection.DcTracker.ReleaseNetworkType;
 import com.android.internal.telephony.dataconnection.DcTracker.RequestNetworkType;
-import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.dataconnection.TransportManager.HandoverParams;
 import com.android.internal.telephony.metrics.NetworkRequestsStats;
 import com.android.internal.util.IndentingPrintWriter;
@@ -90,7 +89,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
 
     private final Phone mPhone;
 
-    private final TransportManager mTransportManager;
+    private AccessNetworksManager mAccessNetworksManager;
 
     private int mSubscriptionId;
 
@@ -105,10 +104,10 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         super(looper, phone.getContext(), "TelephonyNetworkFactory[" + phone.getPhoneId()
                 + "]", null);
         mPhone = phone;
-        mTransportManager = mPhone.getTransportManager();
         mInternalHandler = new InternalHandler(looper);
 
         mSubscriptionController = SubscriptionController.getInstance();
+        mAccessNetworksManager = mPhone.getAccessNetworksManager();
 
         setCapabilityFilter(makeNetworkFilter(mSubscriptionController, mPhone.getPhoneId()));
         setScoreFilter(TELEPHONY_NETWORK_SCORE);
@@ -118,8 +117,10 @@ public class TelephonyNetworkFactory extends NetworkFactory {
 
         mPhoneSwitcher.registerForActivePhoneSwitch(mInternalHandler, EVENT_ACTIVE_PHONE_SWITCH,
                 null);
-        mTransportManager.registerForHandoverNeededEvent(mInternalHandler,
-                EVENT_DATA_HANDOVER_NEEDED);
+        if (!phone.isUsingNewDataStack()) {
+            mPhone.getTransportManager().registerForHandoverNeededEvent(mInternalHandler,
+                    EVENT_DATA_HANDOVER_NEEDED);
+        }
 
         mSubscriptionId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
         SubscriptionManager.from(mPhone.getContext()).addOnSubscriptionsChangedListener(
@@ -168,6 +169,9 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_MCX)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_LATENCY)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_BANDWIDTH)
                 .setNetworkSpecifier(new TelephonyNetworkSpecifier.Builder()
                 .setSubscriptionId(subscriptionId).build());
         return builder.build();
@@ -232,14 +236,14 @@ public class TelephonyNetworkFactory extends NetworkFactory {
             int transport = AccessNetworkConstants.TRANSPORT_TYPE_WWAN;
             int capability = networkRequest.getApnTypeNetworkCapability();
             if (capability >= 0) {
-                transport = PhoneFactory.getDefaultPhone().getAccessNetworksManager()
+                transport = mAccessNetworksManager
                         .getPreferredTransportByNetworkCapability(capability);
             }
             return transport;
         } else {
             int apnType = ApnContext.getApnTypeFromNetworkRequest(
                     networkRequest.getNativeNetworkRequest());
-            return mTransportManager.getCurrentTransport(apnType);
+            return mAccessNetworksManager.getCurrentTransport(apnType);
         }
     }
 
@@ -415,7 +419,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         log("onDataHandoverNeeded: apnType=" + ApnSetting.getApnTypeString(apnType)
                 + ", target transport="
                 + AccessNetworkConstants.transportTypeToString(targetTransport));
-        if (mTransportManager.getCurrentTransport(apnType) == targetTransport) {
+        if (mAccessNetworksManager.getCurrentTransport(apnType) == targetTransport) {
             log("APN type " + ApnSetting.getApnTypeString(apnType) + " is already on "
                     + AccessNetworkConstants.transportTypeToString(targetTransport));
             handoverParams.callback.onCompleted(true, false);
