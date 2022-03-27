@@ -222,7 +222,7 @@ public class DataNetworkController extends Handler {
     /** The current service state of the device. */
     // Note that keeping a copy here instead of directly using ServiceStateTracker.getServiceState()
     // is intended for detecting the delta.
-    private @NonNull ServiceState mServiceState;
+    protected @NonNull ServiceState mServiceState;
 
     /** The list of SubscriptionPlans, updated when initialized and when plans are changed. */
     private final @NonNull List<SubscriptionPlan> mSubscriptionPlans = new ArrayList<>();
@@ -2702,7 +2702,7 @@ public class DataNetworkController extends Handler {
     // Note that this is only called when data RAT or data registration changed. If we need to know
     // more "changed" events other than data RAT and data registration state, we should add
     // a new listening ServiceStateTracker.registerForServiceStateChanged().
-    private void onServiceStateChanged() {
+    protected void onServiceStateChanged() {
         // Use the raw service state instead of the mPhone.getServiceState().
         ServiceState newServiceState = mPhone.getServiceStateTracker().getServiceState();
         StringBuilder debugMessage = new StringBuilder("onServiceStateChanged: ");

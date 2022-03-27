@@ -530,6 +530,13 @@ public class PhoneSwitcher extends Handler {
                                 public void onDataEnabledChanged(boolean enabled,
                                         @TelephonyManager.DataEnabledChangedReason int reason) {
                                     evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
+                                }
+
+                                @Override
+                                public void onDataRoamingEnabledChanged(boolean enabled) {
+                                    log("onDataRoamingEnabledChanged: enabled: " + enabled);
+                                    evaluateIfDataSwitchIsNeeded(
+                                            "EVENT_DATA_ROAMING_ENABLED_CHANGED");
                                 }});
                     phone.getDataSettingsManager().registerCallback(
                             mDataSettingsManagerCallbacks.get(phone.getPhoneId()));
@@ -1412,26 +1419,46 @@ public class PhoneSwitcher extends Handler {
     // This updates mPreferredDataPhoneId which decides which phone should handle default network
     // requests.
     protected void updatePreferredDataPhoneId() {
+        log("updatePreferredDataPhoneId+");
         Phone voicePhone = findPhoneById(mPhoneIdInVoiceCall);
         boolean isDataAllowedOnVoiceCallSub = false;
+
         if (voicePhone != null) {
             if (voicePhone.isUsingNewDataStack()) {
-                isDataAllowedOnVoiceCallSub &= voicePhone.getDataSettingsManager()
+                isDataAllowedOnVoiceCallSub = voicePhone
+                        .getDataSettingsManager()
                         .isDataEnabled(ApnSetting.TYPE_DEFAULT);
             } else {
-                isDataAllowedOnVoiceCallSub &= voicePhone.getDataEnabledSettings()
+                isDataAllowedOnVoiceCallSub = voicePhone
+                        .getDataEnabledSettings()
                         .isDataEnabled(ApnSetting.TYPE_DEFAULT);
             }
+            log("data enabled on voice sub: " + isDataAllowedOnVoiceCallSub);
         }
+
         if (mPhoneIdInVoiceCall != mPreferredDataPhoneId) {
             Phone preferredDataPhone = findPhoneById(mPreferredDataPhoneId);
             if (preferredDataPhone != null) {
+
+                // when DDS mobile data setting is turned off, do not trigger temp DDS switch
                 if (preferredDataPhone.isUsingNewDataStack()) {
-                    isDataAllowedOnVoiceCallSub &= preferredDataPhone
-                            .getDataSettingsManager().isDataEnabled();
+                    isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
+                            && preferredDataPhone.getDataSettingsManager().isDataEnabled();
                 } else {
-                    isDataAllowedOnVoiceCallSub &= preferredDataPhone
-                            .getDataEnabledSettings().isDataEnabled();
+                    isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
+                            && preferredDataPhone.getDataEnabledSettings().isDataEnabled();
+                }
+                log("data enabled on DDS: " + isDataAllowedOnVoiceCallSub);
+
+                // when DDS is in roaming, and data roaming for DDS is turned off,
+                // do not trigger temp DDS switch
+                try {
+                    if (preferredDataPhone.getServiceState().getDataRoaming()) {
+                        isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
+                                && preferredDataPhone.getDataRoamingEnabled();
+                    }
+                } catch (NullPointerException e) {
+                    Rlog.e(LOG_TAG, "Exception while checking roaming state for DDS", e);
                 }
             }
             // As per customizations, the data of nDDS SUB is no longer disabled, so the API
