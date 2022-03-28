@@ -741,7 +741,7 @@ public class ImsPhoneTest extends TelephonyTest {
     @Test
     @SmallTest
     public void testRoamingToAirplanModeIwlanInService() throws Exception {
-        doReturn(true).when(mTransportManager).isInLegacyMode();
+        doReturn(true).when(mAccessNetworksManager).isInLegacyMode();
         doReturn(PhoneConstants.State.IDLE).when(mImsCT).getState();
         doReturn(true).when(mPhone).isRadioOn();
 
@@ -769,7 +769,7 @@ public class ImsPhoneTest extends TelephonyTest {
     @Test
     @SmallTest
     public void testRoamingToOutOfService() throws Exception {
-        doReturn(true).when(mTransportManager).isInLegacyMode();
+        doReturn(true).when(mAccessNetworksManager).isInLegacyMode();
         doReturn(PhoneConstants.State.IDLE).when(mImsCT).getState();
         doReturn(true).when(mPhone).isRadioOn();
 
@@ -795,7 +795,7 @@ public class ImsPhoneTest extends TelephonyTest {
     @Test
     @SmallTest
     public void testRoamingChangeForLteInLegacyMode() throws Exception {
-        doReturn(true).when(mTransportManager).isInLegacyMode();
+        doReturn(true).when(mAccessNetworksManager).isInLegacyMode();
         doReturn(PhoneConstants.State.IDLE).when(mImsCT).getState();
         doReturn(true).when(mPhone).isRadioOn();
 
@@ -820,7 +820,7 @@ public class ImsPhoneTest extends TelephonyTest {
     @Test
     @SmallTest
     public void testDataOnlyRoamingCellToIWlanInLegacyMode() throws Exception {
-        doReturn(true).when(mTransportManager).isInLegacyMode();
+        doReturn(true).when(mAccessNetworksManager).isInLegacyMode();
         doReturn(PhoneConstants.State.IDLE).when(mImsCT).getState();
         doReturn(true).when(mPhone).isRadioOn();
 
@@ -846,7 +846,7 @@ public class ImsPhoneTest extends TelephonyTest {
     @Test
     @SmallTest
     public void testCellVoiceDataChangeToWlanInLegacyMode() throws Exception {
-        doReturn(true).when(mTransportManager).isInLegacyMode();
+        doReturn(true).when(mAccessNetworksManager).isInLegacyMode();
         doReturn(PhoneConstants.State.IDLE).when(mImsCT).getState();
         doReturn(true).when(mPhone).isRadioOn();
 
