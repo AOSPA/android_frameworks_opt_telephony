@@ -131,6 +131,13 @@ public class DataSettingsManager extends Handler {
          * @param enabled {@code true} indicates data roaming is enabled.
          */
         public void onDataRoamingEnabledChanged(boolean enabled) {}
+
+        /**
+         * Called when data during call enabled state changed.
+         *
+         * @param enabled {@code true} indicates data during call is enabled.
+         */
+        public void onDataDuringCallChanged(boolean enabled) {}
     }
 
     /**
@@ -245,6 +252,7 @@ public class DataSettingsManager extends Handler {
                         .setDataEnabledOverrideRules(mSubId, mDataEnabledOverride.getRules())) {
                     mPhone.getDataNetworkController().onDataDuringVoiceCallChanged(allow);
                     updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_OVERRIDE);
+                    notifyDataDuringCallChanged(allow);
                 }
                 break;
             }
@@ -534,6 +542,12 @@ public class DataSettingsManager extends Handler {
         mDataSettingsManagerCallbacks.forEach(callback -> callback.invokeFromExecutor(
                 () -> callback.onDataEnabledChanged(enabled, reason)));
         mPhone.notifyDataEnabled(enabled, reason);
+    }
+
+    private void notifyDataDuringCallChanged(boolean enabled) {
+        logl("notifyDataDuringCallChanged: enabled=" + enabled);
+        mDataSettingsManagerCallbacks.forEach(callback -> callback.invokeFromExecutor(
+                () -> callback.onDataDuringCallChanged(enabled)));
     }
 
     /**
