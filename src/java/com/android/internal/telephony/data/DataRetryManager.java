@@ -124,7 +124,7 @@ public class DataRetryManager extends Handler {
     public static final int RESET_REASON_DATA_CONFIG_CHANGED = 5;
 
     /** The phone instance. */
-    private final @NonNull Phone mPhone;
+    protected final @NonNull Phone mPhone;
 
     /** The RIL instance. */
     private final @NonNull CommandsInterface mRil;
@@ -146,6 +146,9 @@ public class DataRetryManager extends Handler {
 
     /** Data config manager instance. */
     private final @NonNull DataConfigManager mDataConfigManager;
+
+    /** Data network controller instance. */
+    protected final @NonNull DataNetworkController mDataNetworkController;
 
     /** Data profile manager. */
     private final @NonNull DataProfileManager mDataProfileManager;
@@ -920,8 +923,9 @@ public class DataRetryManager extends Handler {
         mDataRetryManagerCallbacks.add(dataRetryManagerCallback);
 
         mDataServiceManagers = dataServiceManagers;
-        mDataConfigManager = dataNetworkController.getDataConfigManager();
-        mDataProfileManager = dataNetworkController.getDataProfileManager();
+        mDataNetworkController = dataNetworkController;
+        mDataConfigManager = mDataNetworkController.getDataConfigManager();
+        mDataProfileManager = mDataNetworkController.getDataProfileManager();
         mDataConfigManager.registerForConfigUpdate(this, EVENT_DATA_CONFIG_UPDATED);
 
         mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
@@ -1028,7 +1032,7 @@ public class DataRetryManager extends Handler {
                 retryDelayMillis));
     }
 
-    private void onEvaluateDataSetupRetry(@NonNull DataProfile dataProfile,
+    protected void onEvaluateDataSetupRetry(@NonNull DataProfile dataProfile,
             @TransportType int transport, @NonNull NetworkRequestList requestList,
             @DataFailureCause int cause, long retryDelayMillis) {
         logl("onEvaluateDataRetry: " + dataProfile + ", transport="
