@@ -195,12 +195,14 @@ public class VendorSubscriptionController extends SubscriptionController {
         handleDataPreference(mNextActivatedSub.getSubscriptionId());
 
         if ((defaultSmsSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID
-                || activeCount == 1) && !isSubProvisioned(defaultSmsSubId)) {
+                || activeCount == 1) && !isSubProvisioned(defaultSmsSubId)
+                && !isSubIdCreationPending()) {
             setDefaultSmsSubId(mNextActivatedSub.getSubscriptionId());
         }
 
         if ((defaultVoiceSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID
-                || activeCount == 1) && !isSubProvisioned(defaultVoiceSubId)) {
+                || activeCount == 1) && !isSubProvisioned(defaultVoiceSubId)
+                && !isSubIdCreationPending()) {
             setDefaultVoiceSubId(mNextActivatedSub.getSubscriptionId());
         }
 
@@ -209,7 +211,7 @@ public class VendorSubscriptionController extends SubscriptionController {
         //    next available Sub.
         // 2. When device is flashed for the first time, initial voice preference
         //    would be set to always ask.
-        if (!isNonSimAccountFound() && activeCount == 1) {
+        if (!isNonSimAccountFound() && activeCount == 1 && !isSubIdCreationPending()) {
             final int subId = mNextActivatedSub.getSubscriptionId();
             PhoneAccountHandle phoneAccountHandle = subscriptionIdToPhoneAccountHandle(subId);
             logi("set default phoneaccount to  " + subId);
