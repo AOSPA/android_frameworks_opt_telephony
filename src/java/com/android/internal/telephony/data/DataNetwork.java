@@ -42,6 +42,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.Process;
 import android.os.SystemClock;
+import android.provider.Telephony;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
 import android.telephony.AccessNetworkConstants.TransportType;
@@ -79,6 +80,7 @@ import android.util.Pair;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 
+import com.android.internal.telephony.CarrierSignalAgent;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
@@ -211,6 +213,12 @@ public class DataNetwork extends StateMachine {
      */
     private static final int EVENT_STUCK_IN_TRANSIENT_STATE = 20;
 
+    /**
+     * Event for waiting for tearing down condition met. This will cause data network entering
+     * disconnecting state.
+     */
+    private static final int EVENT_WAITING_FOR_TEARING_DOWN_CONDITION_MET = 21;
+
     /** The default MTU for IPv4 network. */
     private static final int DEFAULT_MTU_V4 = 1280;
 
@@ -226,7 +234,7 @@ public class DataNetwork extends StateMachine {
 
     /** The maximum time the data network can stay in {@link DisconnectingState}. */
     private static final long MAXIMUM_DISCONNECTING_DURATION_MILLIS =
-            TimeUnit.SECONDS.toMillis(15);
+            TimeUnit.SECONDS.toMillis(60);
 
     /** The maximum time the data network can stay in {@link HandoverState}. */
     private static final long MAXIMUM_HANDOVER_DURATION_MILLIS =
@@ -842,6 +850,28 @@ public class DataNetwork extends StateMachine {
     }
 
     /**
+     * @return {@code true} if 464xlat should be skipped.
+     */
+    private boolean shouldSkip464Xlat() {
+        if (mDataProfile.getApnSetting() != null) {
+            switch (mDataProfile.getApnSetting().getSkip464Xlat()) {
+                case Telephony.Carriers.SKIP_464XLAT_ENABLE:
+                    return true;
+                case Telephony.Carriers.SKIP_464XLAT_DISABLE:
+                    return false;
+                case Telephony.Carriers.SKIP_464XLAT_DEFAULT:
+                default:
+                    break;
+            }
+        }
+
+        // As default, return true if ims and no internet
+        final NetworkCapabilities nc = getNetworkCapabilities();
+        return nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_IMS)
+                && !nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+    }
+
+    /**
      * Create the telephony network agent.
      *
      * @return The telephony network agent.
@@ -855,6 +885,24 @@ public class DataNetwork extends StateMachine {
         configBuilder.setLegacySubTypeName(TelephonyManager.getNetworkTypeName(networkType));
         if (mDataProfile.getApnSetting() != null) {
             configBuilder.setLegacyExtraInfo(mDataProfile.getApnSetting().getApnName());
+        }
+
+        final CarrierSignalAgent carrierSignalAgent = mPhone.getCarrierSignalAgent();
+        if (carrierSignalAgent.hasRegisteredReceivers(TelephonyManager
+                .ACTION_CARRIER_SIGNAL_REDIRECTED)) {
+            // carrierSignal Receivers will place the carrier-specific provisioning notification
+            configBuilder.setProvisioningNotificationEnabled(false);
+        }
+
+        // Fill the IMSI
+        final String subscriberId = mPhone.getSubscriberId();
+        if (!TextUtils.isEmpty(subscriberId)) {
+            configBuilder.setSubscriberId(subscriberId);
+        }
+
+        // set skip464xlat if it is not default otherwise
+        if (shouldSkip464Xlat()) {
+            configBuilder.setNat64DetectionEnabled(false);
         }
 
         final NetworkFactory factory = PhoneFactory.getNetworkFactory(
@@ -1004,7 +1052,9 @@ public class DataNetwork extends StateMachine {
                 case EVENT_PCO_DATA_RECEIVED:
                 case EVENT_STUCK_IN_TRANSIENT_STATE:
                 case EVENT_DISPLAY_INFO_CHANGED:
+                case EVENT_WAITING_FOR_TEARING_DOWN_CONDITION_MET:
                     // Ignore the events when not in the correct state.
+                    log("Ignored " + eventToString(msg.what));
                     break;
                 case EVENT_START_HANDOVER:
                     log("Ignore the handover to " + AccessNetworkConstants
@@ -1077,6 +1127,7 @@ public class DataNetwork extends StateMachine {
                 case EVENT_START_HANDOVER:
                 case EVENT_TEAR_DOWN_NETWORK:
                 case EVENT_PCO_DATA_RECEIVED:
+                case EVENT_WAITING_FOR_TEARING_DOWN_CONDITION_MET:
                     // Defer the request until connected or disconnected.
                     deferMessage(msg);
                     break;
@@ -1196,6 +1247,10 @@ public class DataNetwork extends StateMachine {
                     int resultCode = msg.arg1;
                     onDeactivateResponse(resultCode);
                     break;
+                case EVENT_WAITING_FOR_TEARING_DOWN_CONDITION_MET:
+                    transitionTo(mDisconnectingState);
+                    sendMessageDelayed(EVENT_TEAR_DOWN_NETWORK, msg.arg1, msg.arg2);
+                    break;
                 default:
                     return NOT_HANDLED;
             }
@@ -1233,6 +1288,7 @@ public class DataNetwork extends StateMachine {
                         deferMessage(msg);
                     }
                     break;
+                case EVENT_WAITING_FOR_TEARING_DOWN_CONDITION_MET:
                 case EVENT_DISPLAY_INFO_CHANGED:
                 case EVENT_TEAR_DOWN_NETWORK:
                     // Defer the request until handover succeeds or fails.
@@ -1334,6 +1390,15 @@ public class DataNetwork extends StateMachine {
         public boolean processMessage(Message msg) {
             logv("event=" + eventToString(msg.what));
             switch (msg.what) {
+                case EVENT_TEAR_DOWN_NETWORK:
+                    if (mInvokedDataDeactivation) {
+                        log("Ignore tear down request because network is being torn down.");
+                        break;
+                    }
+                    removeMessages(EVENT_TEAR_DOWN_NETWORK);
+                    removeDeferredMessages(EVENT_TEAR_DOWN_NETWORK);
+                    onTearDown(msg.arg1);
+                    break;
                 case EVENT_DEACTIVATE_DATA_NETWORK_RESPONSE:
                     int resultCode = msg.arg1;
                     onDeactivateResponse(resultCode);
@@ -1347,7 +1412,7 @@ public class DataNetwork extends StateMachine {
                                     MAXIMUM_DISCONNECTING_DURATION_MILLIS) + " seconds.";
                     logl(message);
                     AnomalyReporter.reportAnomaly(
-                            UUID.fromString("d0e4fa1c-c57b-4ba5-b4b6-8955487012ca"), message);
+                            UUID.fromString("d0e4fa1c-c57b-4ba5-b4b6-8955487012cc"), message);
                     mFailCause = DataFailCause.LOST_CONNECTION;
                     transitionTo(mDisconnectedState);
                     break;
@@ -2118,7 +2183,7 @@ public class DataNetwork extends StateMachine {
     private void onDeactivateResponse(@DataServiceCallback.ResultCode int resultCode) {
         logl("onDeactivateResponse: resultCode="
                 + DataServiceCallback.resultCodeToString(resultCode));
-        if (resultCode == DataServiceCallback.RESULT_ERROR_INVALID_RESPONSE) {
+        if (resultCode == DataServiceCallback.RESULT_ERROR_ILLEGAL_STATE) {
             log("Remove network since deactivate request returned an error.");
             mFailCause = DataFailCause.RADIO_NOT_AVAILABLE;
             transitionTo(mDisconnectedState);
@@ -2178,15 +2243,15 @@ public class DataNetwork extends StateMachine {
      * will be performed. {@code null} if the data network is already disconnected or being
      * disconnected.
      */
-    public @Nullable Runnable tearDownWithCondition(@TearDownReason int reason,
+    public @Nullable Runnable tearDownWhenConditionMet(@TearDownReason int reason,
             long timeoutMillis) {
         if (getCurrentState() == null || isDisconnected() || isDisconnecting()) {
-            loge("tearDownGracefully: Not in the right state. State=" + getCurrentState());
+            loge("tearDownWhenConditionMet: Not in the right state. State=" + getCurrentState());
             return null;
         }
-        logl("tearDownWithCondition: reason=" + tearDownReasonToString(reason) + ", timeout="
+        logl("tearDownWhenConditionMet: reason=" + tearDownReasonToString(reason) + ", timeout="
                 + timeoutMillis + "ms.");
-        sendMessageDelayed(EVENT_TEAR_DOWN_NETWORK, reason, timeoutMillis);
+        sendMessage(EVENT_WAITING_FOR_TEARING_DOWN_CONDITION_MET, reason, (int) timeoutMillis);
         return () -> this.tearDown(reason);
     }
 
@@ -2884,6 +2949,8 @@ public class DataNetwork extends StateMachine {
                 return "EVENT_DEACTIVATE_DATA_NETWORK_RESPONSE";
             case EVENT_STUCK_IN_TRANSIENT_STATE:
                 return "EVENT_STUCK_IN_TRANSIENT_STATE";
+            case EVENT_WAITING_FOR_TEARING_DOWN_CONDITION_MET:
+                return "EVENT_WAITING_FOR_TEARING_DOWN_CONDITION_MET";
             default:
                 return "Unknown(" + event + ")";
         }

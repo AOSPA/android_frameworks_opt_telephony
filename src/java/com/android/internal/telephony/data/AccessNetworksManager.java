@@ -350,8 +350,8 @@ public class AccessNetworksManager extends Handler {
             }
 
             if (!qualifiedNetworksList.isEmpty()) {
-                mQualifiedNetworksChangedRegistrants.notifyResult(qualifiedNetworksList);
                 setPreferredTransports(qualifiedNetworksList);
+                mQualifiedNetworksChangedRegistrants.notifyResult(qualifiedNetworksList);
             }
         }
     }

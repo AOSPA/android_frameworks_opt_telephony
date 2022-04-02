@@ -24,10 +24,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.RegistrantList;
+import android.os.SystemProperties;
 import android.os.storage.StorageManager;
 import android.sysprop.TelephonyProperties;
 import android.telephony.PhoneCapability;
@@ -72,6 +74,8 @@ public class PhoneConfigurationManager {
     private MockableInterface mMi = new MockableInterface();
     private TelephonyManager mTelephonyManager;
     private static final RegistrantList sMultiSimConfigChangeRegistrants = new RegistrantList();
+    private static final String ALLOW_MOCK_MODEM_PROPERTY = "persist.radio.allow_mock_modem";
+    private static final boolean DEBUG = !"user".equals(Build.TYPE);
 
     private final String ACTION_MSIM_VOICE_CAPABILITY =
             "org.codeaurora.intent.action.MSIM_VOICE_CAPABILITY";
@@ -484,26 +488,33 @@ public class PhoneConfigurationManager {
         log("setModemService: " + serviceName);
         boolean statusRadioConfig = false;
         boolean statusRil = false;
+        final boolean isAllowed = SystemProperties.getBoolean(ALLOW_MOCK_MODEM_PROPERTY, false);
 
-        if (serviceName != null) {
-            // Only CTS mock modem service is allowed to swith.
-            if (!serviceName.equals(CTS_MOCK_MODEM_SERVICE)) {
-                loge(serviceName + " is not allowed to switch");
-                return false;
+        // Check for ALLOW_MOCK_MODEM_PROPERTY on user builds
+        if (isAllowed || DEBUG) {
+            if (serviceName != null) {
+                // Only CTS mock modem service is allowed to swith.
+                if (!serviceName.equals(CTS_MOCK_MODEM_SERVICE)) {
+                    loge(serviceName + " is not allowed to switch");
+                    return false;
+                }
+
+                statusRadioConfig = mRadioConfig.setModemService(serviceName);
+
+                //TODO: consider multi-sim case (b/210073692)
+                statusRil = mPhones[0].mCi.setModemService(serviceName);
+            } else {
+                statusRadioConfig = mRadioConfig.setModemService(null);
+
+                //TODO: consider multi-sim case
+                statusRil = mPhones[0].mCi.setModemService(null);
             }
 
-            statusRadioConfig = mRadioConfig.setModemService(serviceName);
-
-            //TODO: consider multi-sim case (b/210073692)
-            statusRil = mPhones[0].mCi.setModemService(serviceName);
+            return statusRadioConfig && statusRil;
         } else {
-            statusRadioConfig = mRadioConfig.setModemService(null);
-
-            //TODO: consider multi-sim case
-            statusRil = mPhones[0].mCi.setModemService(null);
+            loge("setModemService is not allowed");
+            return false;
         }
-
-        return statusRadioConfig && statusRil;
     }
 
      /**
