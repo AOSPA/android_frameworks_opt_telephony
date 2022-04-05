@@ -782,27 +782,11 @@ public class DataNetworkController extends Handler {
                             @Override
                             public void onDataEnabledChanged(boolean enabled,
                                     @TelephonyManager.DataEnabledChangedReason int reason) {
-                                // If mobile data is enabled by the user, evaluate the unsatisfied
-                                // network requests and then attempt to setup data networks to
-                                // satisfy them. If mobile data is disabled, evaluate the existing
-                                // data networks and see if they need to be torn down.
-                                logl("onDataEnabledChanged: enabled=" + enabled);
-                                sendMessage(obtainMessage(enabled
-                                                ? EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS
-                                                : EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
-                                        DataEvaluationReason.DATA_ENABLED_CHANGED));
+                                DataNetworkController.this.onDataEnabledChanged(enabled, reason);
                             }
                             @Override
                             public void onDataRoamingEnabledChanged(boolean enabled) {
-                                // If data roaming is enabled by the user, evaluate the unsatisfied
-                                // network requests and then attempt to setup data networks to
-                                // satisfy them. If data roaming is disabled, evaluate the existing
-                                // data networks and see if they need to be torn down.
-                                logl("onDataRoamingEnabledChanged: enabled=" + enabled);
-                                sendMessage(obtainMessage(enabled
-                                                ? EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS
-                                                : EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
-                                        DataEvaluationReason.ROAMING_ENABLED_CHANGED));
+                                DataNetworkController.this.onDataRoamingEnabledChanged(enabled);
                             }
                         });
         mDataProfileManager = TelephonyComponentFactory.getInstance().inject(
