@@ -133,6 +133,9 @@ public class TelephonyNetworkRequest {
                     CAPABILITY_ATTRIBUTE_TRAFFIC_DESCRIPTOR_OS_APP_ID)
     );
 
+    /** The phone instance. */
+    private final @NonNull Phone mPhone;
+
     /**
      * Native network request from the clients. See {@link NetworkRequest};
      */
@@ -154,7 +157,8 @@ public class TelephonyNetworkRequest {
     /**
      * Data config manager for retrieving data config.
      */
-    private final @NonNull DataConfigManager mDataConfigManager;
+    // TODO: Make this @NonNull after old data stack removed.
+    private final @Nullable DataConfigManager mDataConfigManager;
 
     /**
      * The attached data network. Note that the data network could be in any state. {@code null}
@@ -184,6 +188,7 @@ public class TelephonyNetworkRequest {
      * @param phone The phone instance
      */
     public TelephonyNetworkRequest(NetworkRequest request, Phone phone) {
+        mPhone = phone;
         mNativeNetworkRequest = request;
 
         int capabilitiesAttributes = CAPABILITY_ATTRIBUTE_NONE;
@@ -380,6 +385,15 @@ public class TelephonyNetworkRequest {
     }
 
     /**
+     * @return {@code true} if this network request can result in bringing up a metered network.
+     */
+    public boolean isMeteredRequest() {
+        // TODO: Remove null check after old data stack removed.
+        return mDataConfigManager != null && mDataConfigManager.isAnyMeteredCapability(
+                getCapabilities(), mPhone.getServiceState().getDataRoaming());
+    }
+
+    /**
      * Get Os/App id from the network request.
      *
      * @return Os/App id. {@code null} if the request does not have traffic descriptor based network
@@ -430,8 +444,8 @@ public class TelephonyNetworkRequest {
         return "[" + mNativeNetworkRequest.toString() + ", mPriority=" + mPriority
                 + ", state=" + requestStateToString(mState)
                 + ", mAttachedDataNetwork=" + (mAttachedDataNetwork != null
-                ? mAttachedDataNetwork.name() : null) + ", created time="
-                + DataUtils.elapsedTimeToString(mCreatedTimeMillis)
+                ? mAttachedDataNetwork.name() : null) + ", isMetered=" + isMeteredRequest()
+                + ", created time=" + DataUtils.elapsedTimeToString(mCreatedTimeMillis)
                 + ", evaluation result=" + mEvaluation + "]";
     }
 

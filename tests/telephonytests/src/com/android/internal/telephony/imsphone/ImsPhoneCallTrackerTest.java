@@ -52,6 +52,7 @@ import static org.mockito.Mockito.when;
 import android.annotation.Nullable;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.NetworkStats;
@@ -92,6 +93,7 @@ import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.Connection;
+import com.android.internal.telephony.IccCardConstants;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.TelephonyTest;
 import com.android.internal.telephony.d2d.RtpTransport;
@@ -104,8 +106,6 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
-import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
@@ -126,43 +126,28 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     private Bundle mBundle = new Bundle();
     private static final int SUB_0 = 0;
     @Nullable private VtDataUsageProvider mVtDataUsageProvider;
-    @Mock
-    private ImsCallSession mImsCallSession;
-    @Mock
-    private SharedPreferences mSharedPreferences;
-    @Mock
-    private ImsPhoneConnection.Listener mImsPhoneConnectionListener;
-    @Mock
-    private ImsConfig mImsConfig;
-    @Mock
-    private ImsPhoneConnection mImsPhoneConnection;
-    @Mock
-    private INetworkStatsProviderCallback mVtDataUsageProviderCb;
-    @Mock
-    private ImsPhoneCallTracker.ConnectorFactory mConnectorFactory;
-    @Mock
-    private FeatureConnector<ImsManager> mMockConnector;
-    @Captor
-    private ArgumentCaptor<Set<RtpHeaderExtensionType>> mRtpHeaderExtensionTypeCaptor;
 
-    private Executor mExecutor = new Executor() {
-        @Override
-        public void execute(Runnable r) {
-            r.run();
-        }
-    };
+    // Mocked classes
+    private ArgumentCaptor<Set<RtpHeaderExtensionType>> mRtpHeaderExtensionTypeCaptor;
+    private FeatureConnector<ImsManager> mMockConnector;
+    private ImsCallSession mImsCallSession;
+    private SharedPreferences mSharedPreferences;
+    private ImsPhoneConnection.Listener mImsPhoneConnectionListener;
+    private ImsConfig mImsConfig;
+    private ImsPhoneConnection mImsPhoneConnection;
+    private INetworkStatsProviderCallback mVtDataUsageProviderCb;
+    private ImsPhoneCallTracker.ConnectorFactory mConnectorFactory;
+
+    private final Executor mExecutor = Runnable::run;
 
     private void imsCallMocking(final ImsCall imsCall) throws Exception {
 
-        doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) throws Throwable {
-                // trigger the listener on accept call
-                if (mImsCallListener != null) {
-                    mImsCallListener.onCallStarted(imsCall);
-                }
-                return null;
+        doAnswer((Answer<Void>) invocation -> {
+            // trigger the listener on accept call
+            if (mImsCallListener != null) {
+                mImsCallListener.onCallStarted(imsCall);
             }
+            return null;
         }).when(imsCall).accept(anyInt());
 
         doAnswer(new Answer<Void>() {
@@ -176,39 +161,30 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
             }
         }).when(mImsCall).accept(anyInt(), (ImsStreamMediaProfile) any());
 
-        doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) throws Throwable {
-                // trigger the listener on reject call
-                int reasonCode = (int) invocation.getArguments()[0];
-                if (mImsCallListener != null) {
-                    mImsCallListener.onCallStartFailed(imsCall, new ImsReasonInfo(reasonCode, -1));
-                    mImsCallListener.onCallTerminated(imsCall, new ImsReasonInfo(reasonCode, -1));
-                }
-                return null;
+        doAnswer((Answer<Void>) invocation -> {
+            // trigger the listener on reject call
+            int reasonCode = (int) invocation.getArguments()[0];
+            if (mImsCallListener != null) {
+                mImsCallListener.onCallStartFailed(imsCall, new ImsReasonInfo(reasonCode, -1));
+                mImsCallListener.onCallTerminated(imsCall, new ImsReasonInfo(reasonCode, -1));
             }
+            return null;
         }).when(imsCall).reject(anyInt());
 
-        doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) throws Throwable {
-                // trigger the listener on reject call
-                int reasonCode = (int) invocation.getArguments()[0];
-                if (mImsCallListener != null) {
-                    mImsCallListener.onCallTerminated(imsCall, new ImsReasonInfo(reasonCode, -1));
-                }
-                return null;
+        doAnswer((Answer<Void>) invocation -> {
+            // trigger the listener on reject call
+            int reasonCode = (int) invocation.getArguments()[0];
+            if (mImsCallListener != null) {
+                mImsCallListener.onCallTerminated(imsCall, new ImsReasonInfo(reasonCode, -1));
             }
+            return null;
         }).when(imsCall).terminate(anyInt());
 
-        doAnswer(new Answer<Void>() {
-            @Override
-            public Void answer(InvocationOnMock invocation) throws Throwable {
-                if (mImsCallListener != null) {
-                    mImsCallListener.onCallHeld(imsCall);
-                }
-                return null;
+        doAnswer((Answer<Void>) invocation -> {
+            if (mImsCallListener != null) {
+                mImsCallListener.onCallHeld(imsCall);
             }
+            return null;
         }).when(imsCall).hold();
 
         doReturn(mExecutor).when(mContext).getMainExecutor();
@@ -219,7 +195,14 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
 
     @Before
     public void setUp() throws Exception {
-        super.setUp(this.getClass().getSimpleName());
+        super.setUp(getClass().getSimpleName());
+        mRtpHeaderExtensionTypeCaptor = ArgumentCaptor.forClass(Set.class);
+        mMockConnector = mock(FeatureConnector.class);
+        mImsCallSession = mock(ImsCallSession.class);
+        mSharedPreferences = mock(SharedPreferences.class);
+        mImsConfig = mock(ImsConfig.class);
+        mVtDataUsageProviderCb = mock(INetworkStatsProviderCallback.class);
+        mConnectorFactory = mock(ImsPhoneCallTracker.ConnectorFactory.class);
         mImsCallProfile.mCallExtras = mBundle;
         mImsCall = spy(new ImsCall(mContext, mImsCallProfile));
         mSecondImsCall = spy(new ImsCall(mContext, mImsCallProfile));
@@ -236,26 +219,19 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
             return null;
         }).when(mImsManager).open(any(), any(), any());
 
-        doAnswer(new Answer<ImsCall>() {
-            @Override
-            public ImsCall answer(InvocationOnMock invocation) throws Throwable {
-                mImsCallListener =
-                        (ImsCall.Listener) invocation.getArguments()[1];
-                mImsCall.setListener(mImsCallListener);
-                return mImsCall;
-            }
+        doAnswer((Answer<ImsCall>) invocation -> {
+            mImsCallListener =
+                    (ImsCall.Listener) invocation.getArguments()[1];
+            mImsCall.setListener(mImsCallListener);
+            return mImsCall;
         }).when(mImsManager).takeCall(any(), any());
 
-        doAnswer(new Answer<ImsCall>() {
-            @Override
-            public ImsCall answer(InvocationOnMock invocation) throws Throwable {
-                mImsCallListener =
-                        (ImsCall.Listener) invocation.getArguments()[2];
-                mSecondImsCall.setListener(mImsCallListener);
-                return mSecondImsCall;
-            }
-        }).when(mImsManager).makeCall(eq(mImsCallProfile), (String[]) any(),
-                (ImsCall.Listener) any());
+        doAnswer((Answer<ImsCall>) invocation -> {
+            mImsCallListener =
+                    (ImsCall.Listener) invocation.getArguments()[2];
+            mSecondImsCall.setListener(mImsCallListener);
+            return mSecondImsCall;
+        }).when(mImsManager).makeCall(eq(mImsCallProfile), any(), any());
 
         doAnswer(invocation -> {
             mCapabilityCallback = (ImsMmTelManager.CapabilityCallback) invocation.getArguments()[0];
@@ -298,6 +274,15 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     @After
     public void tearDown() throws Exception {
         mCTUT = null;
+        mMmTelListener = null;
+        mConnectorListener = null;
+        mCapabilityCallback = null;
+        mImsCallListener = null;
+        mImsCall = null;
+        mSecondImsCall = null;
+        mBroadcastReceiver = null;
+        mBundle = null;
+        mVtDataUsageProvider = null;
         super.tearDown();
     }
 
@@ -375,14 +360,83 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         // updateCarrierConfiguration. Since the carrier config is not report carrier identified
         // config, we should not see updateImsServiceConfig called yet.
         verify(mImsManager, never()).updateImsServiceConfig();
+        // Send disconnected indication
+        mConnectorListener.connectionUnavailable(FeatureConnector.UNAVAILABLE_REASON_DISCONNECTED);
 
         // Receive a subscription loaded and IMS connection ready indication.
         doReturn(true).when(mSubscriptionController).isActiveSubId(anyInt());
-        PersistableBundle bundle = mContextFixture.getCarrierConfigBundle();
-        bundle.putBoolean(CarrierConfigManager.KEY_CARRIER_CONFIG_APPLIED_BOOL, true);
+        mContextFixture.getCarrierConfigBundle().putBoolean(
+                CarrierConfigManager.KEY_CARRIER_CONFIG_APPLIED_BOOL, true);
+        sendCarrierConfigChanged();
+        // CarrierConfigLoader has signalled that the carrier config has been applied for a specific
+        // subscription. This will trigger unavailable -> ready indications.
+        mConnectorListener.connectionReady(mImsManager, SUB_0);
+        processAllMessages();
+        verify(mImsManager).updateImsServiceConfig();
+    }
+
+    @Test
+    @SmallTest
+    public void testCarrierConfigSentLocked() throws Exception {
+        // move to ImsService unavailable state.
+        mConnectorListener.connectionUnavailable(FeatureConnector.UNAVAILABLE_REASON_DISCONNECTED);
+        doReturn(true).when(mSubscriptionController).isActiveSubId(anyInt());
+        mContextFixture.getCarrierConfigBundle().putBoolean(
+                CarrierConfigManager.KEY_CARRIER_CONFIG_APPLIED_BOOL, true);
+
+        sendCarrierConfigChanged();
+        // No ImsService connected, so this will cache the config.
+        verify(mImsManager, never()).updateImsServiceConfig();
+
+        // Connect to ImsService, but sim is locked, so ensure we do not send configs yet
+        doReturn(mIccCard).when(mPhone).getIccCard();
+        doReturn(IccCardConstants.State.PIN_REQUIRED).when(mIccCard).getState();
+        mConnectorListener.connectionReady(mImsManager, SUB_0);
+        processAllMessages();
+        verify(mImsManager, never()).updateImsServiceConfig();
+
+        // Now move to ready and simulate carrier config change in response to SIM state change.
+        doReturn(IccCardConstants.State.READY).when(mIccCard).getState();
+        sendCarrierConfigChanged();
+        verify(mImsManager).updateImsServiceConfig();
+    }
+
+    @Test
+    @SmallTest
+    public void testCarrierConfigSentAfterReady() throws Exception {
+        verify(mImsManager, never()).updateImsServiceConfig();
+
+        // Receive a subscription loaded and IMS connection ready indication.
+        doReturn(true).when(mSubscriptionController).isActiveSubId(anyInt());
+        mContextFixture.getCarrierConfigBundle().putBoolean(
+                CarrierConfigManager.KEY_CARRIER_CONFIG_APPLIED_BOOL, true);
         // CarrierConfigLoader has signalled that the carrier config has been applied for a specific
         // subscription. This will trigger unavailable -> ready indications.
         mConnectorListener.connectionUnavailable(FeatureConnector.UNAVAILABLE_REASON_DISCONNECTED);
+        mConnectorListener.connectionReady(mImsManager, SUB_0);
+        processAllMessages();
+        // Did not receive carrier config changed yet
+        verify(mImsManager, never()).updateImsServiceConfig();
+        sendCarrierConfigChanged();
+        processAllMessages();
+        verify(mImsManager).updateImsServiceConfig();
+    }
+
+    @Test
+    @SmallTest
+    public void testCarrierConfigSentBeforeReady() throws Exception {
+        // move to ImsService unavailable state.
+        mConnectorListener.connectionUnavailable(FeatureConnector.UNAVAILABLE_REASON_DISCONNECTED);
+        doReturn(true).when(mSubscriptionController).isActiveSubId(anyInt());
+        mContextFixture.getCarrierConfigBundle().putBoolean(
+                CarrierConfigManager.KEY_CARRIER_CONFIG_APPLIED_BOOL, true);
+
+        sendCarrierConfigChanged();
+        // No ImsService connected, so this will cache the config.
+        verify(mImsManager, never()).updateImsServiceConfig();
+
+        // Connect to ImsService and ensure that the pending carrier config change is processed
+        // properly.
         mConnectorListener.connectionReady(mImsManager, SUB_0);
         processAllMessages();
         verify(mImsManager).updateImsServiceConfig();
@@ -1457,15 +1511,15 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     @Test
     @SmallTest
     public void testConfigureRtpHeaderExtensionTypes() throws Exception {
-
+        mConnectorListener.connectionUnavailable(FeatureConnector.UNAVAILABLE_REASON_DISCONNECTED);
+        doReturn(true).when(mSubscriptionController).isActiveSubId(anyInt());
         mContextFixture.getCarrierConfigBundle().putBoolean(
                 CarrierConfigManager.KEY_SUPPORTS_DEVICE_TO_DEVICE_COMMUNICATION_USING_RTP_BOOL,
                 true);
         mContextFixture.getCarrierConfigBundle().putBoolean(
                 CarrierConfigManager.KEY_SUPPORTS_SDP_NEGOTIATION_OF_D2D_RTP_HEADER_EXTENSIONS_BOOL,
                 true);
-        // Hacky but ImsPhoneCallTracker caches carrier config, so necessary.
-        mCTUT.updateCarrierConfigCache(mContextFixture.getCarrierConfigBundle());
+        sendCarrierConfigChanged();
 
         ImsPhoneCallTracker.Config config = new ImsPhoneCallTracker.Config();
         config.isD2DCommunicationSupported = true;
@@ -1488,15 +1542,15 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     @Test
     @SmallTest
     public void testRtpButNoSdp() throws Exception {
-
+        mConnectorListener.connectionUnavailable(FeatureConnector.UNAVAILABLE_REASON_DISCONNECTED);
+        doReturn(true).when(mSubscriptionController).isActiveSubId(anyInt());
         mContextFixture.getCarrierConfigBundle().putBoolean(
                 CarrierConfigManager.KEY_SUPPORTS_DEVICE_TO_DEVICE_COMMUNICATION_USING_RTP_BOOL,
                 true);
         mContextFixture.getCarrierConfigBundle().putBoolean(
                 CarrierConfigManager.KEY_SUPPORTS_SDP_NEGOTIATION_OF_D2D_RTP_HEADER_EXTENSIONS_BOOL,
                 false);
-        // Hacky but ImsPhoneCallTracker caches carrier config, so necessary.
-        mCTUT.updateCarrierConfigCache(mContextFixture.getCarrierConfigBundle());
+        sendCarrierConfigChanged();
 
         ImsPhoneCallTracker.Config config = new ImsPhoneCallTracker.Config();
         config.isD2DCommunicationSupported = true;
@@ -1518,6 +1572,9 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     @Test
     @SmallTest
     public void testDontConfigureRtpHeaderExtensionTypes() throws Exception {
+        mConnectorListener.connectionUnavailable(FeatureConnector.UNAVAILABLE_REASON_DISCONNECTED);
+        doReturn(true).when(mSubscriptionController).isActiveSubId(anyInt());
+        sendCarrierConfigChanged();
         ImsPhoneCallTracker.Config config = new ImsPhoneCallTracker.Config();
         config.isD2DCommunicationSupported = false;
         mCTUT.setConfig(config);
@@ -1525,6 +1582,14 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
 
         // Expect no offered header extensions since d2d is not supported.
         verify(mImsManager, never()).setOfferedRtpHeaderExtensionTypes(any());
+    }
+
+    private void sendCarrierConfigChanged() {
+        Intent intent = new Intent(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+        intent.putExtra(CarrierConfigManager.EXTRA_SUBSCRIPTION_INDEX, mPhone.getSubId());
+        intent.putExtra(CarrierConfigManager.EXTRA_SLOT_INDEX, mPhone.getPhoneId());
+        mBroadcastReceiver.onReceive(mContext, intent);
+        processAllMessages();
     }
 
     private void assertVtDataUsageUpdated(int expectedToken, long rxBytes, long txBytes)

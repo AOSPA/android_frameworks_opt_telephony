@@ -1428,7 +1428,7 @@ public class PhoneSwitcher extends Handler {
             log("updatePreferredDataPhoneId: preferred data overridden for emergency."
                     + " phoneId = " + mEmergencyOverride.mPhoneId);
             mPreferredDataPhoneId = mEmergencyOverride.mPhoneId;
-        } else if (isDataAllowedOnVoiceCallSub) {
+        } else if (isDataAllowedOnVoiceCallSub && !isPrimaryDataSubChanged) {
             // If a phone is in call and user enabled its mobile data, we
             // should switch internet connection to it. Because the other modem
             // will lose data connection anyway.

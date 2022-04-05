@@ -87,9 +87,6 @@ public class CarrierServiceStateTracker extends Handler {
     @VisibleForTesting
     public static final String PREF_NETWORK_NOTIFICATION_TAG = "PrefNetworkNotification";
 
-    private WfcSettingObserver mWfcSettingObserver;
-    private SharedPreferences mPreferences;
-
     private long mAllowedNetworkType = -1;
     private AllowedNetworkTypesListener mAllowedNetworkTypesListener;
     private TelephonyManager mTelephonyManager;
@@ -113,6 +110,8 @@ public class CarrierServiceStateTracker extends Handler {
         }
     }
 
+    private WfcSettingObserver mWfcSettingObserver;
+    private SharedPreferences mPreferences;
 
     public CarrierServiceStateTracker(Phone phone, ServiceStateTracker sst) {
         this.mPhone = phone;
@@ -389,7 +388,8 @@ public class CarrierServiceStateTracker extends Handler {
                     handleConfigChanges();
                     break;
                 case Intent.ACTION_LOCALE_CHANGED:
-                    // Upon receiving the locale change broadcast, update the notification's language
+                    // Upon receiving the locale change broadcast, update the notification's
+                    // language
                     handleImsCapabilitiesChanged();
                     break;
             }
@@ -634,12 +634,13 @@ public class CarrierServiceStateTracker extends Handler {
                     | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             // Create the PendingIntent
             PendingIntent emergencyIntent = PendingIntent.getActivity(
-                    mContext, mPhone.getPhoneId(), notifyIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                    mContext, mPhone.getPhoneId(), notifyIntent, PendingIntent.FLAG_UPDATE_CURRENT
+                    | PendingIntent.FLAG_IMMUTABLE);
             CharSequence title = mContext.getText(
                     com.android.internal.R.string.EmergencyCallWarningTitle);
-            CharSequence details = mContext.getText(
-                    com.android.internal.R.string.EmergencyCallWarningSummary);
+            String details = String.format(mContext.getResources().getString(
+                    com.android.internal.R.string.EmergencyCallWarningSummary),
+                    mSST.getServiceProviderNameOrPlmn().trim());
             boolean isCancellable = (mDelay == UNINITIALIZED_DELAY_VALUE) ? true : false;
             return new Notification.Builder(mContext)
                     .setAutoCancel(isCancellable)
@@ -661,7 +662,7 @@ public class CarrierServiceStateTracker extends Handler {
 
         @Override
         public void onChange(boolean selfChange) {
-            boolean wfcSetting = false;
+            final boolean wfcSetting;
             int subId = mPhone.getSubId();
             ImsMmTelManager mgr = ImsMmTelManager.createForSubscriptionId(subId);
             wfcSetting = mgr.isVoWiFiSettingEnabled();
@@ -693,7 +694,7 @@ public class CarrierServiceStateTracker extends Handler {
 
     private void resetEmergencyNotificationPreference() {
         mPreferences.edit().putBoolean(Phone.KEY_DO_NOT_SHOW_LIMITED_SERVICE_ALERT
-                + mPhone.getSubId(), false).commit();
+                + mPhone.getSubId(), false).apply();
     }
 
     private Uri getUriForWfcEnableSetting() {

@@ -60,6 +60,7 @@ import android.service.euicc.IUpdateSubscriptionNicknameCallback;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.UiccCardInfo;
+import android.telephony.UiccSlotInfo;
 import android.telephony.euicc.DownloadableSubscription;
 import android.telephony.euicc.EuiccInfo;
 import android.telephony.euicc.EuiccManager;
@@ -70,6 +71,8 @@ import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.PackageChangeReceiver;
+import com.android.internal.telephony.uicc.IccUtils;
+import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.util.IState;
 import com.android.internal.util.State;
@@ -235,6 +238,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         boolean mSwitchAfterDownload;
         boolean mForceDeactivateSim;
         DownloadCommandCallback mCallback;
+        int mPortIndex;
         Bundle mResolvedBundle;
     }
 
@@ -451,15 +455,16 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
 
     /** Asynchronously download the given subscription. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void downloadSubscription(int cardId, DownloadableSubscription subscription,
-            boolean switchAfterDownload, boolean forceDeactivateSim,
-            Bundle resolvedBundle, DownloadCommandCallback callback) {
+    public void downloadSubscription(int cardId, int portIndex,
+            DownloadableSubscription subscription, boolean switchAfterDownload,
+            boolean forceDeactivateSim, Bundle resolvedBundle, DownloadCommandCallback callback) {
         DownloadRequest request = new DownloadRequest();
         request.mSubscription = subscription;
         request.mSwitchAfterDownload = switchAfterDownload;
         request.mForceDeactivateSim = forceDeactivateSim;
         request.mResolvedBundle = resolvedBundle;
         request.mCallback = callback;
+        request.mPortIndex = portIndex;
         sendMessage(CMD_DOWNLOAD_SUBSCRIPTION, cardId, 0 /* arg2 */, request);
     }
 
@@ -760,6 +765,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                         case CMD_DOWNLOAD_SUBSCRIPTION: {
                             DownloadRequest request = (DownloadRequest) message.obj;
                             mEuiccService.downloadSubscription(slotId,
+                                    request.mPortIndex,
                                     request.mSubscription,
                                     request.mSwitchAfterDownload,
                                     request.mForceDeactivateSim,
@@ -1040,17 +1046,19 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         }
         TelephonyManager tm = (TelephonyManager)
                 mContext.getSystemService(Context.TELEPHONY_SERVICE);
-        List<UiccCardInfo> infos = tm.getUiccCardsInfo();
-        if (infos == null || infos.size() == 0) {
+        UiccSlotInfo[] slotInfos = tm.getUiccSlotsInfo();
+        if (slotInfos == null || slotInfos.length == 0) {
+            Log.e(TAG, "UiccSlotInfo is null or empty");
             return SubscriptionManager.INVALID_SIM_SLOT_INDEX;
         }
-        int slotId = SubscriptionManager.INVALID_SIM_SLOT_INDEX;
-        for (UiccCardInfo info : infos) {
-            if (info.getCardId() == cardId) {
-                slotId = info.getPhysicalSlotIndex();
+        String cardIdString = UiccController.getInstance().convertToCardString(cardId);
+        for (int slotIndex = 0; slotIndex < slotInfos.length; slotIndex++) {
+            if (IccUtils.compareIgnoreTrailingFs(cardIdString, slotInfos[slotIndex].getCardId())) {
+                return slotIndex;
             }
         }
-        return slotId;
+        Log.i(TAG, "No UiccSlotInfo found for cardId: " + cardId);
+        return SubscriptionManager.INVALID_SIM_SLOT_INDEX;
     }
 
     /** Call this at the beginning of the execution of any command. */

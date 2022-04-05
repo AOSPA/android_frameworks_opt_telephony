@@ -29,6 +29,7 @@ import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.anyBoolean;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -64,7 +65,6 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -72,19 +72,17 @@ import java.lang.reflect.Method;
 @RunWith(AndroidTestingRunner.class)
 @TestableLooper.RunWithLooper
 public class CdmaInboundSmsHandlerTest extends TelephonyTest {
-    @Mock
+    // Mocked classes
     private SmsStorageMonitor mSmsStorageMonitor;
-    @Mock
     private android.telephony.SmsMessage mSmsMessage;
-    @Mock
     private SmsMessage mCdmaSmsMessage;
 
     private CdmaInboundSmsHandler mCdmaInboundSmsHandler;
     private SmsEnvelope mSmsEnvelope = new SmsEnvelope();
     private FakeSmsContentProvider mContentProvider;
     private InboundSmsTracker mInboundSmsTracker;
-    private byte[] mSmsPdu = new byte[]{(byte) 0xFF, (byte) 0xFF, (byte) 0xFF};
-    private int mSubId0 = 0;
+    private final byte[] mSmsPdu = new byte[]{(byte) 0xFF, (byte) 0xFF, (byte) 0xFF};
+    private final int mSubId0 = 0;
 
     private IState getCurrentState() {
         try {
@@ -99,7 +97,10 @@ public class CdmaInboundSmsHandlerTest extends TelephonyTest {
 
     @Before
     public void setUp() throws Exception {
-        super.setUp("CdmaInboundSmsHandlerTest");
+        super.setUp(getClass().getSimpleName());
+        mSmsStorageMonitor = mock(SmsStorageMonitor.class);
+        mSmsMessage = mock(android.telephony.SmsMessage.class);
+        mCdmaSmsMessage = mock(SmsMessage.class);
 
         Field field = SmsMessage.class.getDeclaredField("mEnvelope");
         field.setAccessible(true);
@@ -169,8 +170,12 @@ public class CdmaInboundSmsHandlerTest extends TelephonyTest {
             i++;
         }
         assertFalse(mCdmaInboundSmsHandler.getWakeLock().isHeld());
+        mCdmaInboundSmsHandler.quit();
         mCdmaInboundSmsHandler = null;
         mContentProvider.shutdown();
+        mContentProvider = null;
+        mSmsEnvelope = null;
+        mInboundSmsTracker = null;
         super.tearDown();
     }
 

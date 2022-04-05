@@ -314,6 +314,8 @@ public class ContextFixture implements TestFixture<Context> {
                     return mLocationManager;
                 case Context.NETWORK_POLICY_SERVICE:
                     return mNetworkPolicyManager;
+                case Context.TELEPHONY_IMS_SERVICE:
+                    return mImsManager;
                 default:
                     return null;
             }
@@ -725,6 +727,7 @@ public class ContextFixture implements TestFixture<Context> {
     private final KeyguardManager mKeyguardManager = mock(KeyguardManager.class);
     private final VcnManager mVcnManager = mock(VcnManager.class);
     private final NetworkPolicyManager mNetworkPolicyManager = mock(NetworkPolicyManager.class);
+    private final ImsManager mImsManager = mock(ImsManager.class);
     private final Configuration mConfiguration = new Configuration();
     private final DisplayMetrics mDisplayMetrics = new DisplayMetrics();
     private final SharedPreferences mSharedPreferences = PreferenceManager

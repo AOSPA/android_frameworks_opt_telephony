@@ -3665,10 +3665,6 @@ public class DcTracker extends Handler {
             mPreferredApn = null;
         } else {
             mPreferredApn = getPreferredApn();
-            if (mPreferredApn != null && !mPreferredApn.getOperatorNumeric().equals(operator)) {
-                mPreferredApn = null;
-                setPreferredApn(-1);
-            }
             if (DBG) log("createAllApnList: mPreferredApn=" + mPreferredApn);
         }
 
@@ -3860,7 +3856,9 @@ public class DcTracker extends Handler {
                 log("buildWaitingApns: Preferred APN:" + operator + ":"
                         + mPreferredApn.getOperatorNumeric() + ":" + mPreferredApn);
             }
-            if (mPreferredApn.getOperatorNumeric().equals(operator)) {
+
+            if (TextUtils.equals(mPreferredApn.getOperatorNumeric(), operator)
+                    || mPreferredApn.getCarrierId() == mPhone.getCarrierId()) {
                 if (mPreferredApn.canSupportNetworkType(
                         ServiceState.rilRadioTechnologyToNetworkType(radioTech))) {
                     // Create a new instance of ApnSetting for ENTERPRISE because each

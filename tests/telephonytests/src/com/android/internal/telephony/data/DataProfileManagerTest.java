@@ -55,7 +55,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -73,7 +72,7 @@ public class DataProfileManagerTest extends TelephonyTest {
     private static final String TETHERING_APN = "DUN_APN";
     private static final String PLMN = "330123";
 
-    @Mock
+    // Mocked classes
     private DataProfileManagerCallback mDataProfileManagerCallback;
 
     private DataProfileManager mDataProfileManagerUT;
@@ -403,7 +402,7 @@ public class DataProfileManagerTest extends TelephonyTest {
     public void setUp() throws Exception {
         logd("DataProfileManagerTest +Setup!");
         super.setUp(getClass().getSimpleName());
-        doReturn(true).when(mPhone).isUsingNewDataStack();
+        mDataProfileManagerCallback = Mockito.mock(DataProfileManagerCallback.class);
         ((MockContentResolver) mContext.getContentResolver()).addProvider(
                 Telephony.Carriers.CONTENT_URI.getAuthority(), mApnSettingContentProvider);
 
@@ -429,6 +428,8 @@ public class DataProfileManagerTest extends TelephonyTest {
 
     @After
     public void tearDown() throws Exception {
+        mDataProfileManagerUT = null;
+        mDataNetworkControllerCallback = null;
         super.tearDown();
     }
 
@@ -677,7 +678,6 @@ public class DataProfileManagerTest extends TelephonyTest {
 
     @Test
     public void testDedupeDataProfiles2() throws Exception {
-
         DataProfile dataProfile1 = new DataProfile.Builder()
                 .setApnSetting(new ApnSetting.Builder()
                         .setEntryName("general")
@@ -743,5 +743,26 @@ public class DataProfileManagerTest extends TelephonyTest {
         assertThat(dataProfile.getApnSetting().getProtocol()).isEqualTo(ApnSetting.PROTOCOL_IPV4V6);
         assertThat(dataProfile.getApnSetting().getRoamingProtocol())
                 .isEqualTo(ApnSetting.PROTOCOL_IPV4V6);
+    }
+
+    @Test
+    public void testIsDataProfileValid() {
+        TelephonyNetworkRequest tnr = new TelephonyNetworkRequest(new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build(), mPhone);
+        DataProfile dataProfile = mDataProfileManagerUT.getDataProfileForNetworkRequest(
+                tnr, TelephonyManager.NETWORK_TYPE_LTE);
+        assertThat(dataProfile.getApnSetting().getApnSetId()).isEqualTo(
+                Telephony.Carriers.NO_APN_SET_ID);
+        assertThat(mDataProfileManagerUT.isDataProfileValid(dataProfile)).isTrue();
+
+        tnr = new TelephonyNetworkRequest(new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_EIMS)
+                .build(), mPhone);
+        dataProfile = mDataProfileManagerUT.getDataProfileForNetworkRequest(
+                tnr, TelephonyManager.NETWORK_TYPE_LTE);
+        assertThat(dataProfile.getApnSetting().getApnSetId()).isEqualTo(
+                Telephony.Carriers.MATCH_ALL_APN_SET_ID);
+        assertThat(mDataProfileManagerUT.isDataProfileValid(dataProfile)).isTrue();
     }
 }
