@@ -138,7 +138,7 @@ public class DataNetworkController extends Handler {
     private static final int EVENT_REMOVE_NETWORK_REQUEST = 3;
 
     /** Re-evaluate all unsatisfied network requests. */
-    private static final int EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS = 5;
+    public static final int EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS = 5;
 
     /** Event for packet switch restricted enabled by network. */
     private static final int EVENT_PS_RESTRICT_ENABLED = 6;
@@ -2194,7 +2194,7 @@ public class DataNetworkController extends Handler {
      *
      * @param dataNetwork The data network.
      */
-    private void onDataNetworkConnected(@NonNull DataNetwork dataNetwork) {
+    public void onDataNetworkConnected(@NonNull DataNetwork dataNetwork) {
         logl("onDataNetworkConnected: " + dataNetwork);
         mPreviousConnectedDataNetworkList.add(0, dataNetwork);
         // Preserve the connected data networks for debugging purposes.
@@ -2909,7 +2909,7 @@ public class DataNetworkController extends Handler {
      * @param transport The transport.
      * @return The current network type.
      */
-    private @NetworkType int getDataNetworkType(@TransportType int transport) {
+    public @NetworkType int getDataNetworkType(@TransportType int transport) {
         NetworkRegistrationInfo nri = mServiceState.getNetworkRegistrationInfo(
                 NetworkRegistrationInfo.DOMAIN_PS, transport);
         if (nri != null) {
