@@ -308,7 +308,7 @@ public class GsmCdmaPhone extends Phone {
                 .makeCarrierSignalAgent(this);
         mAccessNetworksManager = mTelephonyComponentFactory
                 .inject(AccessNetworksManager.class.getName())
-                .makeAccessNetworksManager(this);
+                .makeAccessNetworksManager(this, getLooper());
         if (!isUsingNewDataStack()) {
             mTransportManager = mTelephonyComponentFactory.inject(TransportManager.class.getName())
                     .makeTransportManager(this);
@@ -3307,7 +3307,8 @@ public class GsmCdmaPhone extends Phone {
                 boolean enabled = (boolean) ar.result;
                 if (isUsingNewDataStack()) {
                     getDataSettingsManager().setDataEnabled(
-                            TelephonyManager.DATA_ENABLED_REASON_CARRIER, enabled);
+                            TelephonyManager.DATA_ENABLED_REASON_CARRIER, enabled,
+                            mContext.getOpPackageName());
                     return;
                 }
                 mDataEnabledSettings.setDataEnabled(TelephonyManager.DATA_ENABLED_REASON_CARRIER,

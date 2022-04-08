@@ -558,6 +558,9 @@ public class DataNetwork extends StateMachine {
     /** The network bandwidth. */
     private @NonNull NetworkBandwidth mNetworkBandwidth = new NetworkBandwidth(14, 14);
 
+    /** The TCP buffer sizes config. */
+    private @NonNull String mTcpBufferSizes;
+
     /** Whether {@link NetworkCapabilities#NET_CAPABILITY_TEMPORARILY_NOT_METERED} is supported. */
     private boolean mTempNotMeteredSupported = false;
 
@@ -827,6 +830,7 @@ public class DataNetwork extends StateMachine {
         mAttachedNetworkRequestList.addAll(networkRequestList);
         mCid.put(AccessNetworkConstants.TRANSPORT_TYPE_WWAN, INVALID_CID);
         mCid.put(AccessNetworkConstants.TRANSPORT_TYPE_WLAN, INVALID_CID);
+        mTcpBufferSizes = mDataConfigManager.getDefaultTcpConfigString();
 
         for (TelephonyNetworkRequest networkRequest : networkRequestList) {
             networkRequest.setAttachedNetwork(DataNetwork.this);
@@ -977,30 +981,13 @@ public class DataNetwork extends StateMachine {
                     // TODO: Should update suspend state when CSS indicator changes.
                     // TODO: Should update suspend state when call started/ended.
                     updateSuspendState();
+                    updateTcpBufferSizes();
                     updateBandwidthFromDataConfig();
                     updateDataCallSessionStatsOfDrsOrRatChange((AsyncResult) msg.obj);
                     break;
                 }
                 case EVENT_ATTACH_NETWORK_REQUEST: {
-                    NetworkRequestList requestList = (NetworkRequestList) msg.obj;
-                    NetworkRequestList failedList = new NetworkRequestList();
-                    for (TelephonyNetworkRequest networkRequest : requestList) {
-                        if (networkRequest.canBeSatisfiedBy(getNetworkCapabilities())) {
-                            mAttachedNetworkRequestList.add(networkRequest);
-                            networkRequest.setAttachedNetwork(DataNetwork.this);
-                            networkRequest.setState(
-                                    TelephonyNetworkRequest.REQUEST_STATE_SATISFIED);
-                            log("Successfully attached network request " + networkRequest);
-                        } else {
-                            failedList.add(networkRequest);
-                            log("Attached failed. Cannot satisfy the network request "
-                                    + networkRequest);
-                        }
-                        if (failedList.size() > 0) {
-                            mDataNetworkCallback.invokeFromExecutor(() -> mDataNetworkCallback
-                                    .onAttachFailed(DataNetwork.this, failedList));
-                        }
-                    }
+                    onAttachNetworkRequests((NetworkRequestList) msg.obj);
                     break;
                 }
                 case EVENT_DETACH_NETWORK_REQUEST: {
@@ -1031,6 +1018,7 @@ public class DataNetwork extends StateMachine {
                         networkRequest.setState(TelephonyNetworkRequest.REQUEST_STATE_UNSATISFIED);
                         networkRequest.setAttachedNetwork(null);
                     }
+                    log("All network requests detached.");
                     mAttachedNetworkRequestList.clear();
                     break;
                 }
@@ -1432,6 +1420,24 @@ public class DataNetwork extends StateMachine {
         @Override
         public void enter() {
             logl("Data network disconnected. mEverConnected=" + mEverConnected);
+            // Preserve the list for onSetupDataFailed callback, because we need to pass that list
+            // back to DataNetworkController, but after EVENT_DETACH_ALL_NETWORK_REQUESTS gets
+            // processed, the network request list would become empty.
+            NetworkRequestList requestList = new NetworkRequestList(mAttachedNetworkRequestList);
+
+            // The detach all network requests must be the last message to handle.
+            sendMessage(EVENT_DETACH_ALL_NETWORK_REQUESTS);
+            // Gracefully handle all the un-processed events then quit the state machine.
+            // quit() throws a QUIT event to the end of message queue. All the events before quit()
+            // will be processed. Events after quit() will not be processed.
+            quit();
+
+            //************************************************************//
+            // DO NOT POST ANY EVENTS AFTER HERE.                         //
+            // THE STATE MACHINE WONT PROCESS EVENTS AFTER QUIT.          //
+            // ONLY CLEANUP SHOULD BE PERFORMED AFTER THIS.               //
+            //************************************************************//
+
             if (mEverConnected) {
                 mDataNetworkCallback.invokeFromExecutor(() -> mDataNetworkCallback
                         .onDisconnected(DataNetwork.this, mFailCause));
@@ -1441,15 +1447,8 @@ public class DataNetwork extends StateMachine {
             } else {
                 mDataNetworkCallback.invokeFromExecutor(() -> mDataNetworkCallback
                         .onSetupDataFailed(DataNetwork.this,
-                                new NetworkRequestList(mAttachedNetworkRequestList),
-                                mFailCause, mRetryDelayMillis));
+                                requestList, mFailCause, mRetryDelayMillis));
             }
-            // The detach all network requests must be the last message to handle.
-            sendMessage(EVENT_DETACH_ALL_NETWORK_REQUESTS);
-            // Gracefully handle all the un-processed events then quit the state machine.
-            // quit() throws a QUIT event to the end of message queue. All the events before quit()
-            // will be processed. Events after quit() will not be processed.
-            quit();
             notifyPreciseDataConnectionState();
             mNetworkAgent.unregister();
             mDataCallSessionStats.onDataCallDisconnected(mFailCause);
@@ -1500,14 +1499,14 @@ public class DataNetwork extends StateMachine {
      * Attempt to attach the network request list to this data network. Whether the network can
      * satisfy the request or not will be checked when EVENT_ATTACH_NETWORK_REQUEST is processed.
      * If the request can't be attached, {@link DataNetworkCallback#onAttachFailed(
-     * DataNetwork, NetworkRequestList)} will be called, and retry should be scheduled.
+     * DataNetwork, NetworkRequestList)}.
      *
      * @param requestList Network request list to attach.
      * @return {@code false} if the network is already disconnected. {@code true} means the request
      * has been scheduled to attach to the network. If attach succeeds, the network request's state
      * will be set to {@link TelephonyNetworkRequest#REQUEST_STATE_SATISFIED}. If failed, the
      * callback {@link DataNetworkCallback#onAttachFailed(DataNetwork, NetworkRequestList)} will
-     * be called, and retry should be scheduled.
+     * be called.
      */
     public boolean attachNetworkRequests(@NonNull NetworkRequestList requestList) {
         // If the network is already ended, we still attach the network request to the data network,
@@ -1521,6 +1520,35 @@ public class DataNetwork extends StateMachine {
     }
 
     /**
+     * Called when attaching network request list to this data network.
+     *
+     * @param requestList Network request list to attach.
+     */
+    public void onAttachNetworkRequests(@NonNull NetworkRequestList requestList) {
+        NetworkRequestList failedList = new NetworkRequestList();
+        for (TelephonyNetworkRequest networkRequest : requestList) {
+            if (!mDataNetworkController.isNetworkRequestExisting(networkRequest)) {
+                failedList.add(networkRequest);
+                log("Attached failed. Network request was already removed.");
+            } else if (!networkRequest.canBeSatisfiedBy(getNetworkCapabilities())) {
+                failedList.add(networkRequest);
+                log("Attached failed. Cannot satisfy the network request "
+                        + networkRequest);
+            } else {
+                mAttachedNetworkRequestList.add(networkRequest);
+                networkRequest.setAttachedNetwork(DataNetwork.this);
+                networkRequest.setState(
+                        TelephonyNetworkRequest.REQUEST_STATE_SATISFIED);
+                log("Successfully attached network request " + networkRequest);
+            }
+        }
+        if (failedList.size() > 0) {
+            mDataNetworkCallback.invokeFromExecutor(() -> mDataNetworkCallback
+                    .onAttachFailed(DataNetwork.this, failedList));
+        }
+    }
+
+    /**
      * Detach the network request from this data network. Note that this will not tear down the
      * network.
      *
@@ -1528,7 +1556,6 @@ public class DataNetwork extends StateMachine {
      */
     public void detachNetworkRequest(@NonNull TelephonyNetworkRequest networkRequest) {
         if (getCurrentState() == null || isDisconnected()) {
-            mAttachedNetworkRequestList.remove(networkRequest);
             return;
         }
         sendMessage(obtainMessage(EVENT_DETACH_NETWORK_REQUEST, networkRequest));
@@ -1743,16 +1770,22 @@ public class DataNetwork extends StateMachine {
             if (mDataAllowedReason == DataAllowedReason.RESTRICTED_REQUEST) {
                 builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
             } else if (mDataAllowedReason == DataAllowedReason.UNMETERED_USAGE
-                    || mDataAllowedReason == DataAllowedReason.MMS_REQUEST) {
+                    || mDataAllowedReason == DataAllowedReason.MMS_REQUEST
+                    || mDataAllowedReason == DataAllowedReason.EMERGENCY_SUPL) {
                 // If data is allowed due to unmetered usage, or MMS always-allowed, we need to
                 // remove unrelated-but-metered capabilities.
                 for (int capability : meteredCapabilities) {
                     // 1. If it's unmetered usage, remove all metered capabilities.
-                    // 2. if it's MMS always-allowed, then remove all metered capabilities but MMS.
-                    if (capability != NetworkCapabilities.NET_CAPABILITY_MMS
-                            || mDataAllowedReason != DataAllowedReason.MMS_REQUEST) {
-                        builder.removeCapability(capability);
+                    // 2. If it's MMS always-allowed, then remove all metered capabilities but MMS.
+                    // 3/ If it's for emergency SUPL, then remove all metered capabilities but SUPL.
+                    if ((capability == NetworkCapabilities.NET_CAPABILITY_MMS
+                            && mDataAllowedReason == DataAllowedReason.MMS_REQUEST)
+                            || (capability == NetworkCapabilities.NET_CAPABILITY_SUPL
+                            && mDataAllowedReason == DataAllowedReason.EMERGENCY_SUPL)) {
+                        // Not removing the capability for special uses.
+                        continue;
                     }
+                    builder.removeCapability(capability);
                 }
             }
         }
@@ -2082,7 +2115,7 @@ public class DataNetwork extends StateMachine {
             linkProperties.setHttpProxy(proxy);
         }
 
-        linkProperties.setTcpBufferSizes(mDataConfigManager.getTcpConfigString());
+        linkProperties.setTcpBufferSizes(mTcpBufferSizes);
 
         mNetworkSliceInfo = response.getSliceInfo();
 
@@ -2112,6 +2145,28 @@ public class DataNetwork extends StateMachine {
         return mPhone.getServiceState().getNrState() == NetworkRegistrationInfo.NR_STATE_CONNECTED
                 && mPhone.getServiceStateTracker().getNrContextIds().contains(
                         mCid.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN));
+    }
+
+    /**
+     * Get the TCP buffer sizes config string.
+     *
+     * @return The TCP buffer sizes config used in {@link LinkProperties#setTcpBufferSizes(String)}.
+     */
+    private @Nullable String getTcpConfig() {
+        ServiceState ss = mPhone.getServiceState();
+        NetworkRegistrationInfo nrs = ss.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, mTransport);
+        int networkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
+        if (nrs != null) {
+            networkType = nrs.getAccessNetworkTechnology();
+            if (networkType == TelephonyManager.NETWORK_TYPE_LTE
+                    && nrs.isUsingCarrierAggregation()) {
+                // Although LTE_CA is not a real RAT, but since LTE CA generally has higher speed
+                // we use LTE_CA to get a different TCP config for LTE CA.
+                networkType = TelephonyManager.NETWORK_TYPE_LTE_CA;
+            }
+        }
+        return mDataConfigManager.getTcpConfigString(networkType, ss);
     }
 
     /**
@@ -2312,6 +2367,7 @@ public class DataNetwork extends StateMachine {
         log("onDataConfigUpdated");
 
         updateBandwidthFromDataConfig();
+        updateTcpBufferSizes();
         updateMeteredAndCongested();
     }
 
@@ -2377,6 +2433,7 @@ public class DataNetwork extends StateMachine {
      */
     private void onDisplayInfoChanged() {
         updateBandwidthFromDataConfig();
+        updateTcpBufferSizes();
         updateMeteredAndCongested();
     }
 
@@ -2392,6 +2449,21 @@ public class DataNetwork extends StateMachine {
         mNetworkBandwidth = mDataConfigManager.getBandwidthForNetworkType(
                 getDataNetworkType(), mPhone.getServiceState());
         updateNetworkCapabilities();
+    }
+
+    /**
+     * Update the TCP buffer sizes from resource overlays.
+     */
+    private void updateTcpBufferSizes() {
+        log("updateTcpBufferSizes");
+        mTcpBufferSizes = getTcpConfig();
+        LinkProperties linkProperties = new LinkProperties(mLinkProperties);
+        linkProperties.setTcpBufferSizes(mTcpBufferSizes);
+        if (!linkProperties.equals(mLinkProperties)) {
+            mLinkProperties = linkProperties;
+            log("sendLinkProperties " + mLinkProperties);
+            mNetworkAgent.sendLinkProperties(mLinkProperties);
+        }
     }
 
     /**
@@ -3034,6 +3106,7 @@ public class DataNetwork extends StateMachine {
         pw.println("mLinkProperties=" + mLinkProperties);
         pw.println("mNetworkSliceInfo=" + mNetworkSliceInfo);
         pw.println("mNetworkBandwidth=" + mNetworkBandwidth);
+        pw.println("mTcpBufferSizes=" + mTcpBufferSizes);
         pw.println("mTempNotMeteredSupported=" + mTempNotMeteredSupported);
         pw.println("mTempNotMetered=" + mTempNotMetered);
         pw.println("mCongested=" + mCongested);
