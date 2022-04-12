@@ -619,7 +619,6 @@ public class ServiceStateTracker extends Handler {
 
     /* Last known TAC/LAC */
     private int mLastKnownAreaCode = CellInfo.UNAVAILABLE;
-    private boolean mImsDeregDelay;
 
     /**
      * Indicating if there is any data network existing. This is used in airplane mode turning on
@@ -634,9 +633,6 @@ public class ServiceStateTracker extends Handler {
                 .makeNitzStateMachine(phone);
         mPhone = phone;
         mCi = ci;
-        mImsDeregDelay = mPhone.getContext().getResources().getBoolean(
-                com.android.internal.R.bool.
-                config_wait_for_ims_deregistration_before_radio_poweroff);
 
         mServiceStateStats = new ServiceStateStats(mPhone);
 
@@ -1528,9 +1524,8 @@ public class ServiceStateTracker extends Handler {
 
             case EVENT_CHANGE_IMS_STATE:
                 if (DBG) log("EVENT_CHANGE_IMS_STATE:");
-                if (mImsDeregDelay) {
-                    setPowerStateToDesired();
-                }
+
+                setPowerStateToDesired();
                 break;
 
             case EVENT_IMS_CAPABILITY_CHANGED:
@@ -3138,7 +3133,7 @@ public class ServiceStateTracker extends Handler {
                 == TelephonyManager.RADIO_POWER_ON) {
             // If it's on and available and we want it off gracefully
             if (!mPhone.isUsingNewDataStack() && mImsRegistrationOnOff
-                    && (getRadioPowerOffDelayTimeoutForImsRegistration() > 0 || mImsDeregDelay)) {
+                    && getRadioPowerOffDelayTimeoutForImsRegistration() > 0) {
                 if (DBG) log("setPowerStateToDesired: delaying power off until IMS dereg.");
                 startDelayRadioOffWaitingForImsDeregTimeout();
                 // Return early here as we do not want to hit the cancel timeout code below.
