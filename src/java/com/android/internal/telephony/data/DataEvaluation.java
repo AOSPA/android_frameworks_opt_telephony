@@ -276,7 +276,9 @@ public class DataEvaluation {
         /** VoPS is not supported by the network. */
         VOPS_NOT_SUPPORTED(true),
         /** Only one data network is allowed at one time. */
-        ONLY_ALLOWED_SINGLE_NETWORK(true);
+        ONLY_ALLOWED_SINGLE_NETWORK(true),
+        /** Data enabled settings are not ready. */
+        DATA_SETTINGS_NOT_READY(true);
 
         private final boolean mIsHardReason;
 
@@ -327,6 +329,10 @@ public class DataEvaluation {
          * The network request is restricted (i.e. Only privilege apps can access the network.)
          */
         RESTRICTED_REQUEST,
+        /**
+         * SUPL is allowed while emergency call is ongoing.
+         */
+        EMERGENCY_SUPL,
         /**
          * Data is allowed because the network request is for emergency. This should be always at
          * the bottom (i.e. highest priority)
