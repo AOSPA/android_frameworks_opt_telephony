@@ -19,6 +19,7 @@ package com.android.internal.telephony.data;
 import android.annotation.CurrentTimeMillisLong;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.telephony.TelephonyManager;
 import android.telephony.data.DataProfile;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -214,6 +215,13 @@ public class DataEvaluation {
         PREFERRED_TRANSPORT_CHANGED,
         /** Slice config changed. */
         SLICE_CONFIG_CHANGED,
+        /**
+         * Single data network arbitration. On certain RATs, only one data network is allowed at the
+         * same time.
+         */
+        SINGLE_DATA_NETWORK_ARBITRATION,
+        /** Query from {@link TelephonyManager#isDataConnectivityPossible()}. */
+        EXTERNAL_QUERY,
     }
 
     /** Disallowed reasons. There could be multiple reasons if it is not allowed. */
@@ -266,7 +274,9 @@ public class DataEvaluation {
         /** Data network is not in the right state. */
         ILLEGAL_STATE(true),
         /** VoPS is not supported by the network. */
-        VOPS_NOT_SUPPORTED(true);
+        VOPS_NOT_SUPPORTED(true),
+        /** Only one data network is allowed at one time. */
+        ONLY_ALLOWED_SINGLE_NETWORK(true);
 
         private final boolean mIsHardReason;
 

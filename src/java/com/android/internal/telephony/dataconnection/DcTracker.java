@@ -799,9 +799,7 @@ public class DcTracker extends Handler {
         mDcTesterFailBringUpAll = new DcTesterFailBringUpAll(mPhone, dcHandler);
 
         mDataConnectionTracker = this;
-        if (!mPhone.isUsingNewDataStack()) {
-            registerForAllEvents();
-        }
+        registerForAllEvents();
         mApnObserver = new ApnChangeObserver();
         phone.getContext().getContentResolver().registerContentObserver(
                 Telephony.Carriers.CONTENT_URI, true, mApnObserver);
@@ -1421,7 +1419,7 @@ public class DcTracker extends Handler {
         if ((apnContext != null && requestApnType == ApnSetting.TYPE_DEFAULT
                 || requestApnType == ApnSetting.TYPE_ENTERPRISE
                 || requestApnType == ApnSetting.TYPE_IA)
-                && mPhone.getTransportManager().isInLegacyMode()
+                && mPhone.getAccessNetworksManager().isInLegacyMode()
                 && dataRat == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN) {
             reasons.add(DataDisallowedReasonType.ON_IWLAN);
         }
@@ -1470,13 +1468,13 @@ public class DcTracker extends Handler {
         }
 
         if (apnContext != null) {
-            if (mPhone.getTransportManager().getPreferredTransport(
+            if (mPhone.getAccessNetworksManager().getPreferredTransport(
                     apnContext.getApnTypeBitmask())
                     == AccessNetworkConstants.TRANSPORT_TYPE_INVALID) {
                 // If QNS explicitly specified this APN type is not allowed on either cellular or
                 // IWLAN, we should not allow data setup.
                 reasons.add(DataDisallowedReasonType.DISABLED_BY_QNS);
-            } else if (mTransportType != mPhone.getTransportManager().getPreferredTransport(
+            } else if (mTransportType != mPhone.getAccessNetworksManager().getPreferredTransport(
                     apnContext.getApnTypeBitmask())) {
                 // If the latest preference has already switched to other transport, we should not
                 // allow data setup.
@@ -1486,7 +1484,7 @@ public class DcTracker extends Handler {
             // If the transport has been already switched to the other transport, we should not
             // allow the data setup. The only exception is the handover case, where we setup
             // handover data connection before switching the transport.
-            if (mTransportType != mPhone.getTransportManager().getCurrentTransport(
+            if (mTransportType != mPhone.getAccessNetworksManager().getCurrentTransport(
                     apnContext.getApnTypeBitmask()) && requestType != REQUEST_TYPE_HANDOVER) {
                 reasons.add(DataDisallowedReasonType.ON_OTHER_TRANSPORT);
             }
@@ -1640,10 +1638,10 @@ public class DcTracker extends Handler {
         if (dataConnectionReasons.contains(DataDisallowedReasonType.DISABLED_BY_QNS)
                 || dataConnectionReasons.contains(DataDisallowedReasonType.ON_OTHER_TRANSPORT)) {
             logStr += ", current transport=" + AccessNetworkConstants.transportTypeToString(
-                    mPhone.getTransportManager().getCurrentTransport(
+                    mPhone.getAccessNetworksManager().getCurrentTransport(
                             apnContext.getApnTypeBitmask()));
             logStr += ", preferred transport=" + AccessNetworkConstants.transportTypeToString(
-                    mPhone.getTransportManager().getPreferredTransport(
+                    mPhone.getAccessNetworksManager().getPreferredTransport(
                             apnContext.getApnTypeBitmask()));
         }
         if (DBG) log(logStr);
@@ -2311,7 +2309,6 @@ public class DcTracker extends Handler {
     }
 
     protected void setInitialAttachApn() {
-        if (mPhone.isUsingNewDataStack()) return;
         ApnSetting apnSetting = null;
         int preferredApnSetId = getPreferredApnSetId();
         ArrayList<ApnSetting> allApnSettings = new ArrayList<>();
@@ -3592,7 +3589,6 @@ public class DcTracker extends Handler {
 
     protected void setDataProfilesAsNeeded() {
         if (DBG) log("setDataProfilesAsNeeded");
-        if (mPhone.isUsingNewDataStack()) return;
 
         ArrayList<DataProfile> dataProfileList = new ArrayList<>();
 
@@ -3872,7 +3868,7 @@ public class DcTracker extends Handler {
                     }
                     if (DBG) log("buildWaitingApns: X added preferred apnList=" + apnList);
                     return apnList;
-                } else if (mTransportType == mPhone.getTransportManager()
+                } else if (mTransportType == mPhone.getAccessNetworksManager()
                         .getCurrentTransport(ApnSetting
                                 .getApnTypesBitmaskFromString(requestedApnType))) {
                     if (DBG) log("buildWaitingApns: no preferred APN");
@@ -5055,7 +5051,7 @@ public class DcTracker extends Handler {
         }
     }
 
-    private void stopNetStatPoll() {
+    protected void stopNetStatPoll() {
         mNetStatPollEnabled = false;
         removeCallbacks(mPollNetStat);
         if (DBG) {
