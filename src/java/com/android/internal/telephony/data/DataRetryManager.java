@@ -153,7 +153,7 @@ public class DataRetryManager extends Handler {
     private @NonNull SparseArray<DataServiceManager> mDataServiceManagers;
 
     /** Data config manager instance. */
-    private final @NonNull DataConfigManager mDataConfigManager;
+    protected final @NonNull DataConfigManager mDataConfigManager;
 
     /** Data network controller instance. */
     protected final @NonNull DataNetworkController mDataNetworkController;
@@ -1550,6 +1550,12 @@ public class DataRetryManager extends Handler {
                 .map(DataHandoverRetryEntry.class::cast)
                 .anyMatch(entry -> entry.getState() == DataRetryEntry.RETRY_STATE_NOT_RETRIED
                         && entry.dataNetwork == dataNetwork);
+    }
+
+    /**
+     * Reset data reject count and reason on data call success
+     */
+    public void handlePdpRejectCauseSuccess() {
     }
 
     /**
