@@ -547,6 +547,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
             if (mMockModem != null) {
                 mRadioVersion = RADIO_HAL_VERSION_UNKNOWN;
                 mMockModem = null;
+                for (int service = MIN_SERVICE_IDX; service <= MAX_SERVICE_IDX; service++) {
+                    resetProxyAndRequestList(service);
+                }
             }
         }
 
@@ -4482,8 +4485,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void setSignalStrengthReportingCriteria(SignalThresholdInfo signalThresholdInfo,
-            int ran, Message result) {
+    public void setSignalStrengthReportingCriteria(
+            @NonNull List<SignalThresholdInfo> signalThresholdInfos, @Nullable Message result) {
         RadioNetworkProxy networkProxy = getRadioServiceProxy(RadioNetworkProxy.class, result);
         if (networkProxy.isEmpty()) return;
         if (mRadioVersion.greaterOrEqual(RADIO_HAL_VERSION_1_2)) {
@@ -4495,8 +4498,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
             }
 
             try {
-                networkProxy.setSignalStrengthReportingCriteria(rr.mSerial, signalThresholdInfo,
-                        ran);
+                networkProxy.setSignalStrengthReportingCriteria(rr.mSerial, signalThresholdInfos);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(NETWORK_SERVICE,
                         "setSignalStrengthReportingCriteria", e);

@@ -1046,7 +1046,7 @@ public class DataRetryManager extends Handler {
     protected void onEvaluateDataSetupRetry(@NonNull DataProfile dataProfile,
             @TransportType int transport, @NonNull NetworkRequestList requestList,
             @DataFailureCause int cause, long retryDelayMillis) {
-        logl("onEvaluateDataRetry: " + dataProfile + ", transport="
+        logl("onEvaluateDataSetupRetry: " + dataProfile + ", transport="
                 + AccessNetworkConstants.transportTypeToString(transport) + ", cause="
                 + DataFailCause.toString(cause) + ", retryDelayMillis=" + retryDelayMillis + "ms"
                 + ", " + requestList);
@@ -1132,7 +1132,8 @@ public class DataRetryManager extends Handler {
             }
 
             if (!retryScheduled) {
-                log("onEvaluateDataRetry: Did not match any retry rule. Stop timer-based retry.");
+                log("onEvaluateDataSetupRetry: Did not match any retry rule. Stop timer-based "
+                        + "retry.");
             }
         }
     }

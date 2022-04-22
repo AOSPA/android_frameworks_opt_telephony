@@ -4033,28 +4033,6 @@ public class ServiceStateTracker extends Handler {
     }
 
     /**
-     * Get the service provider name. If it is not available, get plmn or pnn
-     * if configured. Otherwise return CARD1/CARD2
-     * @return service provider name.
-     */
-    public String getServiceProviderNameOrPlmn() {
-        String spnOrPlmn = getServiceProviderName();
-        if (!TextUtils.isEmpty(spnOrPlmn)) {
-            return spnOrPlmn;
-        }
-        spnOrPlmn = mSS.getOperatorAlpha();
-        PersistableBundle config = getCarrierConfig();
-        if (mIccRecords != null && config.getBoolean(
-                CarrierConfigManager.KEY_WFC_CARRIER_NAME_OVERRIDE_BY_PNN_BOOL)) {
-            spnOrPlmn = mIccRecords.getPnnHomeName();
-        }
-        if (!TextUtils.isEmpty(spnOrPlmn)) {
-            return spnOrPlmn;
-        }
-        return "CARD" + Integer.toString(mPhone.getPhoneId() + 1);
-    }
-
-    /**
      * Get the resolved carrier name display condition bitmask.
      *
      * <p> Show service provider name if only if {@link #CARRIER_NAME_DISPLAY_BITMASK_SHOW_SPN}
@@ -5504,6 +5482,13 @@ public class ServiceStateTracker extends Handler {
         final String homeMCC = homeNumeric.substring(0, 3);
         final String networkCountry = MccTable.countryCodeForMcc(networkMCC);
         final String homeCountry = MccTable.countryCodeForMcc(homeMCC);
+
+        if (mLocaleTracker != null && !TextUtils.isEmpty(mLocaleTracker.getCountryOverride())) {
+            log("inSameCountry:  countryOverride var set.  This should only be set for testing "
+                    + "purposes to override the device location.");
+            return mLocaleTracker.getCountryOverride().equals(homeCountry);
+        }
+
         if (networkCountry.isEmpty() || homeCountry.isEmpty()) {
             // Not a valid country
             return false;

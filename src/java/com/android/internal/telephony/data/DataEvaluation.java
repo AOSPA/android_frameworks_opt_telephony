@@ -195,6 +195,8 @@ public class DataEvaluation {
         DATA_SERVICE_STATE_CHANGED,
         /** When data is enabled or disabled (by user, carrier, thermal, etc...) */
         DATA_ENABLED_CHANGED,
+        /** When data enabled overrides are changed (MMS always allowed, data on non-DDS sub). */
+        DATA_ENABLED_OVERRIDE_CHANGED,
         /** When data roaming is enabled or disabled. */
         ROAMING_ENABLED_CHANGED,
         /** When voice call ended (for concurrent voice/data not supported RAT). */
@@ -222,6 +224,8 @@ public class DataEvaluation {
         SINGLE_DATA_NETWORK_ARBITRATION,
         /** Query from {@link TelephonyManager#isDataConnectivityPossible()}. */
         EXTERNAL_QUERY,
+        /** Tracking area code changed. */
+        TAC_CHANGED,
     }
 
     /** Disallowed reasons. There could be multiple reasons if it is not allowed. */
@@ -259,8 +263,8 @@ public class DataEvaluation {
         NO_SUITABLE_DATA_PROFILE(true),
         /** Current data network type not allowed. */
         DATA_NETWORK_TYPE_NOT_ALLOWED(true),
-        /** Device is currently in an emergency call. */
-        EMERGENCY_CALL(true),
+        /** Device is currently in CDMA ECBM. */
+        CDMA_EMERGENCY_CALLBACK_MODE(true),
         /** There is already a retry setup/handover scheduled. */
         RETRY_SCHEDULED(true),
         /** Network has explicitly request to throttle setup attempt. */
