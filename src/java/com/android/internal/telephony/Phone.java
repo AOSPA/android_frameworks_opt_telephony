@@ -38,7 +38,6 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.WorkSource;
 import android.preference.PreferenceManager;
-import android.provider.DeviceConfig;
 import android.sysprop.TelephonyProperties;
 import android.telecom.VideoProfile;
 import android.telephony.AccessNetworkConstants;
@@ -154,8 +153,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public static final String NETWORK_SELECTION_NAME_KEY = "network_selection_name_key";
     // Key used to read and write the saved network selection operator short name
     public static final String NETWORK_SELECTION_SHORT_KEY = "network_selection_short_key";
-    public static final String KEY_DO_NOT_SHOW_LIMITED_SERVICE_ALERT
-            = "key_do_not_show_limited_service_alert";
 
 
     // Key used to read/write "disable data connection on boot" pref (used for testing)
@@ -634,10 +631,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         // Initialize SMS stats
         mSmsStats = new SmsStats(this);
 
-        mNewDataStackEnabled = Boolean.parseBoolean(DeviceConfig.getProperty(
-                DeviceConfig.NAMESPACE_TELEPHONY, "enable_new_data_stack"))
-                || mContext.getResources().getBoolean(
-                        com.android.internal.R.bool.config_force_enable_telephony_new_data_stack);
+        mNewDataStackEnabled = !mContext.getResources().getBoolean(
+                com.android.internal.R.bool.config_force_disable_telephony_new_data_stack);
 
         if (getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
             return;
@@ -3049,6 +3044,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return false;
     }
 
+    public boolean isInCdmaEcm() {
+        return getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA && isInEcm()
+                && (mImsPhone == null || !mImsPhone.isInImsEcm());
+    }
+
     /**
      * @return true if this Phone is in an emergency call that caused emergency callback mode to be
      * canceled, false if not.
@@ -4674,12 +4674,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public void setAllowedCarriers(CarrierRestrictionRules carrierRestrictionRules,
             Message response, WorkSource workSource) {
         mCi.setAllowedCarriers(carrierRestrictionRules, response, workSource);
-    }
-
-    /** Sets the SignalStrength reporting criteria. */
-    public void setSignalStrengthReportingCriteria(
-            int signalStrengthMeasure, int[] thresholds, int ran, boolean isEnabled) {
-        // no-op default implementation
     }
 
     /** Sets the SignalStrength reporting criteria. */
