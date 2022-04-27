@@ -2542,12 +2542,14 @@ public class ImsPhone extends ImsPhoneBase {
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.DISCONNECTED,
                     imsReasonInfo);
             mImsStats.onImsUnregistered(imsReasonInfo);
-            mCurrentSubscriberUris = null;
         }
 
         @Override
         public void handleImsSubscriberAssociatedUriChanged(Uri[] uris) {
-            if (DBG) logd("handleImsSubscriberAssociatedUriChanged");
+            if (DBG) logd("handleImsSubscriberAssociatedUriChanged" + uris);
+            if (uris == null && SubscriptionController.getInstance().isActiveSubId(getSubId())) {
+                return;
+            }
             setCurrentSubscriberUris(uris);
             setPhoneNumberForSourceIms(uris);
         }
