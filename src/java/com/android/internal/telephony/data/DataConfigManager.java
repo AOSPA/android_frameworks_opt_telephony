@@ -244,7 +244,7 @@ public class DataConfigManager extends Handler {
 
     private @NonNull final CarrierConfigManager mCarrierConfigManager;
     protected @NonNull PersistableBundle mCarrierConfig = null;
-    private @NonNull Resources mResources = null;
+    protected @NonNull Resources mResources = null;
 
     /** The network capability priority map */
     private @NonNull final Map<Integer, Integer> mNetworkCapabilityPriorityMap =
