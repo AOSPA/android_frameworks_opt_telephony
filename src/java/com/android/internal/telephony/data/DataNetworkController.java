@@ -223,12 +223,12 @@ public class DataNetworkController extends Handler {
     private final String mLogTag;
     private final LocalLog mLocalLog = new LocalLog(128);
 
-    private final @NonNull DataConfigManager mDataConfigManager;
+    protected final @NonNull DataConfigManager mDataConfigManager;
     private final @NonNull DataSettingsManager mDataSettingsManager;
     private final @NonNull DataProfileManager mDataProfileManager;
     private final @NonNull DataStallRecoveryManager mDataStallRecoveryManager;
     private final @NonNull AccessNetworksManager mAccessNetworksManager;
-    private final @NonNull DataRetryManager mDataRetryManager;
+    protected final @NonNull DataRetryManager mDataRetryManager;
     private final @NonNull ImsManager mImsManager;
     private final @NonNull NetworkPolicyManager mNetworkPolicyManager;
     private final @NonNull SparseArray<DataServiceManager> mDataServiceManagers =
