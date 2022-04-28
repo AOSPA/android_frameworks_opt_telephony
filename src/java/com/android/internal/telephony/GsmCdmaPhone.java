@@ -1692,7 +1692,7 @@ public class GsmCdmaPhone extends Phone {
         return false;
     }
 
-    private void sendUssdResponse(String ussdRequest, CharSequence message, int returnCode,
+    protected void sendUssdResponse(String ussdRequest, CharSequence message, int returnCode,
                                    ResultReceiver wrappedCallback) {
         UssdResponse response = new UssdResponse(ussdRequest, message);
         Bundle returnData = new Bundle();
