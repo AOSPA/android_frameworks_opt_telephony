@@ -1605,7 +1605,7 @@ public class DataConnection extends StateMachine {
 
     private void updateLinkBandwidthsFromCarrierConfig(int rilRat) {
         String ratName = DataConfigManager.getDataConfigNetworkType(
-                ServiceState.rilRadioTechnologyToNetworkType(rilRat), mPhone.getServiceState());
+                mPhone.getDisplayInfoController().getTelephonyDisplayInfo());
 
         if (DBG) log("updateLinkBandwidthsFromCarrierConfig: " + ratName);
 
