@@ -16,8 +16,6 @@
 
 package com.android.internal.telephony.data;
 
-import com.android.internal.telephony.data.DataNetworkController.DataNetworkControllerCallback;
-
 import static com.google.common.truth.Truth.assertThat;
 
 import static org.mockito.Matchers.any;
@@ -31,11 +29,13 @@ import static org.mockito.Mockito.verify;
 import android.net.NetworkAgent;
 import android.telephony.Annotation.ValidationStatus;
 import android.telephony.CarrierConfigManager;
+import android.telephony.data.DataProfile;
 import android.testing.AndroidTestingRunner;
 import android.testing.TestableLooper;
 
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.TelephonyTest;
+import com.android.internal.telephony.data.DataNetworkController.DataNetworkControllerCallback;
 import com.android.internal.telephony.data.DataStallRecoveryManager.DataStallRecoveryManagerCallback;
 
 import org.junit.After;
@@ -43,6 +43,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @RunWith(AndroidTestingRunner.class)
 @TestableLooper.RunWithLooper
@@ -58,15 +61,16 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
         super.setUp(getClass().getSimpleName());
         mDataStallRecoveryManagerCallback = mock(DataStallRecoveryManagerCallback.class);
         mCarrierConfigManager = mPhone.getContext().getSystemService(CarrierConfigManager.class);
-        long[] dataStallRecoveryTimersArray = new long[] {100, 100, 100};
-        boolean[] dataStallRecoveryStepsArray = new boolean[] {false, false, false, false};
+        long[] dataStallRecoveryTimersArray = new long[] {100, 100, 100, 100};
+        boolean[] dataStallRecoveryStepsArray = new boolean[] {false, false, true, false, false};
         doReturn(dataStallRecoveryTimersArray)
                 .when(mDataConfigManager)
                 .getDataStallRecoveryDelayMillis();
         doReturn(dataStallRecoveryStepsArray)
                 .when(mDataConfigManager)
                 .getDataStallRecoveryShouldSkipArray();
-        doReturn(mSST).when(mPhone).getServiceStateTracker();
+        doReturn(true).when(mDataNetworkController).isInternetDataAllowed();
+
         doAnswer(
                 invocation -> {
                     ((Runnable) invocation.getArguments()[0]).run();
@@ -83,6 +87,7 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
                         mMockedWwanDataServiceManager,
                         mTestableLooper.getLooper(),
                         mDataStallRecoveryManagerCallback);
+        sendOnInternetDataNetworkCallback(true);
         logd("DataStallRecoveryManagerTest -Setup!");
     }
 
@@ -103,6 +108,24 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
         dataNetworkControllerCallback.onInternetDataNetworkValidationStatusChanged(status);
     }
 
+    private void sendOnInternetDataNetworkCallback(boolean isConnected) {
+        ArgumentCaptor<DataNetworkControllerCallback> dataNetworkControllerCallbackCaptor =
+                ArgumentCaptor.forClass(DataNetworkControllerCallback.class);
+        verify(mDataNetworkController)
+                .registerDataNetworkControllerCallback(
+                        dataNetworkControllerCallbackCaptor.capture());
+        DataNetworkControllerCallback dataNetworkControllerCallback =
+                dataNetworkControllerCallbackCaptor.getValue();
+
+        if (isConnected) {
+            List<DataProfile> dataprofile = new ArrayList<DataProfile>();
+            dataNetworkControllerCallback.onInternetDataNetworkConnected(dataprofile);
+        } else {
+            dataNetworkControllerCallback.onInternetDataNetworkDisconnected();
+        }
+        processAllMessages();
+    }
+
     @Test
     public void testRecoveryStepPDPReset() throws Exception {
         mDataStallRecoveryManager.setRecoveryAction(1);
@@ -118,7 +141,7 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
 
     @Test
     public void testRecoveryStepRestartRadio() throws Exception {
-        mDataStallRecoveryManager.setRecoveryAction(2);
+        mDataStallRecoveryManager.setRecoveryAction(3);
         doReturn(mSignalStrength).when(mPhone).getSignalStrength();
         doReturn(PhoneConstants.State.IDLE).when(mPhone).getState();
 
@@ -131,7 +154,7 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
 
     @Test
     public void testRecoveryStepModemReset() throws Exception {
-        mDataStallRecoveryManager.setRecoveryAction(3);
+        mDataStallRecoveryManager.setRecoveryAction(4);
         doReturn(mSignalStrength).when(mPhone).getSignalStrength();
         doReturn(PhoneConstants.State.IDLE).when(mPhone).getState();
 
@@ -145,7 +168,7 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
 
     @Test
     public void testDoNotDoRecoveryActionWhenPoorSignal() throws Exception {
-        mDataStallRecoveryManager.setRecoveryAction(2);
+        mDataStallRecoveryManager.setRecoveryAction(3);
         doReturn(1).when(mSignalStrength).getLevel();
         doReturn(mSignalStrength).when(mPhone).getSignalStrength();
         doReturn(PhoneConstants.State.IDLE).when(mPhone).getState();
@@ -155,12 +178,12 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
 
         processAllFutureMessages();
 
-        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(0);
+        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(3);
     }
 
     @Test
     public void testDoNotDoRecoveryActionWhenDialCall() throws Exception {
-        mDataStallRecoveryManager.setRecoveryAction(2);
+        mDataStallRecoveryManager.setRecoveryAction(3);
         doReturn(3).when(mSignalStrength).getLevel();
         doReturn(mSignalStrength).when(mPhone).getSignalStrength();
         doReturn(PhoneConstants.State.OFFHOOK).when(mPhone).getState();
@@ -170,7 +193,7 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
 
         processAllFutureMessages();
 
-        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(2);
+        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(3);
     }
 
     @Test
@@ -185,11 +208,11 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
         processAllMessages();
         assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(1);
         mDataStallRecoveryManager.sendMessageDelayed(
-                mDataStallRecoveryManager.obtainMessage(2), 1000);
+                mDataStallRecoveryManager.obtainMessage(3), 1000);
         moveTimeForward(15000);
         processAllMessages();
 
-        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(2);
+        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(3);
     }
 
     @Test
@@ -210,12 +233,12 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
         sendValidationStatusCallback(NetworkAgent.VALIDATION_STATUS_NOT_VALID);
         processAllMessages();
         moveTimeForward(101);
-        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(2);
+        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(3);
 
         sendValidationStatusCallback(NetworkAgent.VALIDATION_STATUS_NOT_VALID);
         processAllMessages();
         moveTimeForward(101);
-        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(3);
+        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(4);
 
         // Handle multiple VALIDATION_STATUS_NOT_VALID and make sure we don't attempt recovery
         for (int i = 0; i < 4; i++) {
@@ -225,5 +248,33 @@ public class DataStallRecoveryManagerTest extends TelephonyTest {
             moveTimeForward(101);
             assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(0);
         }
+    }
+
+    @Test
+    public void testDoNotDoRecoveryWhenDataNoService() throws Exception {
+        mDataStallRecoveryManager.setRecoveryAction(1);
+        doReturn(mSignalStrength).when(mPhone).getSignalStrength();
+        doReturn(PhoneConstants.State.IDLE).when(mPhone).getState();
+        doReturn(false).when(mDataNetworkController).isInternetDataAllowed();
+
+        logd("Sending validation failed callback");
+        sendValidationStatusCallback(NetworkAgent.VALIDATION_STATUS_NOT_VALID);
+        processAllFutureMessages();
+
+        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(1);
+    }
+
+    @Test
+    public void testDoNotDoRecoveryWhenDataNetworkNotConnected() throws Exception {
+        mDataStallRecoveryManager.setRecoveryAction(1);
+        doReturn(mSignalStrength).when(mPhone).getSignalStrength();
+        doReturn(PhoneConstants.State.IDLE).when(mPhone).getState();
+        sendOnInternetDataNetworkCallback(false);
+
+        logd("Sending validation failed callback");
+        sendValidationStatusCallback(NetworkAgent.VALIDATION_STATUS_NOT_VALID);
+        processAllFutureMessages();
+
+        assertThat(mDataStallRecoveryManager.getRecoveryAction()).isEqualTo(1);
     }
 }

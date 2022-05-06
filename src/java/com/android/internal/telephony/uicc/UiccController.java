@@ -34,7 +34,6 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.Registrant;
 import android.os.RegistrantList;
-import android.os.storage.StorageManager;
 import android.preference.PreferenceManager;
 import android.sysprop.TelephonyProperties;
 import android.telephony.CarrierConfigManager;
@@ -244,13 +243,7 @@ public class UiccController extends Handler {
         mRadioConfig.registerForSimSlotStatusChanged(this, EVENT_SLOT_STATUS_CHANGED, null);
         for (int i = 0; i < mCis.length; i++) {
             mCis[i].registerForIccStatusChanged(this, EVENT_ICC_STATUS_CHANGED, i);
-
-            if (!StorageManager.inCryptKeeperBounce()) {
-                mCis[i].registerForAvailable(this, EVENT_RADIO_AVAILABLE, i);
-            } else {
-                mCis[i].registerForOn(this, EVENT_RADIO_ON, i);
-            }
-
+            mCis[i].registerForAvailable(this, EVENT_RADIO_AVAILABLE, i);
             mCis[i].registerForNotAvailable(this, EVENT_RADIO_UNAVAILABLE, i);
             mCis[i].registerForIccRefresh(this, EVENT_SIM_REFRESH, i);
         }
@@ -624,18 +617,7 @@ public class UiccController extends Handler {
         for (int i = prevActiveModemCount; i < newActiveModemCount; i++) {
             mPhoneIdToSlotId[i] = INVALID_SLOT_ID;
             mCis[i].registerForIccStatusChanged(this, EVENT_ICC_STATUS_CHANGED, i);
-
-            /*
-             * To support FDE (deprecated), additional check is needed:
-             *
-             * if (!StorageManager.inCryptKeeperBounce()) {
-             *     mCis[i].registerForAvailable(this, EVENT_RADIO_AVAILABLE, i);
-             * } else {
-             *     mCis[i].registerForOn(this, EVENT_RADIO_ON, i);
-             * }
-             */
             mCis[i].registerForAvailable(this, EVENT_RADIO_AVAILABLE, i);
-
             mCis[i].registerForNotAvailable(this, EVENT_RADIO_UNAVAILABLE, i);
             mCis[i].registerForIccRefresh(this, EVENT_SIM_REFRESH, i);
         }
@@ -826,7 +808,8 @@ public class UiccController extends Handler {
                 if (mDefaultEuiccCardId == UNINITIALIZED_CARD_ID
                         || mDefaultEuiccCardId == TEMPORARILY_UNSUPPORTED_CARD_ID) {
                     mDefaultEuiccCardId = convertToPublicCardId(cardString);
-                    logWithLocalLog("IccCardStatus eid=" + cardString + " slot=" + slotId
+                    logWithLocalLog("IccCardStatus eid="
+                            + Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, cardString) + " slot=" + slotId
                             + " mDefaultEuiccCardId=" + mDefaultEuiccCardId);
                 }
             }
@@ -1077,8 +1060,9 @@ public class UiccController extends Handler {
                 if (!mUiccSlots[i].isRemovable() && !isDefaultEuiccCardIdSet) {
                     isDefaultEuiccCardIdSet = true;
                     mDefaultEuiccCardId = convertToPublicCardId(eid);
-                    logWithLocalLog("Using eid=" + eid + " in slot=" + i
-                            + " to set mDefaultEuiccCardId=" + mDefaultEuiccCardId);
+                    logWithLocalLog("Using eid=" + Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, eid)
+                            + " in slot=" + i + " to set mDefaultEuiccCardId="
+                            + mDefaultEuiccCardId);
                 }
             }
         }
@@ -1095,8 +1079,10 @@ public class UiccController extends Handler {
                     if (!TextUtils.isEmpty(eid)) {
                         isDefaultEuiccCardIdSet = true;
                         mDefaultEuiccCardId = convertToPublicCardId(eid);
-                        logWithLocalLog("Using eid=" + eid + " from removable eUICC in slot="
-                                + i + " to set mDefaultEuiccCardId=" + mDefaultEuiccCardId);
+                        logWithLocalLog("Using eid="
+                                + Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, eid)
+                                + " from removable eUICC in slot=" + i
+                                + " to set mDefaultEuiccCardId=" + mDefaultEuiccCardId);
                         break;
                     }
                 }
@@ -1274,14 +1260,17 @@ public class UiccController extends Handler {
                 || mDefaultEuiccCardId == TEMPORARILY_UNSUPPORTED_CARD_ID) {
             if (!mUiccSlots[slotId].isRemovable()) {
                 mDefaultEuiccCardId = convertToPublicCardId(eid);
-                logWithLocalLog("onEidReady: eid=" + eid + " slot=" + slotId
-                        + " mDefaultEuiccCardId=" + mDefaultEuiccCardId);
+                logWithLocalLog("onEidReady: eid="
+                        + Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, eid)
+                        + " slot=" + slotId + " mDefaultEuiccCardId=" + mDefaultEuiccCardId);
             } else if (!mHasActiveBuiltInEuicc) {
                 // we only set a removable eUICC to the default if there are no active non-removable
                 // eUICCs
                 mDefaultEuiccCardId = convertToPublicCardId(eid);
-                logWithLocalLog("onEidReady: eid=" + eid + " from removable eUICC in slot=" + slotId
-                        + " mDefaultEuiccCardId=" + mDefaultEuiccCardId);
+                logWithLocalLog("onEidReady: eid="
+                        + Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, eid)
+                        + " from removable eUICC in slot=" + slotId + " mDefaultEuiccCardId="
+                        + mDefaultEuiccCardId);
             }
         }
         card.unregisterForEidReady(this);

@@ -28,6 +28,7 @@ import static junit.framework.Assert.assertNotNull;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -66,6 +67,7 @@ import android.telecom.VideoProfile;
 import android.telephony.CarrierConfigManager;
 import android.telephony.DisconnectCause;
 import android.telephony.PhoneNumberUtils;
+import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
 import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.ImsCallSession;
@@ -77,6 +79,7 @@ import android.telephony.ims.RtpHeaderExtensionType;
 import android.telephony.ims.feature.ImsFeature;
 import android.telephony.ims.feature.MmTelFeature;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
+import android.test.suitebuilder.annotation.MediumTest;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.testing.AndroidTestingRunner;
 import android.testing.TestableLooper;
@@ -1077,6 +1080,216 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         Assert.assertEquals("*55", connection.getAddress());
     }
 
+
+    /**
+     * Tests carrier requirement to re-map certain dialstrings based on the phones service state.
+     * Dial strings in a particular roaming state (ex. ROAMING_TYPE_INTERNATIONAL) can be mapped
+     * to the number.  Ideally, dialstrings in different roaming states will be mapped to
+     * different remappings.
+     *
+     * ex.
+     *
+     * dialstring --> remapping
+     *
+     * 611 --> 123 , *611 --> 123   when  ServiceState.ROAMING_TYPE_DOMESTIC
+     *
+     * 611 --> 456 , *611 --> 456   when  ServiceState.ROAMING_TYPE_INTERNATIONAL
+     */
+    @Test
+    @MediumTest
+    public void testRewriteOutgoingNumberBasedOnRoamingState() {
+        // mock carrier [dialstring]:[remapping]
+        final String dialString = "611";
+        final String dialStringStar = "*611";
+        final String remapping1 = "1111111111";
+        final String remapping2 = "2222222222";
+
+        // Create the re-mappings by getting the mock carrier bundle and inserting string arrays
+        PersistableBundle bundle = mContextFixture.getCarrierConfigBundle();
+        // insert domestic roaming bundle
+        bundle.putStringArray(CarrierConfigManager
+                        .KEY_DIAL_STRING_REPLACE_STRING_ARRAY,
+                new String[]{(dialString + ":" + remapping1),
+                        (dialStringStar + ":" + remapping1)});
+        // insert international roaming bundle
+        bundle.putStringArray(CarrierConfigManager
+                        .KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY,
+                new String[]{(dialString + ":" + remapping2),
+                        (dialStringStar + ":" + remapping2)});
+
+        try {
+            doAnswer(new Answer<ImsCall>() {
+                @Override
+                public ImsCall answer(InvocationOnMock invocation) throws Throwable {
+                    mImsCallListener =
+                            (ImsCall.Listener) invocation.getArguments()[2];
+                    ImsCall imsCall = spy(new ImsCall(mContext, mImsCallProfile));
+                    imsCall.setListener(mImsCallListener);
+                    imsCallMocking(imsCall);
+                    return imsCall;
+                }
+            }).when(mImsManager).makeCall(eq(mImsCallProfile), (String[]) any(),
+                    (ImsCall.Listener) any());
+        } catch (ImsException ie) {
+        }
+
+        // set mock call for helper function CallTracker#shouldPerformInternationalNumberRemapping
+        doReturn(ServiceState.ROAMING_TYPE_INTERNATIONAL)
+                .when(mServiceState).getVoiceRoamingType();
+
+        // perform a call while service is state in roaming international
+        ImsPhoneConnection connection = null;
+        try {
+            connection = (ImsPhoneConnection) mCTUT.dial(dialString,
+                    ImsCallProfile.CALL_TYPE_VOICE, null);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Assert.fail("unexpected exception thrown" + ex.getMessage());
+        }
+        if (connection == null) {
+            Assert.fail("connection is null");
+        }
+
+        Assert.assertEquals(dialString, connection.getAddress());
+        Assert.assertEquals(remapping2, connection.getConvertedNumber());
+
+        mCTUT.hangupAllOrphanedConnections(DisconnectCause.NORMAL);
+
+        // perform a 2nd call while service state is in roaming international
+        ImsPhoneConnection connection2 = null;
+        try {
+            connection2 = (ImsPhoneConnection) mCTUT.dial(dialStringStar,
+                    ImsCallProfile.CALL_TYPE_VOICE, null);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Assert.fail("unexpected exception thrown" + ex.getMessage());
+        }
+        if (connection2 == null) {
+            Assert.fail("connection is null");
+        }
+
+        Assert.assertEquals(dialStringStar, connection2.getAddress());
+        Assert.assertEquals(remapping2, connection2.getConvertedNumber());
+
+        mCTUT.hangupAllOrphanedConnections(DisconnectCause.NORMAL);
+
+
+        // CHANGE THE SERVICE STATE: international --> domestic
+        doReturn(ServiceState.ROAMING_TYPE_DOMESTIC)
+                .when(mServiceState).getVoiceRoamingType();
+
+        // perform 3rd call while service state is in roaming DOMESTIC
+        ImsPhoneConnection connection3 = null;
+        try {
+            connection3 = (ImsPhoneConnection) mCTUT.dial(dialString,
+                    ImsCallProfile.CALL_TYPE_VOICE, null);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Assert.fail("unexpected exception thrown" + ex.getMessage());
+        }
+        if (connection3 == null) {
+            Assert.fail("connection is null");
+        }
+
+        Assert.assertEquals(dialString, connection3.getAddress());
+        Assert.assertEquals(remapping1, connection3.getConvertedNumber());
+
+
+        mCTUT.hangupAllOrphanedConnections(DisconnectCause.NORMAL);
+
+        // perform 4th call while service state is in roaming DOMESTIC
+        ImsPhoneConnection connection4 = null;
+        try {
+            connection4 = (ImsPhoneConnection) mCTUT.dial(dialStringStar,
+                    ImsCallProfile.CALL_TYPE_VOICE, null);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Assert.fail("unexpected exception thrown" + ex.getMessage());
+        }
+        if (connection4 == null) {
+            Assert.fail("connection is null");
+        }
+
+        Assert.assertEquals(dialStringStar, connection4.getAddress());
+        Assert.assertEquals(remapping1, connection4.getConvertedNumber());
+
+        mCTUT.hangupAllOrphanedConnections(DisconnectCause.NORMAL);
+    }
+
+
+    /**
+     * Tests the edge case where the phone is in ServiceState.ROAMING_TYPE_INTERNATIONAL but the
+     * Carrier never set the bundle for this ServiceState.  Always default to
+     * CarrierConfigManager.KEY_DIAL_STRING_REPLACE_STRING_ARRAY.
+     */
+    @Test
+    @SmallTest
+    public void testRewriteOutgoingNumberInternationalButBundleNotSet() {
+        // mock carrier [dialstring]:[remapping]
+        final String dialString = "611";
+        final String dialStringStar = "*611";
+        final String remapping1 = "1111111111";
+
+        // Create the re-mappings by getting the mock carrier bundle and inserting string arrays
+        PersistableBundle bundle = mContextFixture.getCarrierConfigBundle();
+        // insert domestic roaming bundle
+        bundle.putStringArray(CarrierConfigManager
+                        .KEY_DIAL_STRING_REPLACE_STRING_ARRAY,
+                new String[]{(dialString + ":" + remapping1),
+                        (dialStringStar + ":" + remapping1)});
+
+        try {
+            doAnswer(new Answer<ImsCall>() {
+                @Override
+                public ImsCall answer(InvocationOnMock invocation) throws Throwable {
+                    mImsCallListener =
+                            (ImsCall.Listener) invocation.getArguments()[2];
+                    ImsCall imsCall = spy(new ImsCall(mContext, mImsCallProfile));
+                    imsCall.setListener(mImsCallListener);
+                    imsCallMocking(imsCall);
+                    return imsCall;
+                }
+            }).when(mImsManager).makeCall(eq(mImsCallProfile), (String[]) any(),
+                    (ImsCall.Listener) any());
+        } catch (ImsException ie) {
+        }
+
+        doReturn(ServiceState.ROAMING_TYPE_INTERNATIONAL)
+                .when(mServiceState).getVoiceRoamingType();
+
+        Assert.assertNotNull(mImsPhone);
+        Assert.assertNotNull(mImsPhone.getDefaultPhone());
+
+        ImsPhoneConnection connection = null;
+        try {
+            connection = (ImsPhoneConnection) mCTUT.dial(dialString,
+                    ImsCallProfile.CALL_TYPE_VOICE, null);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Assert.fail("unexpected exception thrown" + ex.getMessage());
+        }
+        if (connection == null) {
+            Assert.fail("connection is null");
+        }
+
+        // helper function CallTracker#shouldPerformInternationalNumberRemapping early exists since
+        // the KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY bundle is null. Therefore,
+        // we should never check the service state and default to
+        // KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY bundle
+        verify(mServiceState, times(0)).getVoiceRoamingType();
+
+        Assert.assertEquals(mImsPhone.getDefaultPhone().getServiceState().getVoiceRoamingType(),
+                ServiceState.ROAMING_TYPE_INTERNATIONAL);
+
+        Assert.assertNull(bundle.getStringArray(CarrierConfigManager
+                .KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY));
+
+        Assert.assertEquals(dialString, connection.getAddress());
+        Assert.assertEquals(remapping1, connection.getConvertedNumber());
+
+        mCTUT.hangupAllOrphanedConnections(DisconnectCause.NORMAL);
+    }
+
     /**
      * Test notification of handover from LTE to WIFI and WIFI to LTE and ensure that the expected
      * connection events are sent.
@@ -1631,6 +1844,20 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         verify(mImsManager, never()).setOfferedRtpHeaderExtensionTypes(any());
     }
 
+    @Test
+    @SmallTest
+    public void testCleanupAndRemoveConnection() throws Exception {
+        ImsPhoneConnection conn = placeCall();
+        assertEquals(1, mCTUT.getConnections().size());
+        assertNotNull(mCTUT.getPendingMO());
+        assertEquals(Call.State.DIALING, mCTUT.mForegroundCall.getState());
+
+        mCTUT.cleanupAndRemoveConnection(conn);
+        assertEquals(0, mCTUT.getConnections().size());
+        assertNull(mCTUT.getPendingMO());
+        assertEquals(Call.State.IDLE, mCTUT.mForegroundCall.getState());
+    }
+
     private void sendCarrierConfigChanged() {
         Intent intent = new Intent(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         intent.putExtra(CarrierConfigManager.EXTRA_SUBSCRIPTION_INDEX, mPhone.getSubId());
@@ -1666,6 +1893,16 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     }
 
     private ImsPhoneConnection placeCallAndMakeActive() {
+        ImsPhoneConnection connection = placeCall();
+        ImsCall imsCall = connection.getImsCall();
+        imsCall.getImsCallSessionListenerProxy().callSessionProgressing(imsCall.getSession(),
+                new ImsStreamMediaProfile());
+        imsCall.getImsCallSessionListenerProxy().callSessionStarted(imsCall.getSession(),
+                new ImsCallProfile());
+        return connection;
+    }
+
+    private ImsPhoneConnection placeCall() {
         try {
             doAnswer(new Answer<ImsCall>() {
                 @Override
@@ -1677,6 +1914,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
                     imsCallMocking(imsCall);
                     return imsCall;
                 }
+
             }).when(mImsManager).makeCall(eq(mImsCallProfile), (String[]) any(),
                     (ImsCall.Listener) any());
         } catch (ImsException ie) {
@@ -1693,11 +1931,6 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         if (connection == null) {
             Assert.fail("connection is null");
         }
-        ImsCall imsCall = connection.getImsCall();
-        imsCall.getImsCallSessionListenerProxy().callSessionProgressing(imsCall.getSession(),
-                new ImsStreamMediaProfile());
-        imsCall.getImsCallSessionListenerProxy().callSessionStarted(imsCall.getSession(),
-                new ImsCallProfile());
         return connection;
     }
 }

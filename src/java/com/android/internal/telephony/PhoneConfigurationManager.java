@@ -30,7 +30,6 @@ import android.os.Message;
 import android.os.PowerManager;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
-import android.os.storage.StorageManager;
 import android.sysprop.TelephonyProperties;
 import android.telephony.PhoneCapability;
 import android.telephony.SubscriptionManager;
@@ -55,7 +54,6 @@ public class PhoneConfigurationManager {
     public static final String DSDS = "dsds";
     public static final String TSTS = "tsts";
     public static final String SSSS = "ssss";
-    public static final String CTS_MOCK_MODEM_SERVICE = "android.telephony.cts.MockModemService";
     private static final String LOG_TAG = "PhoneCfgMgr";
     private static final int EVENT_SWITCH_DSDS_CONFIG_DONE = 100;
     private static final int EVENT_GET_MODEM_STATUS = 101;
@@ -141,11 +139,7 @@ public class PhoneConfigurationManager {
     };
 
     private void registerForRadioState(Phone phone) {
-        if (!StorageManager.inCryptKeeperBounce()) {
-            phone.mCi.registerForAvailable(mHandler, Phone.EVENT_RADIO_AVAILABLE, phone);
-        } else {
-            phone.mCi.registerForOn(mHandler, Phone.EVENT_RADIO_ON, phone);
-        }
+        phone.mCi.registerForAvailable(mHandler, Phone.EVENT_RADIO_AVAILABLE, phone);
     }
 
     private PhoneCapability getDefaultCapability() {
@@ -425,6 +419,24 @@ public class PhoneConfigurationManager {
                 registerForRadioState(phone);
                 phone.mCi.onSlotActiveStatusChange(SubscriptionManager.isValidPhoneId(phoneId));
             }
+
+            // When the user enables DSDS mode, the default VOICE and SMS subId should be switched
+            // to "No Preference".  Doing so will sync the network/sim settings and telephony.
+            // (see b/198123192)
+            if (numOfActiveModems > oldNumOfActiveModems && numOfActiveModems == 2) {
+                Log.i(LOG_TAG, " onMultiSimConfigChanged: DSDS mode enabled; "
+                        + "setting VOICE & SMS subId to -1 (No Preference)");
+
+                //Set the default VOICE subId to -1 ("No Preference")
+                SubscriptionController.getInstance().setDefaultVoiceSubId(
+                        SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+
+                //TODO:: Set the default SMS sub to "No Preference". Tracking this bug (b/227386042)
+            } else {
+                Log.i(LOG_TAG,
+                        "onMultiSimConfigChanged: DSDS mode NOT detected.  NOT setting the "
+                                + "default VOICE and SMS subId to -1 (No Preference)");
+            }
         }
     }
 
@@ -493,12 +505,6 @@ public class PhoneConfigurationManager {
         // Check for ALLOW_MOCK_MODEM_PROPERTY on user builds
         if (isAllowed || DEBUG) {
             if (serviceName != null) {
-                // Only CTS mock modem service is allowed to swith.
-                if (!serviceName.equals(CTS_MOCK_MODEM_SERVICE)) {
-                    loge(serviceName + " is not allowed to switch");
-                    return false;
-                }
-
                 statusRadioConfig = mRadioConfig.setModemService(serviceName);
 
                 //TODO: consider multi-sim case (b/210073692)
