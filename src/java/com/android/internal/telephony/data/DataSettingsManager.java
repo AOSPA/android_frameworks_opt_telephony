@@ -41,6 +41,7 @@ import android.util.LocalLog;
 import com.android.internal.telephony.GlobalSettingsHelper;
 import com.android.internal.telephony.MultiSimSettingController;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.SettingsObserver;
 import com.android.internal.telephony.SubscriptionController;
 import com.android.telephony.Rlog;
@@ -406,6 +407,18 @@ public class DataSettingsManager extends Handler {
             return isProvisioningDataEnabled();
         } else {
             boolean userDataEnabled = isUserDataEnabled();
+            // Check if data is enabled for default APN on nDDS SUB per data during call.
+            if (userDataEnabled && apnType == ApnSetting.TYPE_DEFAULT
+                    && mSubId != SubscriptionController.getInstance().getDefaultDataSubId()
+                    && mPhone.getState() != PhoneConstants.State.IDLE) {
+                final boolean isDataAllowedInVoiceCall = isDataAllowedInVoiceCall();
+                log("isDataAllowedInVoiceCall = " + isDataAllowedInVoiceCall);
+                return (isDataAllowedInVoiceCall
+                        && mDataEnabledSettings.get(TelephonyManager.DATA_ENABLED_REASON_POLICY)
+                        && mDataEnabledSettings.get(TelephonyManager.DATA_ENABLED_REASON_CARRIER)
+                        && mDataEnabledSettings.get(TelephonyManager.DATA_ENABLED_REASON_THERMAL));
+            }
+
             // Check if we should temporarily enable data in certain conditions.
             boolean isDataEnabledOverridden = mDataEnabledOverride
                     .shouldOverrideDataEnabledSettings(mPhone, apnType);
