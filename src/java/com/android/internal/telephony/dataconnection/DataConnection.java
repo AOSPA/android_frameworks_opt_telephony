@@ -2365,7 +2365,8 @@ public class DataConnection extends StateMachine {
                                 + " regState=" + ServiceState.rilServiceStateToString(mDataRegState)
                                 + " RAT=" + ServiceState.rilRadioTechnologyToString(mRilRat));
                     }
-                    mDataCallSessionStats.onDrsOrRatChanged(mRilRat);
+                    mDataCallSessionStats.onDrsOrRatChanged(
+                            ServiceState.rilRadioTechnologyToNetworkType(mRilRat));
                     break;
 
                 case EVENT_START_HANDOVER:  //calls startHandover()
@@ -3144,7 +3145,8 @@ public class DataConnection extends StateMachine {
                         mNetworkAgent.sendLinkProperties(mLinkProperties, DataConnection.this);
                     }
                     retVal = HANDLED;
-                    mDataCallSessionStats.onDrsOrRatChanged(mRilRat);
+                    mDataCallSessionStats.onDrsOrRatChanged(
+                            ServiceState.rilRadioTechnologyToNetworkType(mRilRat));
                     break;
                 }
                 case EVENT_NR_FREQUENCY_CHANGED:
