@@ -113,7 +113,7 @@ public class DataRetryManager extends Handler {
     public @interface RetryResetReason {}
 
     /** Reset due to data profiles changed. */
-    private static final int RESET_REASON_DATA_PROFILES_CHANGED = 1;
+    protected static final int RESET_REASON_DATA_PROFILES_CHANGED = 1;
 
     /** Reset due to radio on. This could happen after airplane mode off or RIL restarted. */
     private static final int RESET_REASON_RADIO_ON = 2;
@@ -128,7 +128,7 @@ public class DataRetryManager extends Handler {
     private static final int RESET_REASON_DATA_SERVICE_BOUND = 4;
 
     /** Reset due to data config changed. */
-    private static final int RESET_REASON_DATA_CONFIG_CHANGED = 5;
+    protected static final int RESET_REASON_DATA_CONFIG_CHANGED = 5;
 
     /** Reset due to tracking area code changed. */
     private static final int RESET_REASON_TAC_CHANGED = 6;
@@ -1213,7 +1213,7 @@ public class DataRetryManager extends Handler {
     }
 
     /** Cancel all retries and throttling entries. */
-    private void onReset(@RetryResetReason int reason) {
+    protected void onReset(@RetryResetReason int reason) {
         logl("Remove all retry and throttling entries, reason=" + resetReasonToString(reason));
         removeMessages(EVENT_DATA_SETUP_RETRY);
         removeMessages(EVENT_DATA_HANDOVER_RETRY);
@@ -1594,7 +1594,7 @@ public class DataRetryManager extends Handler {
      * @param reason The reason
      * @return The reason in string format.
      */
-    private static @NonNull String resetReasonToString(int reason) {
+    protected static @NonNull String resetReasonToString(int reason) {
         switch (reason) {
             case RESET_REASON_DATA_PROFILES_CHANGED:
                 return "DATA_PROFILES_CHANGED";
