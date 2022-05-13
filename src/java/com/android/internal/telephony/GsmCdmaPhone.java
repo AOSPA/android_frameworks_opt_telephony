@@ -4690,7 +4690,7 @@ public class GsmCdmaPhone extends Phone {
         mIsCarrierNrSupported = !ArrayUtils.isEmpty(nrAvailabilities);
     }
 
-    private void updateVoNrSettings(PersistableBundle config) {
+    protected void updateVoNrSettings(PersistableBundle config) {
         UiccSlot slot = mUiccController.getUiccSlotForPhone(mPhoneId);
 
         // If no card is present, do nothing.
