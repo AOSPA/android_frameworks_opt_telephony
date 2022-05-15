@@ -39,7 +39,6 @@ import android.util.IndentingPrintWriter;
 import android.util.LocalLog;
 
 import com.android.internal.telephony.GlobalSettingsHelper;
-import com.android.internal.telephony.MultiSimSettingController;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.SettingsObserver;
@@ -128,9 +127,11 @@ public class DataSettingsManager extends Handler {
          * @param enabled {@code true} indicates mobile data is enabled.
          * @param reason {@link TelephonyManager.DataEnabledChangedReason} indicating the reason why
          *               mobile data enabled changed.
+         * @param callingPackage The package that changed the data enabled state.
          */
         public void onDataEnabledChanged(boolean enabled,
-                @TelephonyManager.DataEnabledChangedReason int reason) {}
+                @TelephonyManager.DataEnabledChangedReason int reason,
+                @NonNull String callingPackage) {}
 
         /**
          * Called when data enabled override changed.
@@ -236,8 +237,6 @@ public class DataSettingsManager extends Handler {
                         Settings.Global.DATA_ROAMING, mSubId, enabled);
                 if (changed) {
                     logl("DataRoamingEnabled changed to " + enabled);
-                    MultiSimSettingController.getInstance().notifyRoamingDataEnabled(mSubId,
-                            enabled);
                     mDataSettingsManagerCallbacks.forEach(callback -> callback.invokeFromExecutor(
                             () -> callback.onDataRoamingEnabledChanged(enabled)));
                 }
@@ -346,12 +345,17 @@ public class DataSettingsManager extends Handler {
     }
 
     private void updateDataEnabledAndNotify(@TelephonyManager.DataEnabledChangedReason int reason) {
+        updateDataEnabledAndNotify(reason, mPhone.getContext().getOpPackageName());
+    }
+
+    private void updateDataEnabledAndNotify(@TelephonyManager.DataEnabledChangedReason int reason,
+            @NonNull String callingPackage) {
         boolean prevDataEnabled = mIsDataEnabled;
         mIsDataEnabled = isDataEnabled(ApnSetting.TYPE_ALL);
         log("mIsDataEnabled=" + mIsDataEnabled + ", prevDataEnabled=" + prevDataEnabled);
         if (!mInitialized || prevDataEnabled != mIsDataEnabled) {
             if (!mInitialized) mInitialized = true;
-            notifyDataEnabledChanged(mIsDataEnabled, reason);
+            notifyDataEnabledChanged(mIsDataEnabled, reason, callingPackage);
         }
     }
 
@@ -451,11 +455,7 @@ public class DataSettingsManager extends Handler {
         if (changed) {
             logl("UserDataEnabled changed to " + enabled);
             mPhone.notifyUserMobileDataStateChanged(enabled);
-            updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_USER);
-            // TODO: MultiSimSettingController should register the callback instead of let
-            //   DataSettingsManager directly feed information to it.
-            //   Also revisit if sub id is really needed.
-            MultiSimSettingController.getInstance().notifyUserDataEnabled(mSubId, enabled);
+            updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_USER, callingPackage);
         }
     }
 
@@ -486,7 +486,7 @@ public class DataSettingsManager extends Handler {
         if (mDataEnabledSettings.get(TelephonyManager.DATA_ENABLED_REASON_POLICY) != enabled) {
             logl("PolicyDataEnabled changed to " + enabled + ", callingPackage=" + callingPackage);
             mDataEnabledSettings.put(TelephonyManager.DATA_ENABLED_REASON_POLICY, enabled);
-            updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_POLICY);
+            updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_POLICY, callingPackage);
         }
     }
 
@@ -499,7 +499,8 @@ public class DataSettingsManager extends Handler {
         if (mDataEnabledSettings.get(TelephonyManager.DATA_ENABLED_REASON_CARRIER) != enabled) {
             logl("CarrierDataEnabled changed to " + enabled + ", callingPackage=" + callingPackage);
             mDataEnabledSettings.put(TelephonyManager.DATA_ENABLED_REASON_CARRIER, enabled);
-            updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_CARRIER);
+            updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_CARRIER,
+                    callingPackage);
         }
     }
 
@@ -512,7 +513,8 @@ public class DataSettingsManager extends Handler {
         if (mDataEnabledSettings.get(TelephonyManager.DATA_ENABLED_REASON_THERMAL) != enabled) {
             logl("ThermalDataEnabled changed to " + enabled + ", callingPackage=" + callingPackage);
             mDataEnabledSettings.put(TelephonyManager.DATA_ENABLED_REASON_THERMAL, enabled);
-            updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_THERMAL);
+            updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_THERMAL,
+                    callingPackage);
         }
     }
 
@@ -586,12 +588,21 @@ public class DataSettingsManager extends Handler {
         return mDataEnabledOverride.isDataAllowedInVoiceCall();
     }
 
+    /**
+     * Check whether data stall recovery on bad network is enabled.
+     * @return {@code true} if data stall recovery is enabled and {@code false} otherwise.
+     */
+    public boolean isRecoveryOnBadNetworkEnabled() {
+        return Settings.Global.getInt(mResolver,
+                Settings.Global.DATA_STALL_RECOVERY_ON_BAD_NETWORK, 1) == 1;
+    }
+
     private void notifyDataEnabledChanged(boolean enabled,
-            @TelephonyManager.DataEnabledChangedReason int reason) {
+            @TelephonyManager.DataEnabledChangedReason int reason, @NonNull String callingPackage) {
         logl("notifyDataEnabledChanged: enabled=" + enabled + ", reason="
-                + dataEnabledChangedReasonToString(reason));
+                + dataEnabledChangedReasonToString(reason) + ", callingPackage=" + callingPackage);
         mDataSettingsManagerCallbacks.forEach(callback -> callback.invokeFromExecutor(
-                () -> callback.onDataEnabledChanged(enabled, reason)));
+                () -> callback.onDataEnabledChanged(enabled, reason, callingPackage)));
         mPhone.notifyDataEnabled(enabled, reason);
     }
 
@@ -697,6 +708,8 @@ public class DataSettingsManager extends Handler {
         pw.println("device_provisioned=" + Settings.Global.getInt(
                 mResolver, Settings.Global.DEVICE_PROVISIONED, 0));
         pw.println("isProvisioningDataEnabled=" + isProvisioningDataEnabled());
+        pw.println("data_stall_recovery_on_bad_network=" + Settings.Global.getInt(
+                mResolver, Settings.Global.DATA_STALL_RECOVERY_ON_BAD_NETWORK, 1));
         pw.println("mDataEnabledSettings=" + mDataEnabledSettings.entrySet().stream()
                 .map(entry ->
                         dataEnabledChangedReasonToString(entry.getKey()) + "=" + entry.getValue())

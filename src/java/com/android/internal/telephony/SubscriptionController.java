@@ -3364,9 +3364,18 @@ public class SubscriptionController extends ISub.Stub {
     @Override
     public String getSubscriptionProperty(int subId, String propKey, String callingPackage,
             String callingFeatureId) {
-        if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(mContext, subId, callingPackage,
-                callingFeatureId, "getSubscriptionProperty")) {
-            return null;
+        switch (propKey) {
+            case SubscriptionManager.GROUP_UUID:
+                if (mContext.checkCallingOrSelfPermission(
+                        Manifest.permission.READ_PRIVILEGED_PHONE_STATE) != PERMISSION_GRANTED) {
+                    return null;
+                }
+                break;
+            default:
+                if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(mContext, subId,
+                        callingPackage, callingFeatureId, "getSubscriptionProperty")) {
+                    return null;
+                }
         }
 
         final long identity = Binder.clearCallingIdentity();
@@ -4725,12 +4734,9 @@ public class SubscriptionController extends ISub.Stub {
         }
     }
 
-    /**
-     * Implements getPhoneNumber() APIs, w/o permission check.
-     * Can be used by other phone internal components.
-     */
+    // Internal helper method for implementing getPhoneNumber() API.
     @Nullable
-    public String getPhoneNumber(int subId, int source) {
+    private String getPhoneNumber(int subId, int source) {
         if (source == SubscriptionManager.PHONE_NUMBER_SOURCE_UICC) {
             Phone phone = PhoneFactory.getPhone(getPhoneId(subId));
             return phone != null ? phone.getLine1Number() : null;

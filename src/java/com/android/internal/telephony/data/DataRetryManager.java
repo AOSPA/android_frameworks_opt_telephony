@@ -958,7 +958,10 @@ public class DataRetryManager extends Handler {
         mRil.registerForOn(this, EVENT_RADIO_ON, null);
         mRil.registerForModemReset(this, EVENT_MODEM_RESET, null);
 
-        mPhone.getServiceStateTracker().registerForAreaCodeChanged(this, EVENT_TAC_CHANGED, null);
+        if (mDataConfigManager.shouldResetDataThrottlingWhenTacChanges()) {
+            mPhone.getServiceStateTracker().registerForAreaCodeChanged(this, EVENT_TAC_CHANGED,
+                    null);
+        }
     }
 
     @Override
@@ -1279,7 +1282,7 @@ public class DataRetryManager extends Handler {
                         logl(msg);
                         loge("mDataRetryEntries=" + mDataRetryEntries);
                         AnomalyReporter.reportAnomaly(UUID.fromString(
-                                "afeab78c-c0b0-49fc-a51f-f766814d7aa5"), msg);
+                                "afeab78c-c0b0-49fc-a51f-f766814d7aa6"), msg);
                         continue;
                     }
                     if (entry.networkRequestList.get(0).getApnTypeNetworkCapability()
@@ -1385,15 +1388,30 @@ public class DataRetryManager extends Handler {
      */
     private void onDataProfileUnthrottled(@Nullable DataProfile dataProfile, @Nullable String apn,
             int transport, boolean remove) {
+        log("onDataProfileUnthrottled: data profile=" + dataProfile + ", apn=" + apn
+                + ", transport=" + AccessNetworkConstants.transportTypeToString(transport)
+                + ", remove=" + remove);
+
         long now = SystemClock.elapsedRealtime();
         List<DataThrottlingEntry> dataUnthrottlingEntries = new ArrayList<>();
         if (dataProfile != null) {
             // For AIDL-based HAL. There should be only one entry containing this data profile.
-            dataUnthrottlingEntries = mDataThrottlingEntries.stream()
-                    .filter(entry -> entry.expirationTimeMillis > now
-                            && entry.dataProfile.equals(dataProfile)
-                            && entry.transport == transport)
-                    .collect(Collectors.toList());
+            // Note that the data profile reconstructed from DataProfileInfo.aidl will not be
+            // equal to the data profiles kept in data profile manager (due to some fields missing
+            // in DataProfileInfo.aidl), so we need to get the equivalent data profile from data
+            // profile manager.
+            final DataProfile dp = mDataProfileManager.getDataProfile(
+                    dataProfile.getApnSetting() != null
+                            ? dataProfile.getApnSetting().getApnName() : null,
+                    dataProfile.getTrafficDescriptor());
+            log("onDataProfileUnthrottled: getDataProfile=" + dp);
+            if (dp != null) {
+                dataUnthrottlingEntries = mDataThrottlingEntries.stream()
+                        .filter(entry -> entry.expirationTimeMillis > now
+                                && entry.dataProfile.equals(dp)
+                                && entry.transport == transport)
+                        .collect(Collectors.toList());
+            }
         } else if (apn != null) {
             // For HIDL 1.6 or below
             dataUnthrottlingEntries = mDataThrottlingEntries.stream()
@@ -1484,7 +1502,7 @@ public class DataRetryManager extends Handler {
                         logl(msg);
                         loge("mDataRetryEntries=" + mDataRetryEntries);
                         AnomalyReporter.reportAnomaly(UUID.fromString(
-                                "afeab78c-c0b0-49fc-a51f-f766814d7aa5"), msg);
+                                "781af571-f55d-476d-b510-7a5381f633dc"), msg);
                         continue;
                     }
                     if (entry.networkRequestList.get(0).getApnTypeNetworkCapability()
