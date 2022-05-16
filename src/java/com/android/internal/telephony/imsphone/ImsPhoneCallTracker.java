@@ -2666,7 +2666,15 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     "does not belong to ImsPhoneCallTracker " + this);
         }
 
-        call.onHangupLocal();
+        if (call.getConnections().size() > 1 && call == mBackgroundCall) {
+            // separate two connections from same imsphonecall object
+            mBackgroundCall.detach(conn);
+            mForegroundCall.attach(conn);
+            conn.changeParent(mForegroundCall);
+            mForegroundCall.onHangupLocal();
+        } else {
+            call.onHangupLocal();
+        }
         ImsCall imsCall = conn.getImsCall();
 
         try {

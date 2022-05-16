@@ -111,6 +111,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
 import com.android.internal.telephony.ServiceStateTracker;
+import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
@@ -2524,12 +2525,14 @@ public class ImsPhone extends ImsPhoneBase {
             mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.DISCONNECTED,
                     imsReasonInfo);
             mImsStats.onImsUnregistered(imsReasonInfo);
-            mCurrentSubscriberUris = null;
         }
 
         @Override
         public void handleImsSubscriberAssociatedUriChanged(Uri[] uris) {
-            if (DBG) logd("handleImsSubscriberAssociatedUriChanged");
+            if (DBG) logd("handleImsSubscriberAssociatedUriChanged" + uris);
+            if (uris == null && SubscriptionController.getInstance().isActiveSubId(getSubId())) {
+                return;
+            }
             setCurrentSubscriberUris(uris);
         }
     };
