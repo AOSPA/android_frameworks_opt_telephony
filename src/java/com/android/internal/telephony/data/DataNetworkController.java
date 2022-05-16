@@ -225,9 +225,9 @@ public class DataNetworkController extends Handler {
 
     protected final @NonNull DataConfigManager mDataConfigManager;
     private final @NonNull DataSettingsManager mDataSettingsManager;
-    private final @NonNull DataProfileManager mDataProfileManager;
+    protected final @NonNull DataProfileManager mDataProfileManager;
     private final @NonNull DataStallRecoveryManager mDataStallRecoveryManager;
-    private final @NonNull AccessNetworksManager mAccessNetworksManager;
+    protected final @NonNull AccessNetworksManager mAccessNetworksManager;
     protected final @NonNull DataRetryManager mDataRetryManager;
     private final @NonNull ImsManager mImsManager;
     private final @NonNull NetworkPolicyManager mNetworkPolicyManager;
@@ -1215,6 +1215,10 @@ public class DataNetworkController extends Handler {
             loge("onAddNetworkRequest: Duplicate network request. " + networkRequest);
             return;
         }
+        if (isPdpRejectRetryOngoing(networkRequest)) {
+            loge("onAddNetworkRequest: Pdp reject retry in progress. " + networkRequest);
+            return;
+        }
         log("onAddNetworkRequest: added " + networkRequest);
         onSatisfyNetworkRequest(networkRequest);
     }
@@ -1670,6 +1674,12 @@ public class DataNetworkController extends Handler {
                 continue;
             }
 
+            // If PDP reject retry is in progress and the current network request corresponds
+            // to internet type, then do not proceed further.
+            if (isPdpRejectRetryOngoing(requestList.get(0))) {
+                continue;
+            }
+
             // If no data network can satisfy the requests, then start the evaluation process. Since
             // all the requests in the list have the same capabilities, we can only evaluate one
             // of them.
@@ -1682,6 +1692,19 @@ public class DataNetworkController extends Handler {
                 }
             }
         }
+    }
+
+    /**
+     * Check if PDP reject retry is in progress
+     *
+     * @param networkRequest the network request for which the current query is made. PDP reject
+     * retry is applicable only if the networkRequest corresponds to internet type.
+     *
+     * @return {@code true} if the check is successful.
+     */
+    protected boolean isPdpRejectRetryOngoing(TelephonyNetworkRequest networkRequest) {
+        log("isPdpRejectRetryOngoing: superclass method");
+        return false;
     }
 
     /**
