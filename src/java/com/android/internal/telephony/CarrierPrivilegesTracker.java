@@ -317,12 +317,20 @@ public class CarrierPrivilegesTracker extends Handler {
                             }
 
                             boolean removed = action.equals(Intent.ACTION_PACKAGE_REMOVED);
-                            // When a package is explicitly disabled by the user, we take the
-                            // same action as if it was removed: clear it from the cache
-                            boolean disabledByUser = action.equals(Intent.ACTION_PACKAGE_CHANGED)
-                                    && mPackageManager.getApplicationEnabledSetting(pkgName)
-                                    == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER;
-                            int what = (removed || disabledByUser)
+                            boolean disabledByUser = false;
+                            boolean notExist = false;
+                            try {
+                                disabledByUser = action.equals(Intent.ACTION_PACKAGE_CHANGED)
+                                        && mPackageManager.getApplicationEnabledSetting(pkgName)
+                                        == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER;
+                            } catch (IllegalArgumentException iae) {
+                                // Very rare case when package changed race with package removed
+                                Rlog.w(TAG, "Package does not exist: " + pkgName);
+                                notExist = true;
+                            }
+                            // When a package is explicitly disabled by the user or does not exist,
+                            // treat them as if it was removed: clear it from the cache
+                            int what = (removed || disabledByUser || notExist)
                                     ? ACTION_PACKAGE_REMOVED_OR_DISABLED_BY_USER
                                     : ACTION_PACKAGE_ADDED_REPLACED_OR_CHANGED;
 

@@ -532,7 +532,8 @@ public class PhoneSwitcher extends Handler {
 
                                 @Override
                                 public void onDataEnabledChanged(boolean enabled,
-                                        @TelephonyManager.DataEnabledChangedReason int reason) {
+                                        @TelephonyManager.DataEnabledChangedReason int reason,
+                                        @NonNull String callingPackage) {
                                     evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
                                 }
 
@@ -597,6 +598,11 @@ public class PhoneSwitcher extends Handler {
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_MCX)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_LATENCY)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_BANDWIDTH)
+                .addEnterpriseId(NetworkCapabilities.NET_ENTERPRISE_ID_1)
+                .addEnterpriseId(NetworkCapabilities.NET_ENTERPRISE_ID_2)
+                .addEnterpriseId(NetworkCapabilities.NET_ENTERPRISE_ID_3)
+                .addEnterpriseId(NetworkCapabilities.NET_ENTERPRISE_ID_4)
+                .addEnterpriseId(NetworkCapabilities.NET_ENTERPRISE_ID_5)
                 .setNetworkSpecifier(new MatchAllNetworkSpecifier());
 
         NetworkFactory networkFactory = new PhoneSwitcherNetworkRequestListener(looper, context,
@@ -935,7 +941,8 @@ public class PhoneSwitcher extends Handler {
                         v -> new DataSettingsManagerCallback(this::post) {
                             @Override
                             public void onDataEnabledChanged(boolean enabled,
-                                    @TelephonyManager.DataEnabledChangedReason int reason) {
+                                    @TelephonyManager.DataEnabledChangedReason int reason,
+                                    @NonNull String callingPackage) {
                                 evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
                             }
                         });
