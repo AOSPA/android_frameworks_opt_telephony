@@ -1756,6 +1756,9 @@ public class DataNetwork extends StateMachine {
                     .map(DataUtils::apnTypeToNetworkCapability)
                     .filter(cap -> cap >= 0)
                     .forEach(builder::addCapability);
+            if (apnSetting.getApnTypes().contains(ApnSetting.TYPE_ENTERPRISE)) {
+                builder.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+            }
         }
 
         // If voice call is on-going, do not change MMTEL capability, which is an immutable
@@ -3253,7 +3256,7 @@ public class DataNetwork extends StateMachine {
      */
     private void reportAnomaly(@NonNull String anomalyMsg, @NonNull String uuid) {
         logl(anomalyMsg);
-        AnomalyReporter.reportAnomaly(UUID.fromString(uuid), anomalyMsg);
+        AnomalyReporter.reportAnomaly(UUID.fromString(uuid), anomalyMsg, mPhone.getCarrierId());
     }
 
     /**

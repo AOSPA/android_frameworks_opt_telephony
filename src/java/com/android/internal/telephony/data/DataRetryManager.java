@@ -951,7 +951,7 @@ public class DataRetryManager extends Handler {
         dataNetworkController.registerDataNetworkControllerCallback(
                 new DataNetworkControllerCallback(this::post) {
                     @Override
-                    public void onDataServiceBound() {
+                    public void onDataServiceBound(@TransportType int transport) {
                         onReset(RESET_REASON_DATA_SERVICE_BOUND);
                     }
                 });
@@ -1281,8 +1281,10 @@ public class DataRetryManager extends Handler {
                         String msg = "Invalid data retry entry detected";
                         logl(msg);
                         loge("mDataRetryEntries=" + mDataRetryEntries);
-                        AnomalyReporter.reportAnomaly(UUID.fromString(
-                                "afeab78c-c0b0-49fc-a51f-f766814d7aa6"), msg);
+                        AnomalyReporter.reportAnomaly(
+                                UUID.fromString("afeab78c-c0b0-49fc-a51f-f766814d7aa6"),
+                                msg,
+                                mPhone.getCarrierId());
                         continue;
                     }
                     if (entry.networkRequestList.get(0).getApnTypeNetworkCapability()
@@ -1501,8 +1503,10 @@ public class DataRetryManager extends Handler {
                         String msg = "Invalid data retry entry detected";
                         logl(msg);
                         loge("mDataRetryEntries=" + mDataRetryEntries);
-                        AnomalyReporter.reportAnomaly(UUID.fromString(
-                                "781af571-f55d-476d-b510-7a5381f633dc"), msg);
+                        AnomalyReporter.reportAnomaly(
+                                UUID.fromString("781af571-f55d-476d-b510-7a5381f633dc"),
+                                msg,
+                                mPhone.getCarrierId());
                         continue;
                     }
                     if (entry.networkRequestList.get(0).getApnTypeNetworkCapability()

@@ -46,6 +46,7 @@ import android.telephony.Annotation.NetworkType;
 import android.telephony.Annotation.ValidationStatus;
 import android.telephony.AnomalyReporter;
 import android.telephony.CarrierConfigManager;
+import android.telephony.CellSignalStrength;
 import android.telephony.DataFailCause;
 import android.telephony.DataSpecificRegistrationInfo;
 import android.telephony.NetworkRegistrationInfo;
@@ -2498,6 +2499,11 @@ public class DataNetworkController extends Handler {
     private void trackSetupDataCallFailure(@TransportType int transport) {
         switch (transport) {
             case AccessNetworkConstants.TRANSPORT_TYPE_WWAN:
+                // Skip when poor signal strength
+                if (mPhone.getSignalStrength().getLevel()
+                        <= CellSignalStrength.SIGNAL_STRENGTH_POOR) {
+                    return;
+                }
                 if (mSetupDataCallWwanFailureCounter.addOccurrence()) {
                     reportAnomaly("RIL fails setup data call request "
                                     + mSetupDataCallWwanFailureCounter.getFrequencyString(),
@@ -2524,7 +2530,7 @@ public class DataNetworkController extends Handler {
      */
     private void reportAnomaly(@NonNull String anomalyMsg, @NonNull String uuid) {
         logl(anomalyMsg);
-        AnomalyReporter.reportAnomaly(UUID.fromString(uuid), anomalyMsg);
+        AnomalyReporter.reportAnomaly(UUID.fromString(uuid), anomalyMsg, mPhone.getCarrierId());
     }
 
     /**
@@ -2578,7 +2584,12 @@ public class DataNetworkController extends Handler {
                     + ". The preferred transport has switched to "
                     + AccessNetworkConstants.transportTypeToString(preferredTransport)
                     + ". " + dataSetupRetryEntry);
+            // Cancel the retry since the preferred transport has already changed, but then
+            // re-evaluate the unsatisfied network requests again so the new network can be brought
+            // up on the new target transport later.
             dataSetupRetryEntry.setState(DataRetryEntry.RETRY_STATE_CANCELLED);
+            sendMessage(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
+                    DataEvaluationReason.PREFERRED_TRANSPORT_CHANGED));
             return;
         }
 
@@ -2890,7 +2901,7 @@ public class DataNetworkController extends Handler {
     private void onEvaluatePreferredTransport(@NetCapability int capability) {
         int preferredTransport = mAccessNetworksManager
                 .getPreferredTransportByNetworkCapability(capability);
-        log("evaluatePreferredTransport: " + DataUtils.networkCapabilityToString(capability)
+        log("onEvaluatePreferredTransport: " + DataUtils.networkCapabilityToString(capability)
                 + " preferred on "
                 + AccessNetworkConstants.transportTypeToString(preferredTransport));
         for (DataNetwork dataNetwork : mDataNetworkList) {
@@ -2898,7 +2909,7 @@ public class DataNetworkController extends Handler {
                 // Check if the data network's current transport is different than from the
                 // preferred transport. If it's different, then handover is needed.
                 if (dataNetwork.getTransport() == preferredTransport) {
-                    log("evaluatePreferredTransport:" + dataNetwork + " already on "
+                    log("onEvaluatePreferredTransport:" + dataNetwork + " already on "
                             + AccessNetworkConstants.transportTypeToString(preferredTransport));
                     continue;
                 }
@@ -2907,12 +2918,12 @@ public class DataNetworkController extends Handler {
                 // succeeds or fails, preferred transport will be re-evaluate again. Handover will
                 // be performed at that time if needed.
                 if (dataNetwork.isHandoverInProgress()) {
-                    log("evaluatePreferredTransport: " + dataNetwork + " handover in progress.");
+                    log("onEvaluatePreferredTransport: " + dataNetwork + " handover in progress.");
                     continue;
                 }
 
                 DataEvaluation dataEvaluation = evaluateDataNetworkHandover(dataNetwork);
-                log("evaluatePreferredTransport: " + dataEvaluation + ", " + dataNetwork);
+                log("onEvaluatePreferredTransport: " + dataEvaluation + ", " + dataNetwork);
                 if (!dataEvaluation.containsDisallowedReasons()) {
                     logl("Start handover " + dataNetwork + " to "
                             + AccessNetworkConstants.transportTypeToString(preferredTransport));
@@ -2920,7 +2931,7 @@ public class DataNetworkController extends Handler {
                 } else if (dataEvaluation.containsAny(DataDisallowedReason.NOT_ALLOWED_BY_POLICY,
                         DataDisallowedReason.NOT_IN_SERVICE,
                         DataDisallowedReason.VOPS_NOT_SUPPORTED)) {
-                    logl("evaluatePreferredTransport: Handover not allowed. Tear "
+                    logl("onEvaluatePreferredTransport: Handover not allowed. Tear "
                             + "down " + dataNetwork + " so a new network can be setup on "
                             + AccessNetworkConstants.transportTypeToString(preferredTransport)
                             + ".");
@@ -2928,11 +2939,11 @@ public class DataNetworkController extends Handler {
                             DataNetwork.TEAR_DOWN_REASON_HANDOVER_NOT_ALLOWED);
                 } else if (dataEvaluation.containsAny(DataDisallowedReason.ILLEGAL_STATE,
                         DataDisallowedReason.RETRY_SCHEDULED)) {
-                    logl("evaluatePreferredTransport: Handover not allowed. " + dataNetwork
+                    logl("onEvaluatePreferredTransport: Handover not allowed. " + dataNetwork
                             + " will remain on " + AccessNetworkConstants.transportTypeToString(
                                     dataNetwork.getTransport()));
                 } else {
-                    loge("evaluatePreferredTransport: Unexpected handover evaluation result.");
+                    loge("onEvaluatePreferredTransport: Unexpected handover evaluation result.");
                 }
             }
         }
