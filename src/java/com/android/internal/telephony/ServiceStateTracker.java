@@ -1947,7 +1947,7 @@ public class ServiceStateTracker extends Handler {
         if (ar.userObj != mPollingContext) return;
 
         if (ar.exception != null) {
-            CommandException.Error err=null;
+            CommandException.Error err = null;
 
             if (ar.exception instanceof IllegalStateException) {
                 log("handlePollStateResult exception " + ar.exception);
@@ -1957,15 +1957,22 @@ public class ServiceStateTracker extends Handler {
                 err = ((CommandException)(ar.exception)).getCommandError();
             }
 
+            if (mCi.getRadioState() != TelephonyManager.RADIO_POWER_ON) {
+                log("handlePollStateResult: Invalid response due to radio off or unavailable. "
+                        + "Set ServiceState to out of service.");
+                pollStateInternal(false);
+                return;
+            }
+
             if (err == CommandException.Error.RADIO_NOT_AVAILABLE) {
-                // Radio has crashed or turned off
+                loge("handlePollStateResult: RIL returned RADIO_NOT_AVAILABLE when radio is on.");
                 cancelPollState();
                 return;
             }
 
             if (err != CommandException.Error.OP_NOT_ALLOWED_BEFORE_REG_NW) {
-                loge("RIL implementation has returned an error where it must succeed" +
-                        ar.exception);
+                loge("handlePollStateResult: RIL returned an error where it must succeed: "
+                        + ar.exception);
             }
         } else try {
             handlePollStateResultMessage(what, ar);
@@ -2107,29 +2114,12 @@ public class ServiceStateTracker extends Handler {
         int newFrequencyRange = ServiceState.FREQUENCY_RANGE_UNKNOWN;
         if (physicalChannelConfigs != null) {
             for (PhysicalChannelConfig config : physicalChannelConfigs) {
-                if (isNrPhysicalChannelConfig(config)) {
-                    // Update the frequency range of the NR parameters if there is an internet data
-                    // connection associate to this NR physical channel channel config.
-                    int[] contextIds = config.getContextIds();
-                    for (int cid : contextIds) {
-                        if (mPhone.isUsingNewDataStack()) {
-                            if (mPhone.getDataNetworkController().isInternetNetwork(cid)) {
-                                newFrequencyRange = ServiceState.getBetterNRFrequencyRange(
-                                        newFrequencyRange, config.getFrequencyRange());
-                                break;
-                            }
-                        } else {
-                            DataConnection dc = mPhone.getDcTracker(
-                                    AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
-                                    .getDataConnectionByContextId(cid);
-                            if (dc != null && dc.getNetworkCapabilities().hasCapability(
-                                    NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                                newFrequencyRange = ServiceState.getBetterNRFrequencyRange(
-                                        newFrequencyRange, config.getFrequencyRange());
-                                break;
-                            }
-                        }
-                    }
+                if (isNrPhysicalChannelConfig(config) && isInternetPhysicalChannelConfig(config)) {
+                    // Update the NR frequency range if there is an internet data connection
+                    // associated with this NR physical channel channel config.
+                    newFrequencyRange = ServiceState.getBetterNRFrequencyRange(
+                            newFrequencyRange, config.getFrequencyRange());
+                    break;
                 }
             }
         }
@@ -2147,7 +2137,8 @@ public class ServiceStateTracker extends Handler {
 
         boolean hasNrSecondaryServingCell = false;
         for (PhysicalChannelConfig config : configs) {
-            if (isNrPhysicalChannelConfig(config) && config.getConnectionStatus()
+            if (isNrPhysicalChannelConfig(config) && isInternetPhysicalChannelConfig(config)
+                    && config.getConnectionStatus()
                     == PhysicalChannelConfig.CONNECTION_SECONDARY_SERVING) {
                 hasNrSecondaryServingCell = true;
                 break;
@@ -2155,7 +2146,7 @@ public class ServiceStateTracker extends Handler {
         }
 
         int oldNrState = regInfo.getNrState();
-        int newNrState = oldNrState;
+        int newNrState;
         if (hasNrSecondaryServingCell) {
             newNrState = NetworkRegistrationInfo.NR_STATE_CONNECTED;
         } else {
@@ -2171,6 +2162,25 @@ public class ServiceStateTracker extends Handler {
 
     private boolean isNrPhysicalChannelConfig(PhysicalChannelConfig config) {
         return config.getNetworkType() == TelephonyManager.NETWORK_TYPE_NR;
+    }
+
+    private boolean isInternetPhysicalChannelConfig(PhysicalChannelConfig config) {
+        for (int cid : config.getContextIds()) {
+            if (mPhone.isUsingNewDataStack()) {
+                if (mPhone.getDataNetworkController().isInternetNetwork(cid)) {
+                    return true;
+                }
+            } else {
+                DataConnection dc = mPhone.getDcTracker(
+                        AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .getDataConnectionByContextId(cid);
+                if (dc != null && dc.getNetworkCapabilities().hasCapability(
+                        NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -3339,10 +3349,9 @@ public class ServiceStateTracker extends Handler {
 
     private void pollStateInternal(boolean modemTriggered) {
         mPollingContext = new int[1];
-        mPollingContext[0] = 0;
         NetworkRegistrationInfo nri;
 
-        log("pollState: modemTriggered=" + modemTriggered);
+        log("pollState: modemTriggered=" + modemTriggered + ", radioState=" + mCi.getRadioState());
 
         switch (mCi.getRadioState()) {
             case TelephonyManager.RADIO_POWER_UNAVAILABLE:
@@ -3376,8 +3385,8 @@ public class ServiceStateTracker extends Handler {
                 mPhone.getSignalStrengthController().setSignalStrengthDefaultValues();
                 mLastNitzData = null;
                 mNitzState.handleNetworkUnavailable();
-                // don't poll when device is shutting down or the poll was not modemTrigged
-                // (they sent us new radio data) and current network is not IWLAN
+                // Don't poll when device is shutting down or the poll was not modemTriggered
+                // (they sent us new radio data) and the current network is not IWLAN
                 if (mDeviceShuttingDown ||
                         (!modemTriggered && ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN
                         != mSS.getRilDataRadioTechnology())) {
