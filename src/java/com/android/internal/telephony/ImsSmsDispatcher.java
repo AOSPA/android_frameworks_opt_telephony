@@ -198,7 +198,8 @@ public class ImsSmsDispatcher extends SMSDispatcher {
                         status == ImsSmsImplBase.SEND_STATUS_ERROR_FALLBACK,
                         reason,
                         tracker.mMessageId,
-                        tracker.isFromDefaultSmsApplication(mContext));
+                        tracker.isFromDefaultSmsApplication(mContext),
+                        tracker.getInterval());
             } finally {
                 Binder.restoreCallingIdentity(identity);
             }
@@ -481,7 +482,8 @@ public class ImsSmsDispatcher extends SMSDispatcher {
                     true /* fallbackToCs */,
                     SmsManager.RESULT_SYSTEM_ERROR,
                     tracker.mMessageId,
-                    tracker.isFromDefaultSmsApplication(mContext));
+                    tracker.isFromDefaultSmsApplication(mContext),
+                    tracker.getInterval());
         }
     }
 

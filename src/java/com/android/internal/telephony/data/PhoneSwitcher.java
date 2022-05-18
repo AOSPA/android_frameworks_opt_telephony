@@ -1568,8 +1568,17 @@ public class PhoneSwitcher extends Handler {
             return false;
         }
 
-        int phoneIdToHandle = phoneIdForRequest(networkRequest);
+        NetworkRequest netRequest = networkRequest.getNativeNetworkRequest();
+        int subId = getSubIdFromNetworkSpecifier(netRequest.getNetworkSpecifier());
 
+        //if this phone is an emergency networkRequest
+        //and subId is not specified that is invalid or default
+        if (isAnyVoiceCallActiveOnDevice() && isEmergencyNetworkRequest(networkRequest)
+                && (subId == DEFAULT_SUBSCRIPTION_ID || subId == INVALID_SUBSCRIPTION_ID)) {
+            return phoneId == mPhoneIdInVoiceCall;
+        }
+
+        int phoneIdToHandle = phoneIdForRequest(networkRequest);
         return phoneId == phoneIdToHandle;
     }
 
@@ -1781,14 +1790,9 @@ public class PhoneSwitcher extends Handler {
         }
 
         // A phone in voice call might trigger data being switched to it.
-        // We only report true if its precise call state is ACTIVE, ALERTING or HOLDING.
-        // The reason is data switching is interrupting, so we only switch when necessary and
-        // acknowledged by the users. For outgoing call we don't switch until call is
-        // connected in network (DIALING -> ALERTING).
-        return (phone.getForegroundCall().getState() == Call.State.ACTIVE
-                || phone.getForegroundCall().getState() == Call.State.ALERTING
+        return (!phone.getBackgroundCall().isIdle()
+                || !phone.getForegroundCall().isIdle()
                 || phone.getForegroundCall().getState() == Call.State.DISCONNECTING
-                || !phone.getBackgroundCall().isIdle()
                 || phone.getRingingCall().isRinging());
     }
 

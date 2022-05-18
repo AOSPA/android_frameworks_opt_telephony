@@ -717,7 +717,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 state.simSlotIndex,
                 state.isMultiSim,
                 state.carrierId,
-                (int) (round(state.totalTimeMillis, DURATION_BUCKET_MILLIS) / SECOND_IN_MILLIS));
+                (int) (round(state.totalTimeMillis, DURATION_BUCKET_MILLIS) / SECOND_IN_MILLIS),
+                state.isEmergencyOnly);
     }
 
     private static StatsEvent buildStatsEvent(VoiceCallRatUsage usage) {
@@ -803,7 +804,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 sms.isEsim,
                 sms.carrierId,
                 sms.messageId,
-                sms.retryId);
+                sms.retryId,
+                sms.intervalMillis);
     }
 
     private static StatsEvent buildStatsEvent(DataCallSession dataCallSession) {
