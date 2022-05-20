@@ -459,6 +459,8 @@ public class RadioConfig extends Handler {
      */
     public void setPreferredDataModem(int modemId, Message result) {
         RadioConfigProxy proxy = getRadioConfigProxy(null);
+        if (proxy.isEmpty()) return;
+
         if (!isSetPreferredDataCommandSupported()) {
             if (result != null) {
                 AsyncResult.forMessage(result, null,
@@ -485,7 +487,9 @@ public class RadioConfig extends Handler {
      */
     public void getPhoneCapability(Message result) {
         RadioConfigProxy proxy = getRadioConfigProxy(null);
-        if (proxy.isEmpty() || proxy.getVersion().less(RADIO_CONFIG_HAL_VERSION_1_1)) {
+        if (proxy.isEmpty()) return;
+
+        if (proxy.getVersion().less(RADIO_CONFIG_HAL_VERSION_1_1)) {
             if (result != null) {
                 AsyncResult.forMessage(result, null,
                         CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
@@ -542,7 +546,9 @@ public class RadioConfig extends Handler {
      */
     public void setNumOfLiveModems(int numOfLiveModems, Message result) {
         RadioConfigProxy proxy = getRadioConfigProxy(result);
-        if (proxy.isEmpty() || proxy.getVersion().less(RADIO_CONFIG_HAL_VERSION_1_1)) {
+        if (proxy.isEmpty()) return;
+
+        if (proxy.getVersion().less(RADIO_CONFIG_HAL_VERSION_1_1)) {
             if (result != null) {
                 AsyncResult.forMessage(
                         result, null, CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
@@ -586,7 +592,9 @@ public class RadioConfig extends Handler {
      */
     public void getHalDeviceCapabilities(Message result) {
         RadioConfigProxy proxy = getRadioConfigProxy(Message.obtain(result));
-        if (proxy.isEmpty() || proxy.getVersion().less(RADIO_CONFIG_HAL_VERSION_1_3)) {
+        if (proxy.isEmpty()) return;
+
+        if (proxy.getVersion().less(RADIO_CONFIG_HAL_VERSION_1_3)) {
             if (result != null) {
                 if (DBG) {
                     logd("RIL_REQUEST_GET_HAL_DEVICE_CAPABILITIES > REQUEST_NOT_SUPPORTED");
