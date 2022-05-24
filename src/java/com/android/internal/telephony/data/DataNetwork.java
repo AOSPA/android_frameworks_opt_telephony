@@ -99,6 +99,8 @@ import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.IState;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
+import com.android.net.module.util.LinkPropertiesUtils;
+import com.android.net.module.util.NetUtils;
 import com.android.net.module.util.NetworkCapabilitiesUtils;
 import com.android.telephony.Rlog;
 
@@ -259,7 +261,6 @@ public class DataNetwork extends StateMachine {
                     TEAR_DOWN_REASON_RAT_NOT_ALLOWED,
                     TEAR_DOWN_REASON_ROAMING_DISABLED,
                     TEAR_DOWN_REASON_CONCURRENT_VOICE_DATA_NOT_ALLOWED,
-                    TEAR_DOWN_REASON_DATA_RESTRICTED_BY_NETWORK,
                     TEAR_DOWN_REASON_DATA_SERVICE_NOT_READY,
                     TEAR_DOWN_REASON_POWER_OFF_BY_CARRIER,
                     TEAR_DOWN_REASON_DATA_STALL,
@@ -307,8 +308,7 @@ public class DataNetwork extends StateMachine {
     /** Data network tear down due to concurrent voice/data not allowed. */
     public static final int TEAR_DOWN_REASON_CONCURRENT_VOICE_DATA_NOT_ALLOWED = 8;
 
-    /** Data network tear down due to network restricted. */
-    public static final int TEAR_DOWN_REASON_DATA_RESTRICTED_BY_NETWORK = 9;
+
 
     /** Data network tear down due to data service unbound. */
     public static final int TEAR_DOWN_REASON_DATA_SERVICE_NOT_READY = 10;
@@ -1710,6 +1710,41 @@ public class DataNetwork extends StateMachine {
     }
 
     /**
+     * Check if the new link properties are compatible with the old link properties. For example,
+     * if IP changes, that's considered incompatible.
+     *
+     * @param oldLinkProperties Old link properties.
+     * @param newLinkProperties New Link properties.
+     *
+     * @return {@code true} if the new link properties is compatible with the old link properties.
+     */
+    private boolean isLinkPropertiesCompatible(@NonNull LinkProperties oldLinkProperties,
+            @NonNull LinkProperties newLinkProperties) {
+        if (Objects.equals(oldLinkProperties, newLinkProperties)) return true;
+
+        if (!LinkPropertiesUtils.isIdenticalAddresses(oldLinkProperties, newLinkProperties)) {
+            // If the same address type was removed and added we need to cleanup.
+            LinkPropertiesUtils.CompareOrUpdateResult<Integer, LinkAddress> result =
+                    new LinkPropertiesUtils.CompareOrUpdateResult<>(
+                            oldLinkProperties.getLinkAddresses(),
+                            newLinkProperties.getLinkAddresses(),
+                            linkAddress -> Objects.hash(linkAddress.getAddress(),
+                                    linkAddress.getPrefixLength(), linkAddress.getScope()));
+            log("isLinkPropertiesCompatible: old=" + oldLinkProperties
+                    + " new=" + newLinkProperties + " result=" + result);
+            for (LinkAddress added : result.added) {
+                for (LinkAddress removed : result.removed) {
+                    if (NetUtils.addressTypeMatches(removed.getAddress(), added.getAddress())) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Check if there are immutable capabilities changed. The connectivity service is not able
      * to handle immutable capabilities changed, but in very rare scenarios, immutable capabilities
      * need to be changed dynamically, such as in setup data call response, modem responded with the
@@ -2228,9 +2263,28 @@ public class DataNetwork extends StateMachine {
         }
 
         if (!linkProperties.equals(mLinkProperties)) {
-            mLinkProperties = linkProperties;
-            log("sendLinkProperties " + mLinkProperties);
-            mNetworkAgent.sendLinkProperties(mLinkProperties);
+            // If the new link properties is not compatible (e.g. IP changes, interface changes),
+            // then we should de-register the network agent and re-create a new one.
+            if ((isConnected() || isHandoverInProgress())
+                    && !isLinkPropertiesCompatible(linkProperties, mLinkProperties)) {
+                logl("updateDataNetwork: Incompatible link properties detected. Re-create the "
+                        + "network agent. Changed from " + mLinkProperties + " to "
+                        + linkProperties);
+
+                mLinkProperties = linkProperties;
+
+                // Abandon the network agent because we are going to create a new one.
+                mNetworkAgent.abandon();
+                // Update the link properties first so the new network agent would be created with
+                // the new link properties.
+                mLinkProperties = linkProperties;
+                mNetworkAgent = createNetworkAgent();
+                mNetworkAgent.markConnected();
+            } else {
+                mLinkProperties = linkProperties;
+                log("sendLinkProperties " + mLinkProperties);
+                mNetworkAgent.sendLinkProperties(mLinkProperties);
+            }
         }
 
         updateNetworkCapabilities();
@@ -2319,7 +2373,8 @@ public class DataNetwork extends StateMachine {
      * @param response The response to be validated
      */
     private void validateDataCallResponse(@Nullable DataCallResponse response) {
-        if (response == null) return;
+        if (response == null
+                || response.getLinkStatus() == DataCallResponse.LINK_STATUS_INACTIVE) return;
         int failCause = response.getCause();
         if (failCause == DataFailCause.NONE) {
             if (TextUtils.isEmpty(response.getInterfaceName())
@@ -2335,7 +2390,7 @@ public class DataNetwork extends StateMachine {
                     > DataCallResponse.HANDOVER_FAILURE_MODE_NO_FALLBACK_RETRY_SETUP_NORMAL) {
                 loge("Invalid DataCallResponse:" + response);
                 reportAnomaly("Invalid DataCallResponse detected",
-                        "9f775beb-c638-44d2-833a-8c3875fee2d1");
+                        "1f273e9d-b09c-46eb-ad1c-421d01f61164");
             }
         } else if (!DataFailCause.isFailCauseExisting(failCause)) { // Setup data failed.
             loge("Invalid DataFailCause in " + response);
@@ -2380,8 +2435,9 @@ public class DataNetwork extends StateMachine {
     private void onTearDown(@TearDownReason int reason) {
         logl("onTearDown: reason=" + tearDownReasonToString(reason));
 
-        // track frequent networkUnwanted call of IMS and INTERNET
-        if ((isConnected())
+        // track frequent NetworkAgent.onNetworkUnwanted() call of IMS and INTERNET
+        if (reason == TEAR_DOWN_REASON_CONNECTIVITY_SERVICE_UNWANTED
+                && isConnected()
                 && (mNetworkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_IMS)
                 || mNetworkCapabilities.hasCapability(
                         NetworkCapabilities.NET_CAPABILITY_INTERNET))) {
@@ -3130,8 +3186,6 @@ public class DataNetwork extends StateMachine {
                 return "TEAR_DOWN_REASON_ROAMING_DISABLED";
             case TEAR_DOWN_REASON_CONCURRENT_VOICE_DATA_NOT_ALLOWED:
                 return "TEAR_DOWN_REASON_CONCURRENT_VOICE_DATA_NOT_ALLOWED";
-            case TEAR_DOWN_REASON_DATA_RESTRICTED_BY_NETWORK:
-                return "TEAR_DOWN_REASON_DATA_RESTRICTED_BY_NETWORK";
             case TEAR_DOWN_REASON_DATA_SERVICE_NOT_READY:
                 return "TEAR_DOWN_REASON_DATA_SERVICE_NOT_READY";
             case TEAR_DOWN_REASON_POWER_OFF_BY_CARRIER:

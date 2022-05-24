@@ -1067,8 +1067,6 @@ public class DataNetworkController extends Handler {
                 break;
             case EVENT_PS_RESTRICT_ENABLED:
                 mPsRestricted = true;
-                sendMessage(obtainMessage(EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
-                        DataEvaluationReason.DATA_RESTRICTED_CHANGED));
                 break;
             case EVENT_PS_RESTRICT_DISABLED:
                 mPsRestricted = false;
@@ -1672,11 +1670,6 @@ public class DataNetworkController extends Handler {
         // Check SIM state
         checkSimStateForDataEvaluation(evaluation);
 
-        // Check if data is restricted by the network.
-        if (mPsRestricted) {
-            evaluation.addDataDisallowedReason(DataDisallowedReason.DATA_RESTRICTED_BY_NETWORK);
-        }
-
         // Check if device is in CDMA ECBM
         if (mPhone.isInCdmaEcm()) {
             evaluation.addDataDisallowedReason(DataDisallowedReason.CDMA_EMERGENCY_CALLBACK_MODE);
@@ -1947,8 +1940,6 @@ public class DataNetworkController extends Handler {
                     return DataNetwork.TEAR_DOWN_REASON_SIM_REMOVAL;
                 case CONCURRENT_VOICE_DATA_NOT_ALLOWED:
                     return DataNetwork.TEAR_DOWN_REASON_CONCURRENT_VOICE_DATA_NOT_ALLOWED;
-                case DATA_RESTRICTED_BY_NETWORK:
-                    return DataNetwork.TEAR_DOWN_REASON_DATA_RESTRICTED_BY_NETWORK;
                 case RADIO_POWER_OFF:
                     return DataNetwork.TEAR_DOWN_REASON_AIRPLANE_MODE_ON;
                 case PENDING_TEAR_DOWN_ALL:
@@ -2288,21 +2279,17 @@ public class DataNetworkController extends Handler {
     }
 
     /**
-     * There have been several bugs where a RECONNECT loop kicks off where a DataConnection
-     * connects to the Network, ConnectivityService indicates that the Network is unwanted,
-     * and then the DataConnection reconnects. By the time we get the bug report it's too late
-     * because there have already been hundreds of RECONNECTS.  This is meant to capture the issue
-     * when it first starts.
-     *
-     * The unwanted counter is configured to only take an anomaly report in extreme cases.
-     * This is to avoid having the anomaly message show up on several devices.
-     *
+     * There have been several bugs where a RECONNECT loop kicks off where a data network
+     * is brought up, but connectivity service indicates that the network is unwanted so telephony
+     * tears down the network. But later telephony bring up the data network again and becomes an
+     * infinite loop. By the time we get the bug report it's too late because there have already
+     * been hundreds of bring up/tear down. This is meant to capture the issue when it first starts.
      */
     private void onTrackNetworkUnwanted() {
         if (mNetworkUnwantedCounter.addOccurrence()) {
             reportAnomaly("Network Unwanted called "
                             + mNetworkUnwantedCounter.getFrequencyString(),
-                    "9f3bc55b-bfa6-4e26-afaa-5031426a66d2");
+                    "9f3bc55b-bfa6-4e26-afaa-5031426a66d3");
         }
     }
 
