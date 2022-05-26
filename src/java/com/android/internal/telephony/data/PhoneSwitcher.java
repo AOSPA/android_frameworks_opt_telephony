@@ -452,6 +452,7 @@ public class PhoneSwitcher extends Handler {
                 break;
             }
         }
+        log("isPhoneInVoiceCallChanged: mPhoneIdInVoiceCall=" + mPhoneIdInVoiceCall);
 
         if (mPhoneIdInVoiceCall != oldPhoneIdInVoiceCall) {
             log("isPhoneInVoiceCallChanged from phoneId " + oldPhoneIdInVoiceCall
@@ -768,6 +769,12 @@ public class PhoneSwitcher extends Handler {
                 // do nothing.
                 if (isTelephonyTempDdsSwitchEnabled && !isPhoneInVoiceCallChanged()) {
                     break;
+                } else if (isNddsPhoneIdle() && isPhoneInVoiceCallChanged()) {
+                    // When smart temp dds is enabled & DDS sub is PIN-1 enabled, modem would not
+                    // send recommendation on voice call end if DDS sub is hot-swapped and PIN-1
+                    // is not entered while call was active.  Re-evaluate voice call phoneid once
+                    // voice call ends.
+                    log("EVENT_PRECISE_CALL_STATE_CHANGED: do nothing...");
                 }
 
                 if (!isAnyVoiceCallActiveOnDevice()) {
@@ -1950,6 +1957,16 @@ public class PhoneSwitcher extends Handler {
 
     private boolean isInCall(Phone phone) {
         if ((phone != null) && (phone.getState() != PhoneConstants.State.IDLE)) return true;
+        return false;
+    }
+
+    private boolean isNddsPhoneIdle() {
+        for (Phone phone : PhoneFactory.getPhones()) {
+            if ((phone != null) && (phone.getSubId() != mPrimaryDataSubId)
+                        && (!isInCall(phone) || !isInCall(phone.getImsPhone()))) {
+                return true;
+            }
+        }
         return false;
     }
 }
