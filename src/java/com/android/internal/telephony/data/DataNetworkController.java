@@ -2058,15 +2058,23 @@ public class DataNetworkController extends Handler {
         sendMessage(obtainMessage(EVENT_REMOVE_NETWORK_REQUEST, networkRequest));
     }
 
-    private void onRemoveNetworkRequest(@NonNull TelephonyNetworkRequest networkRequest) {
+    private void onRemoveNetworkRequest(@NonNull TelephonyNetworkRequest request) {
+        // The request generated from telephony network factory does not contain the information
+        // the original request has, for example, attached data network. We need to find the
+        // original one.
+        TelephonyNetworkRequest networkRequest = mAllNetworkRequestList.stream()
+                .filter(r -> r.equals(request))
+                .findFirst()
+                .orElse(null);
+        if (networkRequest == null || !mAllNetworkRequestList.remove(networkRequest)) {
+            loge("onRemoveNetworkRequest: Network request does not exist. " + networkRequest);
+            return;
+        }
+
         if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_IMS)) {
             mImsThrottleCounter.addOccurrence();
             mLastReleasedImsRequestCapabilities = networkRequest.getCapabilities();
             mLastImsOperationIsRelease = true;
-        }
-        if (!mAllNetworkRequestList.remove(networkRequest)) {
-            loge("onRemoveNetworkRequest: Network request does not exist. " + networkRequest);
-            return;
         }
 
         if (networkRequest.getAttachedNetwork() != null) {
@@ -3454,8 +3462,12 @@ public class DataNetworkController extends Handler {
                     + (mRegisteredImsFeatures.contains(ImsFeature.FEATURE_RCS)
                     ? "registered" : "not registered")
             );
-            mPendingImsDeregDataNetworks.put(dataNetwork,
-                    dataNetwork.tearDownWhenConditionMet(reason, deregDelay));
+            Runnable runnable = dataNetwork.tearDownWhenConditionMet(reason, deregDelay);
+            if (runnable != null) {
+                mPendingImsDeregDataNetworks.put(dataNetwork, runnable);
+            } else {
+                log(dataNetwork + " is being torn down already.");
+            }
         } else {
             // Graceful tear down is not turned on. Tear down the network immediately.
             log("tearDownGracefully: Safe to tear down " + dataNetwork);
