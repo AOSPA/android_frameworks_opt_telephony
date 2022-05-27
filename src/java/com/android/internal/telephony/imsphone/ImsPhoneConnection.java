@@ -1207,7 +1207,10 @@ public class ImsPhoneConnection extends Connection implements
      * Terminate the current RTT session.
      */
     public void stopRtt() {
-        getImsCall().sendRttModifyRequest(false);
+        ImsCall imsCall = getImsCall();
+        if (imsCall != null) {
+            imsCall.sendRttModifyRequest(false);
+        }
     }
 
     /**
