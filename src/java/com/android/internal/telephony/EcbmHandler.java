@@ -23,6 +23,7 @@ package com.android.internal.telephony;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
@@ -32,6 +33,7 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.preference.PreferenceManager;
 import android.sysprop.TelephonyProperties;
 import android.telephony.Rlog;
 import android.telephony.SubscriptionManager;
@@ -74,6 +76,9 @@ public class EcbmHandler extends Handler {
     private final RegistrantList mEcmTimerResetRegistrants = new RegistrantList();
     private boolean mIsEcbmOnIms = false;
     private int mEcbmPhoneId = 0;
+
+    private static final String PREF_KEY_ECBM_PHONEID = "ecbm_phoneid";
+    private static final String PREF_KEY_IS_ECBM_ON_IMS = "is_ecbm_on_ims";
 
     protected static final int EVENT_EMERGENCY_CALLBACK_MODE_ENTER  = 1;
     protected static final int EVENT_EXIT_EMERGENCY_CALLBACK_RESPONSE = 2;
@@ -123,6 +128,11 @@ public class EcbmHandler extends Handler {
             mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, LOG_TAG);
             mWakeLock.setReferenceCounted(false);
 
+            if (mIsPhoneInEcmState) {
+                restoreCachedEcbmState();
+                logd("initialize: ecbmPhoneId = " + mEcbmPhoneId +
+                        " isEcbmOnIms = " + mIsEcbmOnIms);
+            }
         }
 
         mNumPhones = TelephonyManager.getDefault().getActiveModemCount();
@@ -261,6 +271,7 @@ public class EcbmHandler extends Handler {
         // if phone is not in Ecm mode, and it's changed to Ecm mode
         if (!isInEcm()) {
             setIsInEcm(true);
+            cacheEcbmState();
 
             // notify change
             sendEmergencyCallbackModeChange();
@@ -288,6 +299,7 @@ public class EcbmHandler extends Handler {
         }
 
         setIsInEcm(false);
+        removeEcbmCache();
 
         // release wakeLock
         if (mWakeLock.isHeld()) {
@@ -373,6 +385,43 @@ public class EcbmHandler extends Handler {
 
     public static boolean getInEcmMode() {
         return TelephonyProperties.in_ecm_mode().orElse(false);
+    }
+
+    /**
+     * Cache the phoneid and ecbm on ims state in shared preference.
+     * It is used when phone process restarts after a crash.
+     * This is invoked only when ecbm is entered.
+     */
+    private void cacheEcbmState() {
+        if (mContext == null) return;
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+        SharedPreferences.Editor editor = sp.edit();
+        editor.putInt(PREF_KEY_ECBM_PHONEID, mEcbmPhoneId);
+        editor.putBoolean(PREF_KEY_IS_ECBM_ON_IMS, mIsEcbmOnIms);
+        editor.apply();
+    }
+
+    /**
+     * Restore the phoneId and ecbm on ims state.
+     */
+    private void restoreCachedEcbmState() {
+        if (mContext == null) return;
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+        mEcbmPhoneId = sp.getInt(PREF_KEY_ECBM_PHONEID, 0);
+        if (mEcbmPhoneId < 0  || mEcbmPhoneId >=
+                TelephonyManager.getDefault().getActiveModemCount()) {
+            mEcbmPhoneId = 0;
+        }
+        mIsEcbmOnIms = sp.getBoolean(PREF_KEY_IS_ECBM_ON_IMS, false);
+    }
+
+    private void removeEcbmCache() {
+        if (mContext == null) return;
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+        SharedPreferences.Editor editor = sp.edit();
+        editor.remove(PREF_KEY_ECBM_PHONEID);
+        editor.remove(PREF_KEY_IS_ECBM_ON_IMS);
+        editor.apply();
     }
 
     private void logd(String s) {
