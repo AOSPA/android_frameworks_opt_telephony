@@ -995,8 +995,11 @@ public abstract class SMSDispatcher extends Handler {
                         + " " + SmsController.formatCrossStackMessageId(tracker.mMessageId));
             }
 
-            // if sms over IMS is not supported on data and voice is not available...
-            if (!isIms() && ss != ServiceState.STATE_IN_SERVICE) {
+            // if sms over IMS is not supported on data, voice is not available and data rat is not
+            // NR. Added data rat check to support retry in case of SMS over nas in 5G.
+            if (!isIms() && ss != ServiceState.STATE_IN_SERVICE &&
+                    mPhone.getServiceState().getRilDataRadioTechnology() !=
+                    ServiceState.RIL_RADIO_TECHNOLOGY_NR) {
                 tracker.onFailed(mContext, getNotInServiceError(ss), NO_ERROR_CODE);
                 mPhone.getSmsStats().onOutgoingSms(
                         tracker.mImsRetry > 0 /* isOverIms */,
