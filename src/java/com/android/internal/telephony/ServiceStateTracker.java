@@ -1733,9 +1733,13 @@ public class ServiceStateTracker extends Handler {
                         log("EVENT_PHYSICAL_CHANNEL_CONFIG: size=" + list.size() + " list="
                                 + list);
                     }
+                    Set<Integer> oldNrCids = getNrContextIds();
                     mLastPhysicalChannelConfigList = list;
                     boolean hasChanged = false;
-                    if (updateNrStateFromPhysicalChannelConfigs(list, mSS)) {
+                    boolean isNrStateUpdated = updateNrStateFromPhysicalChannelConfigs(list, mSS);
+                    Set<Integer> newNrCids = getNrContextIds();
+                    isNrStateUpdated = isNrStateUpdated || (newNrCids.size() != oldNrCids.size());
+                    if (isNrStateUpdated) {
                         mNrStateChangedRegistrants.notifyRegistrants();
                         hasChanged = true;
                     }
