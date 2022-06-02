@@ -1258,7 +1258,8 @@ public class PersistAtomsStorage {
                     && state.isEndc == key.isEndc
                     && state.simSlotIndex == key.simSlotIndex
                     && state.isMultiSim == key.isMultiSim
-                    && state.carrierId == key.carrierId) {
+                    && state.carrierId == key.carrierId
+                    && state.isEmergencyOnly == key.isEmergencyOnly) {
                 return state;
             }
         }
@@ -1589,6 +1590,7 @@ public class PersistAtomsStorage {
     /** Returns index of the item suitable for eviction when the array is full. */
     private static <T> int findItemToEvict(T[] array) {
         if (array instanceof CellularServiceState[]) {
+            // Evict the item that was used least recently
             CellularServiceState[] arr = (CellularServiceState[]) array;
             return IntStream.range(0, arr.length)
                     .reduce((i, j) -> arr[i].lastUsedMillis < arr[j].lastUsedMillis ? i : j)
@@ -1596,6 +1598,7 @@ public class PersistAtomsStorage {
         }
 
         if (array instanceof CellularDataServiceSwitch[]) {
+            // Evict the item that was used least recently
             CellularDataServiceSwitch[] arr = (CellularDataServiceSwitch[]) array;
             return IntStream.range(0, arr.length)
                     .reduce((i, j) -> arr[i].lastUsedMillis < arr[j].lastUsedMillis ? i : j)
@@ -1603,6 +1606,7 @@ public class PersistAtomsStorage {
         }
 
         if (array instanceof ImsRegistrationStats[]) {
+            // Evict the item that was used least recently
             ImsRegistrationStats[] arr = (ImsRegistrationStats[]) array;
             return IntStream.range(0, arr.length)
                     .reduce((i, j) -> arr[i].lastUsedMillis < arr[j].lastUsedMillis ? i : j)
@@ -1610,10 +1614,24 @@ public class PersistAtomsStorage {
         }
 
         if (array instanceof ImsRegistrationTermination[]) {
+            // Evict the item that was used least recently
             ImsRegistrationTermination[] arr = (ImsRegistrationTermination[]) array;
             return IntStream.range(0, arr.length)
                     .reduce((i, j) -> arr[i].lastUsedMillis < arr[j].lastUsedMillis ? i : j)
                     .getAsInt();
+        }
+
+        if (array instanceof VoiceCallSession[]) {
+            // For voice calls, try to keep emergency calls over regular calls.
+            VoiceCallSession[] arr = (VoiceCallSession[]) array;
+            int[] nonEmergencyCallIndexes = IntStream.range(0, arr.length)
+                    .filter(i -> !arr[i].isEmergency)
+                    .toArray();
+            if (nonEmergencyCallIndexes.length > 0) {
+                return nonEmergencyCallIndexes[sRandom.nextInt(nonEmergencyCallIndexes.length)];
+            }
+            // If all calls in the storage are emergency calls, proceed with default case
+            // even if the new call is not an emergency call.
         }
 
         return sRandom.nextInt(array.length);

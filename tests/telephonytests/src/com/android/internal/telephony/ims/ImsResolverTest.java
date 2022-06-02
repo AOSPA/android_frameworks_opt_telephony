@@ -20,7 +20,6 @@ import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertNotNull;
 import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
-import static junit.framework.Assert.fail;
 import static junit.framework.TestCase.assertFalse;
 
 import static org.mockito.ArgumentMatchers.argThat;
@@ -44,6 +43,7 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Looper;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
 import android.os.UserManager;
@@ -112,7 +112,6 @@ public class ImsResolverTest extends ImsTestBase {
     private BroadcastReceiver mTestBootCompleteReceiver;
     private ImsServiceFeatureQueryManager.Listener mDynamicQueryListener;
     private PersistableBundle[] mCarrierConfigs;
-    private TestableLooper mLooper;
 
     @Before
     @Override
@@ -134,7 +133,6 @@ public class ImsResolverTest extends ImsTestBase {
     public void tearDown() throws Exception {
         mTestImsResolver.destroy();
         mTestImsResolver = null;
-        mLooper = null;
         mTestPackageBroadcastReceiver = null;
         mTestCarrierConfigReceiver = null;
         mTestBootCompleteReceiver = null;
@@ -220,15 +218,11 @@ public class ImsResolverTest extends ImsTestBase {
 
         // device package name should be returned for both features.
         final Boolean[] isConfigured = new Boolean[1];
-        // Calling this method will block us until the looper processes the command, so use
-        // runWithLooper to allow the message to be processed.
-        mLooper.runWithLooper(() ->
-                isConfigured[0] = mTestImsResolver.isImsServiceConfiguredForFeature(0,
-                        ImsFeature.FEATURE_MMTEL));
+        isConfigured[0] = mTestImsResolver.isImsServiceConfiguredForFeature(0,
+                ImsFeature.FEATURE_MMTEL);
         assertTrue(isConfigured[0]);
-        mLooper.runWithLooper(() ->
-                isConfigured[0] = mTestImsResolver.isImsServiceConfiguredForFeature(0,
-                        ImsFeature.FEATURE_RCS));
+        isConfigured[0] = mTestImsResolver.isImsServiceConfiguredForFeature(0,
+                ImsFeature.FEATURE_RCS);
         assertTrue(isConfigured[0]);
     }
 
@@ -253,15 +247,11 @@ public class ImsResolverTest extends ImsTestBase {
 
         // device package name should be returned for both features.
         final String[] packageName = new String[1];
-        // Calling this method will block us until the looper processes the command, so use
-        // runWithLooper to allow the message to be processed.
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_MMTEL));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_MMTEL);
         assertEquals(TEST_DEVICE_DEFAULT_NAME.getPackageName(), packageName[0]);
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_RCS));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_RCS);
         assertEquals(TEST_DEVICE_DEFAULT_NAME.getPackageName(), packageName[0]);
     }
 
@@ -281,15 +271,11 @@ public class ImsResolverTest extends ImsTestBase {
 
         // device package name should be returned for both features.
         final String[] packageName = new String[1];
-        // Calling this method will block us until the looper processes the command, so use
-        // runWithLooper to allow the message to be processed.
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_MMTEL));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_MMTEL);
         assertNull(packageName[0]);
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_RCS));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_RCS);
         assertNull(packageName[0]);
     }
 
@@ -314,15 +300,11 @@ public class ImsResolverTest extends ImsTestBase {
 
         // device package name should be returned for both features.
         final String[] packageName = new String[1];
-        // Calling this method will block us until the looper processes the command, so use
-        // runWithLooper to allow the message to be processed.
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_MMTEL));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_MMTEL);
         assertNull(packageName[0]);
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_RCS));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_RCS);
         assertNull(packageName[0]);
     }
 
@@ -358,15 +340,11 @@ public class ImsResolverTest extends ImsTestBase {
 
         // carrier package name should be returned for both features.
         final String[] packageName = new String[1];
-        // Calling this method will block us until the looper processes the command, so use
-        // runWithLooper to allow the message to be processed.
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_MMTEL));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_MMTEL);
         assertEquals(TEST_CARRIER_DEFAULT_NAME.getPackageName(), packageName[0]);
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_RCS));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_RCS);
         assertEquals(TEST_CARRIER_DEFAULT_NAME.getPackageName(), packageName[0]);
     }
 
@@ -396,15 +374,11 @@ public class ImsResolverTest extends ImsTestBase {
         startBindCarrierConfigAlreadySet();
 
         final String[] packageName = new String[1];
-        // Calling this method will block us until the looper processes the command, so use
-        // runWithLooper to allow the message to be processed.
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_MMTEL));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_MMTEL);
         assertEquals(TEST_DEVICE_DEFAULT_NAME.getPackageName(), packageName[0]);
-        mLooper.runWithLooper(() ->
-                packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
-                        ImsFeature.FEATURE_RCS));
+        packageName[0] = mTestImsResolver.getConfiguredImsServicePackageName(0,
+                ImsFeature.FEATURE_RCS);
         assertEquals(TEST_DEVICE_DEFAULT_NAME.getPackageName(), packageName[0]);
     }
 
@@ -607,6 +581,51 @@ public class ImsResolverTest extends ImsTestBase {
         verify(controller).bind(eq(features), any(SparseIntArray.class));
         verify(controller, never()).unbind();
         assertEquals(TEST_CARRIER_DEFAULT_NAME, controller.getComponentName());
+    }
+
+    /**
+     * Ensure enabling and disabling IMS only happens one time per controller.
+     */
+    @Test
+    @SmallTest
+    public void testEnableDisableImsDedupe() {
+        setupResolver(1 /*numSlots*/, TEST_DEVICE_DEFAULT_NAME.getPackageName(),
+                TEST_DEVICE2_DEFAULT_NAME.getPackageName());
+        List<ResolveInfo> info = new ArrayList<>();
+        Set<String> featuresController1 = new HashSet<>();
+        featuresController1.add(ImsResolver.METADATA_EMERGENCY_MMTEL_FEATURE);
+        featuresController1.add(ImsResolver.METADATA_MMTEL_FEATURE);
+        Set<String> featuresController2 = new HashSet<>();
+        featuresController2.add(ImsResolver.METADATA_RCS_FEATURE);
+        info.add(getResolveInfo(TEST_DEVICE_DEFAULT_NAME, featuresController1, true));
+        info.add(getResolveInfo(TEST_DEVICE2_DEFAULT_NAME, featuresController2, true));
+        setupPackageQuery(info);
+        ImsServiceController deviceController1 = mock(ImsServiceController.class);
+        ImsServiceController deviceController2 = mock(ImsServiceController.class);
+        setImsServiceControllerFactory(deviceController1, deviceController2, null, null);
+        // Bind using default features
+        startBindNoCarrierConfig(1);
+        HashSet<ImsFeatureConfiguration.FeatureSlotPair> featureSet1 =
+                convertToHashSet(featuresController1, 0);
+        HashSet<ImsFeatureConfiguration.FeatureSlotPair> featureSet2 =
+                convertToHashSet(featuresController2, 0);
+        verify(deviceController1).bind(eq(featureSet1), any(SparseIntArray.class));
+        verify(deviceController2).bind(eq(featureSet2), any(SparseIntArray.class));
+        // simulate ImsServiceController binding and setup
+        mTestImsResolver.imsServiceFeatureCreated(0, ImsFeature.FEATURE_EMERGENCY_MMTEL,
+                deviceController1);
+        mTestImsResolver.imsServiceFeatureCreated(0, ImsFeature.FEATURE_MMTEL, deviceController1);
+        mTestImsResolver.imsServiceFeatureCreated(0, ImsFeature.FEATURE_RCS, deviceController2);
+
+        mTestImsResolver.enableIms(0 /*slotId*/);
+        // Verify enableIms is only called once per controller.
+        verify(deviceController1).enableIms(eq(0), eq(0));
+        verify(deviceController2).enableIms(eq(0), eq(0));
+
+        mTestImsResolver.disableIms(0 /*slotId*/);
+        // Verify disableIms is only called once per controller.
+        verify(deviceController1).disableIms(eq(0), eq(0));
+        verify(deviceController2).disableIms(eq(0), eq(0));
     }
 
     /**
@@ -1033,9 +1052,12 @@ public class ImsResolverTest extends ImsTestBase {
         startBindNoCarrierConfig(1);
         processAllMessages();
 
+        // If MMTEL_FEATURE is not set, EMERGENCY_MMTEL_FEATURE should not be in feature set.
+        features.clear();
+        features.add(ImsResolver.METADATA_RCS_FEATURE);
+        HashSet<ImsFeatureConfiguration.FeatureSlotPair> featureSet = convertToHashSet(features, 0);
         // There is no carrier override set, so make sure that the ImsServiceController binds
         // to all SIMs.
-        HashSet<ImsFeatureConfiguration.FeatureSlotPair> featureSet = convertToHashSet(features, 0);
         verify(controller).bind(eq(featureSet), any(SparseIntArray.class));
         verify(controller, never()).unbind();
         verify(mMockQueryManager, never()).startQuery(any(), any());
@@ -1946,13 +1968,7 @@ public class ImsResolverTest extends ImsTestBase {
         }
 
         mTestImsResolver = new ImsResolver(mMockContext, deviceMmTelPkgName, deviceRcsPkgName,
-                numSlots, mMockRepo);
-        try {
-            mLooper = new TestableLooper(mTestImsResolver.getHandler().getLooper());
-            monitorTestableLooper(mLooper);
-        } catch (Exception e) {
-            fail("Unable to create looper from handler.");
-        }
+                numSlots, mMockRepo, Looper.myLooper());
 
         mTestImsResolver.setSubscriptionManagerProxy(mTestSubscriptionManagerProxy);
         mTestImsResolver.setTelephonyManagerProxy(mTestTelephonyManagerProxy);
@@ -2217,8 +2233,6 @@ public class ImsResolverTest extends ImsTestBase {
     private HashSet<ImsFeatureConfiguration.FeatureSlotPair> convertToHashSet(
             Set<String> features, int slotId) {
         return features.stream()
-                // We do not count this as a valid feature set member.
-                .filter(f -> !ImsResolver.METADATA_EMERGENCY_MMTEL_FEATURE.equals(f))
                 .map(f -> new ImsFeatureConfiguration.FeatureSlotPair(slotId,
                         metadataStringToFeature(f)))
                 .collect(Collectors.toCollection(HashSet::new));
@@ -2231,6 +2245,8 @@ public class ImsResolverTest extends ImsTestBase {
 
     private int metadataStringToFeature(String f) {
         switch (f) {
+            case ImsResolver.METADATA_EMERGENCY_MMTEL_FEATURE:
+                return ImsFeature.FEATURE_EMERGENCY_MMTEL;
             case ImsResolver.METADATA_MMTEL_FEATURE:
                 return ImsFeature.FEATURE_MMTEL;
             case ImsResolver.METADATA_RCS_FEATURE:

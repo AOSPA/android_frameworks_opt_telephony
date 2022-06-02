@@ -62,6 +62,7 @@ import com.android.internal.telephony.PhoneConfigurationManager;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -118,7 +119,7 @@ public class DataServiceManager extends Handler {
 
     private String mLastBoundPackageName;
 
-    private List<DataCallResponse> mLastDataCallResponseList;
+    private List<DataCallResponse> mLastDataCallResponseList = Collections.EMPTY_LIST;
 
     private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
         @Override
@@ -144,7 +145,18 @@ public class DataServiceManager extends Handler {
                     + AccessNetworkConstants.transportTypeToString(mTransportType) + " died.";
             loge(message);
             AnomalyReporter.reportAnomaly(UUID.fromString("fc1956de-c080-45de-8431-a1faab687110"),
-                    message);
+                    message, mPhone.getCarrierId());
+
+            // Cancel all pending requests
+            for (Message m : mMessageMap.values()) {
+                sendCompleteMessage(m, DataServiceCallback.RESULT_ERROR_ILLEGAL_STATE);
+            }
+            mMessageMap.clear();
+
+            // Tear down all connections
+            mLastDataCallResponseList = Collections.EMPTY_LIST;
+            mDataCallListChangedRegistrants.notifyRegistrants(
+                    new AsyncResult(null, Collections.EMPTY_LIST, null));
         }
     }
 
@@ -319,7 +331,9 @@ public class DataServiceManager extends Handler {
                             .collect(Collectors.toSet()).equals(mLastDataCallResponseList.stream()
                                     .map(DataCallResponse::getId).collect(Collectors.toSet()))) {
                         AnomalyReporter.reportAnomaly(
-                                UUID.fromString("150323b2-360a-446b-a158-3ce6425821f6"), message);
+                                UUID.fromString("150323b2-360a-446b-a158-3ce6425821f6"),
+                                message,
+                                mPhone.getCarrierId());
                     }
                 }
                 onDataCallListChanged(dataCallList);
@@ -328,7 +342,8 @@ public class DataServiceManager extends Handler {
 
         @Override
         public void onDataCallListChanged(List<DataCallResponse> dataCallList) {
-            mLastDataCallResponseList = dataCallList;
+            mLastDataCallResponseList =
+                    dataCallList != null ? dataCallList : Collections.EMPTY_LIST;
             mDataCallListChangedRegistrants.notifyRegistrants(
                     new AsyncResult(null, dataCallList, null));
         }
@@ -437,7 +452,7 @@ public class DataServiceManager extends Handler {
         // Using fixed UUID to avoid duplicate bugreport notification
         AnomalyReporter.reportAnomaly(
                 UUID.fromString("f5d5cbe6-9bd6-4009-b764-42b1b649b1de"),
-                message);
+                message, mPhone.getCarrierId());
     }
 
     private void unbindDataService() {
