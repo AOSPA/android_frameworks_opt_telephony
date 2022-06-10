@@ -1646,25 +1646,10 @@ public class DataNetwork extends StateMachine {
             int preferredDataPhoneId = PhoneSwitcher.getInstance().getPreferredDataPhoneId();
             if (preferredDataPhoneId != SubscriptionManager.INVALID_PHONE_INDEX
                     && preferredDataPhoneId != mPhone.getPhoneId()) {
-                tearDown(TEAR_DOWN_REASON_PREFERRED_DATA_SWITCHED);
+                // Let Connectivity release this immediately after linger time expires.
+                log("Unregistering TNA-" + mNetworkAgent.getId());
+                mNetworkAgent.unregister();
             }
-        }
-
-        boolean allNetworkRequestsDetached = true;
-        for (TelephonyNetworkRequest telephonyNetworkRequest
-                : mAttachedNetworkRequestList) {
-            if (telephonyNetworkRequest.getApnTypeNetworkCapability()
-                    != NetworkCapabilities.NET_CAPABILITY_INTERNET) {
-                allNetworkRequestsDetached = false;
-            }
-        }
-        // If DataNetwork does not have any attached NetworkRequests with capabilities
-        // other than INTERNET, unregister the networkagent to reduce the
-        // overall disconnect time for internet PDN on non DDS sub after DDS switch.
-        if (allNetworkRequestsDetached && networkRequest
-                .hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-            log("Unregistering TNA-" + mNetworkAgent.getId());
-            mNetworkAgent.unregister();
         }
     }
 
