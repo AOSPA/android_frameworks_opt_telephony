@@ -2,7 +2,7 @@
  * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
+* you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
@@ -30,13 +30,8 @@ import android.net.QosSessionAttributes;
 import android.net.SocketKeepalive;
 import android.net.NetworkScore;
 import android.net.Uri;
-<<<<<<< HEAD
 import android.os.Handler;
 import android.os.Looper;
-||||||| 5af76f8ed1
-=======
-import android.os.Handler;
->>>>>>> refs/tags/mirror-aosp-android-platform-12.1.0_r4
 import android.os.Message;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.TransportType;
