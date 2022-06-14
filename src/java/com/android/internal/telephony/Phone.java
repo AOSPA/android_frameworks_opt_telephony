@@ -5105,7 +5105,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         pw.println(" isDnsCheckDisabled()=" + isDnsCheckDisabled());
         pw.println(" getUnitTestMode()=" + getUnitTestMode());
         pw.println(" getState()=" + getState());
-        pw.println(" getIccSerialNumber()=" + getIccSerialNumber());
+        pw.println(" getIccSerialNumber()=" + Rlog.pii(LOG_TAG, getIccSerialNumber()));
         pw.println(" getIccRecordsLoaded()=" + getIccRecordsLoaded());
         pw.println(" getMessageWaitingIndicator()=" + getMessageWaitingIndicator());
         pw.println(" getCallForwardingIndicator()=" + getCallForwardingIndicator());

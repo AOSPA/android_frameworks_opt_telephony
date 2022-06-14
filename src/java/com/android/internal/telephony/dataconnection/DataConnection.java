@@ -2728,6 +2728,12 @@ public class DataConnection extends StateMachine {
                     }
                     ApnContext.requestLog(
                             cp.mApnContext, "onSetupConnectionCompleted result=" + result);
+
+                    if (result != SetupResult.SUCCESS) {
+                        releasePduSessionId(() -> DataConnection.this
+                                .setPduSessionId(PDU_SESSION_ID_NOT_SET));
+                    }
+
                     switch (result) {
                         case SUCCESS:
                             // All is well
