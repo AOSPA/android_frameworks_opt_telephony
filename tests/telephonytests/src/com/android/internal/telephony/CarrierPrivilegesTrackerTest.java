@@ -16,7 +16,6 @@
 
 package com.android.internal.telephony;
 
-import static android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES;
 import static android.os.UserHandle.SYSTEM;
 import static android.telephony.CarrierConfigManager.EXTRA_SLOT_INDEX;
 import static android.telephony.CarrierConfigManager.EXTRA_SUBSCRIPTION_INDEX;
@@ -74,6 +73,7 @@ import com.android.internal.telephony.uicc.IccUtils;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InOrder;
@@ -200,7 +200,7 @@ public class CarrierPrivilegesTrackerTest extends TelephonyTest {
             pkg.signatures = new Signature[] {new Signature(pkgCertInfo.cert)};
 
             when(mPackageManager.getPackageInfo(
-                    eq(pkgCertInfo.pkgName), eq(GET_SIGNING_CERTIFICATES)))
+                    eq(pkgCertInfo.pkgName), eq(PM_FLAGS)))
                     .thenReturn(pkg);
             when(mPackageManager.getPackageUidAsUser(
                     eq(pkgCertInfo.pkgName), eq(pkgCertInfo.userInfo.id)))
@@ -550,7 +550,8 @@ public class CarrierPrivilegesTrackerTest extends TelephonyTest {
                 List.of(new Pair<>(PRIVILEGED_PACKAGES, PRIVILEGED_UIDS_SET)));
     }
 
-    @Test
+    // TODO(b/232273884): turn UT case on when grace period is on
+    @Ignore
     public void testSimStateChangedSimStateNotReady() throws Exception {
         // Start with privileges, verify clearing certs clears UIDs
         setupCarrierPrivilegesTrackerWithSimLoadedUids();
@@ -574,7 +575,8 @@ public class CarrierPrivilegesTrackerTest extends TelephonyTest {
                         new Pair<>(Set.of(), Set.of())));
     }
 
-    @Test
+    // TODO(b/232273884): turn UT case on when grace period is on
+    @Ignore
     public void testSimStateChangedSimStateAbsentThenLoadedWithSameRules() throws Exception {
         // Start with privileges
         setupCarrierPrivilegesTrackerWithSimLoadedUids();
@@ -643,7 +645,8 @@ public class CarrierPrivilegesTrackerTest extends TelephonyTest {
                 List.of(new Pair<>(Set.of(), Set.of())));
     }
 
-    @Test
+    // TODO(b/232273884): turn UT case on when grace period is on
+    @Ignore
     public void testSimStateChangedSimStateAbsentThenLoadedWithUpdatedRules() throws Exception {
         // Start with privileges
         setupCarrierPrivilegesTrackerWithSimLoadedUids();
@@ -814,7 +817,7 @@ public class CarrierPrivilegesTrackerTest extends TelephonyTest {
         // Update PACKAGE_1 to have no signatures
         PackageInfo pkg = new PackageInfo();
         pkg.packageName = PACKAGE_1;
-        when(mPackageManager.getPackageInfo(eq(PACKAGE_1), eq(GET_SIGNING_CERTIFICATES)))
+        when(mPackageManager.getPackageInfo(eq(PACKAGE_1), eq(PM_FLAGS)))
                 .thenReturn(pkg);
 
         sendPackageChangedIntent(Intent.ACTION_PACKAGE_ADDED, PACKAGE_1);

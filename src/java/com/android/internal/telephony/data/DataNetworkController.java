@@ -228,9 +228,9 @@ public class DataNetworkController extends Handler {
 
     protected final @NonNull DataConfigManager mDataConfigManager;
     private final @NonNull DataSettingsManager mDataSettingsManager;
-    private final @NonNull DataProfileManager mDataProfileManager;
+    protected final @NonNull DataProfileManager mDataProfileManager;
     private final @NonNull DataStallRecoveryManager mDataStallRecoveryManager;
-    private final @NonNull AccessNetworksManager mAccessNetworksManager;
+    protected final @NonNull AccessNetworksManager mAccessNetworksManager;
     protected final @NonNull DataRetryManager mDataRetryManager;
     private final @NonNull ImsManager mImsManager;
     private final @NonNull NetworkPolicyManager mNetworkPolicyManager;
@@ -955,8 +955,13 @@ public class DataNetworkController extends Handler {
                         + DataUtils.networkCapabilityToString(capability) + " preferred on "
                         + AccessNetworkConstants.transportTypeToString(preferredTransport));
                 DataNetworkController.this.onEvaluatePreferredTransport(capability);
-                sendMessage(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
-                        DataEvaluationReason.PREFERRED_TRANSPORT_CHANGED));
+                if (!hasMessages(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS)) {
+                    sendMessage(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
+                            DataEvaluationReason.PREFERRED_TRANSPORT_CHANGED));
+                } else {
+                    log("onPreferredTransportChanged: Skipped evaluating unsatisfied network "
+                            + "requests because another evaluation was already scheduled.");
+                }
             }
         });
 
@@ -1067,8 +1072,6 @@ public class DataNetworkController extends Handler {
                 break;
             case EVENT_PS_RESTRICT_ENABLED:
                 mPsRestricted = true;
-                sendMessage(obtainMessage(EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
-                        DataEvaluationReason.DATA_RESTRICTED_CHANGED));
                 break;
             case EVENT_PS_RESTRICT_DISABLED:
                 mPsRestricted = false;
@@ -1200,6 +1203,10 @@ public class DataNetworkController extends Handler {
         }
         if (!mAllNetworkRequestList.add(networkRequest)) {
             loge("onAddNetworkRequest: Duplicate network request. " + networkRequest);
+            return;
+        }
+        if (isPdpRejectRetryOngoing(networkRequest)) {
+            loge("onAddNetworkRequest: Pdp reject retry in progress. " + networkRequest);
             return;
         }
         log("onAddNetworkRequest: added " + networkRequest);
@@ -1631,6 +1638,12 @@ public class DataNetworkController extends Handler {
                 continue;
             }
 
+            // If PDP reject retry is in progress and the current network request corresponds
+            // to internet type, then do not proceed further.
+            if (isPdpRejectRetryOngoing(requestList.get(0))) {
+                continue;
+            }
+
             // If no data network can satisfy the requests, then start the evaluation process. Since
             // all the requests in the list have the same capabilities, we can only evaluate one
             // of them.
@@ -1643,6 +1656,19 @@ public class DataNetworkController extends Handler {
                 }
             }
         }
+    }
+
+    /**
+     * Check if PDP reject retry is in progress
+     *
+     * @param networkRequest the network request for which the current query is made. PDP reject
+     * retry is applicable only if the networkRequest corresponds to internet type.
+     *
+     * @return {@code true} if the check is successful.
+     */
+    protected boolean isPdpRejectRetryOngoing(TelephonyNetworkRequest networkRequest) {
+        log("isPdpRejectRetryOngoing: superclass method");
+        return false;
     }
 
     /**
@@ -1672,11 +1698,6 @@ public class DataNetworkController extends Handler {
         // Check SIM state
         checkSimStateForDataEvaluation(evaluation);
 
-        // Check if data is restricted by the network.
-        if (mPsRestricted) {
-            evaluation.addDataDisallowedReason(DataDisallowedReason.DATA_RESTRICTED_BY_NETWORK);
-        }
-
         // Check if device is in CDMA ECBM
         if (mPhone.isInCdmaEcm()) {
             evaluation.addDataDisallowedReason(DataDisallowedReason.CDMA_EMERGENCY_CALLBACK_MODE);
@@ -1699,6 +1720,31 @@ public class DataNetworkController extends Handler {
             } else {
                 log("evaluateDataNetwork: " + dataNetwork + " has the highest priority. "
                         + "No need to tear down");
+            }
+        }
+
+        // If the data network is IMS that supports voice call, and has MMTEL request (client
+        // specified VoPS is required.)
+        if (dataNetwork.getAttachedNetworkRequestList().get(
+                new int[]{NetworkCapabilities.NET_CAPABILITY_MMTEL}) != null) {
+            // When reaching here, it means the network supports MMTEL, and also has MMTEL request
+            // attached to it.
+            if (!dataNetwork.shouldDelayImsTearDown()) {
+                if (dataNetwork.getTransport() == AccessNetworkConstants.TRANSPORT_TYPE_WWAN) {
+                    NetworkRegistrationInfo nri = mServiceState.getNetworkRegistrationInfo(
+                            NetworkRegistrationInfo.DOMAIN_PS,
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+                    if (nri != null) {
+                        DataSpecificRegistrationInfo dsri = nri.getDataSpecificInfo();
+                        if (dsri != null && dsri.getVopsSupportInfo() != null
+                                && !dsri.getVopsSupportInfo().isVopsSupported()) {
+                            evaluation.addDataDisallowedReason(
+                                    DataDisallowedReason.VOPS_NOT_SUPPORTED);
+                        }
+                    }
+                }
+            } else {
+                log("Ignored VoPS check due to delay IMS tear down until call ends.");
             }
         }
 
@@ -1769,9 +1815,7 @@ public class DataNetworkController extends Handler {
             // If there are reasons we should tear down the network, check if those are hard reasons
             // or soft reasons. In some scenarios, we can make exceptions if they are soft
             // disallowed reasons.
-            if ((mPhone.isInEmergencyCall() || mPhone.isInEcm())
-                    && dataNetwork.getNetworkCapabilities().hasCapability(
-                            NetworkCapabilities.NET_CAPABILITY_SUPL)) {
+            if ((mPhone.isInEmergencyCall() || mPhone.isInEcm()) && dataNetwork.isEmergencySupl()) {
                 // Check if it's SUPL during emergency call.
                 evaluation.addDataAllowedReason(DataAllowedReason.EMERGENCY_SUPL);
             } else if (!dataNetwork.getNetworkCapabilities().hasCapability(
@@ -1947,8 +1991,6 @@ public class DataNetworkController extends Handler {
                     return DataNetwork.TEAR_DOWN_REASON_SIM_REMOVAL;
                 case CONCURRENT_VOICE_DATA_NOT_ALLOWED:
                     return DataNetwork.TEAR_DOWN_REASON_CONCURRENT_VOICE_DATA_NOT_ALLOWED;
-                case DATA_RESTRICTED_BY_NETWORK:
-                    return DataNetwork.TEAR_DOWN_REASON_DATA_RESTRICTED_BY_NETWORK;
                 case RADIO_POWER_OFF:
                     return DataNetwork.TEAR_DOWN_REASON_AIRPLANE_MODE_ON;
                 case PENDING_TEAR_DOWN_ALL:
@@ -2044,15 +2086,23 @@ public class DataNetworkController extends Handler {
         sendMessage(obtainMessage(EVENT_REMOVE_NETWORK_REQUEST, networkRequest));
     }
 
-    private void onRemoveNetworkRequest(@NonNull TelephonyNetworkRequest networkRequest) {
+    private void onRemoveNetworkRequest(@NonNull TelephonyNetworkRequest request) {
+        // The request generated from telephony network factory does not contain the information
+        // the original request has, for example, attached data network. We need to find the
+        // original one.
+        TelephonyNetworkRequest networkRequest = mAllNetworkRequestList.stream()
+                .filter(r -> r.equals(request))
+                .findFirst()
+                .orElse(null);
+        if (networkRequest == null || !mAllNetworkRequestList.remove(networkRequest)) {
+            loge("onRemoveNetworkRequest: Network request does not exist. " + networkRequest);
+            return;
+        }
+
         if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_IMS)) {
             mImsThrottleCounter.addOccurrence();
             mLastReleasedImsRequestCapabilities = networkRequest.getCapabilities();
             mLastImsOperationIsRelease = true;
-        }
-        if (!mAllNetworkRequestList.remove(networkRequest)) {
-            loge("onRemoveNetworkRequest: Network request does not exist. " + networkRequest);
-            return;
         }
 
         if (networkRequest.getAttachedNetwork() != null) {
@@ -2288,21 +2338,17 @@ public class DataNetworkController extends Handler {
     }
 
     /**
-     * There have been several bugs where a RECONNECT loop kicks off where a DataConnection
-     * connects to the Network, ConnectivityService indicates that the Network is unwanted,
-     * and then the DataConnection reconnects. By the time we get the bug report it's too late
-     * because there have already been hundreds of RECONNECTS.  This is meant to capture the issue
-     * when it first starts.
-     *
-     * The unwanted counter is configured to only take an anomaly report in extreme cases.
-     * This is to avoid having the anomaly message show up on several devices.
-     *
+     * There have been several bugs where a RECONNECT loop kicks off where a data network
+     * is brought up, but connectivity service indicates that the network is unwanted so telephony
+     * tears down the network. But later telephony bring up the data network again and becomes an
+     * infinite loop. By the time we get the bug report it's too late because there have already
+     * been hundreds of bring up/tear down. This is meant to capture the issue when it first starts.
      */
     private void onTrackNetworkUnwanted() {
         if (mNetworkUnwantedCounter.addOccurrence()) {
             reportAnomaly("Network Unwanted called "
                             + mNetworkUnwantedCounter.getFrequencyString(),
-                    "9f3bc55b-bfa6-4e26-afaa-5031426a66d2");
+                    "9f3bc55b-bfa6-4e26-afaa-5031426a66d3");
         }
     }
 
@@ -3444,8 +3490,12 @@ public class DataNetworkController extends Handler {
                     + (mRegisteredImsFeatures.contains(ImsFeature.FEATURE_RCS)
                     ? "registered" : "not registered")
             );
-            mPendingImsDeregDataNetworks.put(dataNetwork,
-                    dataNetwork.tearDownWhenConditionMet(reason, deregDelay));
+            Runnable runnable = dataNetwork.tearDownWhenConditionMet(reason, deregDelay);
+            if (runnable != null) {
+                mPendingImsDeregDataNetworks.put(dataNetwork, runnable);
+            } else {
+                log(dataNetwork + " is being torn down already.");
+            }
         } else {
             // Graceful tear down is not turned on. Tear down the network immediately.
             log("tearDownGracefully: Safe to tear down " + dataNetwork);
