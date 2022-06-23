@@ -443,6 +443,7 @@ public class SimPhonebookRecordCache extends Handler {
                 mIsCacheInvalidated.set(true);
                 fillCacheWithoutWaiting();
             } else if (newCapacity.isSimValid()) {
+                mIsCacheInvalidated.set(false);
                 notifyAdnLoadingWaiters();
                 tryFireUpdatePendingList();
             } else {
