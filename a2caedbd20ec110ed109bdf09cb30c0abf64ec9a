@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "521d3497_ec41f716",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 1000173
+      },
+      "writtenOn": "2022-06-27T10:47:09Z",
+      "side": 1,
+      "message": "Fix 2nd sim on OP5",
+      "revId": "a2caedbd20ec110ed109bdf09cb30c0abf64ec9a",
+      "serverId": "3162e3d8-d894-470e-abd9-724f7b0effad"
+    }
+  ]
+}
