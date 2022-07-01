@@ -239,6 +239,8 @@ public class DataEvaluation {
         EXTERNAL_QUERY,
         /** Tracking area code changed. */
         TAC_CHANGED,
+        /** Secure Mode state changed. */
+        SECURE_MODE_STATE_CHANGED,
     }
 
     /** Disallowed reasons. There could be multiple reasons if it is not allowed. */
