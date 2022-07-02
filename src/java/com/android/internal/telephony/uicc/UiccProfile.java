@@ -397,6 +397,16 @@ public class UiccProfile extends IccCard {
         }
     }
 
+    /**
+     * On SIM_REFRESH event reinitialize mLastReportedNumOfUiccApplications to 0.
+     */
+    public void onSimRefresh(boolean mIsEuicc) {
+        log("onSimRefresh mIsEuicc = " + mIsEuicc);
+        if (mIsEuicc) {
+            mLastReportedNumOfUiccApplications = 0;
+        }
+    }
+
     private void setCurrentAppType(boolean isGsm) {
         int primaryAppType;
         int secondaryAppType;
