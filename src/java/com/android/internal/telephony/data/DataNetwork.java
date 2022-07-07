@@ -166,6 +166,9 @@ public class DataNetwork extends StateMachine {
     /** Event for detaching a network request. */
     private static final int EVENT_DETACH_NETWORK_REQUEST = 3;
 
+    /** Event when detect radio not available. */
+    private static final int  EVENT_RADIO_NOT_AVAILABLE = 4;
+
     /** Event for allocating PDU session id response. */
     private static final int EVENT_ALLOCATE_PDU_SESSION_ID_RESPONSE = 5;
 
@@ -231,12 +234,6 @@ public class DataNetwork extends StateMachine {
 
     /** Event for CSS indicator changed. */
     private static final int EVENT_CSS_INDICATOR_CHANGED = 24;
-
-    /** The default MTU for IPv4 network. */
-    private static final int DEFAULT_MTU_V4 = 1280;
-
-    /** The default MTU for IPv6 network. */
-    private static final int DEFAULT_MTU_V6 = 1280;
 
     /** Invalid context id. */
     private static final int INVALID_CID = -1;
@@ -1106,6 +1103,11 @@ public class DataNetwork extends StateMachine {
                     log("Ignore the handover to " + AccessNetworkConstants
                             .transportTypeToString(msg.arg1) + " request.");
                     break;
+                case EVENT_RADIO_NOT_AVAILABLE:
+                    mFailCause = DataFailCause.RADIO_NOT_AVAILABLE;
+                    loge(eventToString(msg.what) + ": transition to disconnected state");
+                    transitionTo(mDisconnectedState);
+                    break;
                 default:
                     loge("Unhandled event " + eventToString(msg.what));
                     break;
@@ -1555,6 +1557,7 @@ public class DataNetwork extends StateMachine {
         registerForBandwidthUpdate();
         mKeepaliveTracker.registerForKeepaliveStatus();
         mRil.registerForPcoData(this.getHandler(), EVENT_PCO_DATA_RECEIVED, null);
+        mRil.registerForNotAvailable(this.getHandler(), EVENT_RADIO_NOT_AVAILABLE, null);
     }
 
     /**
@@ -1564,6 +1567,7 @@ public class DataNetwork extends StateMachine {
         unregisterForBandwidthUpdate();
         mKeepaliveTracker.unregisterForKeepaliveStatus();
         mRil.unregisterForPcoData(this.getHandler());
+        mRil.unregisterForNotAvailable(this.getHandler());
     }
 
     @Override
@@ -2225,7 +2229,7 @@ public class DataNetwork extends StateMachine {
                 mtuV4 = mDataProfile.getApnSetting().getMtuV4();
             }
             if (mtuV4 <= 0) {
-                mtuV4 = DEFAULT_MTU_V4;
+                mtuV4 = mDataConfigManager.getDefaultMtu();
             }
         }
 
@@ -2237,7 +2241,7 @@ public class DataNetwork extends StateMachine {
                 mtuV6 = mDataProfile.getApnSetting().getMtuV6();
             }
             if (mtuV6 <= 0) {
-                mtuV6 = DEFAULT_MTU_V6;
+                mtuV6 = mDataConfigManager.getDefaultMtu();
             }
         }
 
@@ -3281,6 +3285,8 @@ public class DataNetwork extends StateMachine {
                 return "EVENT_ATTACH_NETWORK_REQUEST";
             case EVENT_DETACH_NETWORK_REQUEST:
                 return "EVENT_DETACH_NETWORK_REQUEST";
+            case EVENT_RADIO_NOT_AVAILABLE:
+                return "EVENT_RADIO_NOT_AVAILABLE";
             case EVENT_ALLOCATE_PDU_SESSION_ID_RESPONSE:
                 return "EVENT_ALLOCATE_PDU_SESSION_ID_RESPONSE";
             case EVENT_SETUP_DATA_NETWORK_RESPONSE:
