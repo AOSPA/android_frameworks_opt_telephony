@@ -1160,6 +1160,10 @@ public class UiccController extends Handler {
         if (changed && resp.refreshResult == IccRefreshResponse.REFRESH_RESULT_RESET) {
             // If there is any change on RESET, reset carrier config as well. From carrier config
             // perspective, this is treated the same as sim state unknown
+            UiccSlot uiccSlot = getUiccSlotForPhone(index);
+            if (uiccSlot != null) {
+                uiccCard.getUiccProfile().onSimRefresh(uiccSlot.isEuicc());
+            }
             CarrierConfigManager configManager = (CarrierConfigManager)
                     mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
             configManager.updateConfigForPhoneId(index, IccCardConstants.INTENT_VALUE_ICC_UNKNOWN);
