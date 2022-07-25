@@ -64,7 +64,7 @@ public class TelephonyNetworkAgent extends NetworkAgent implements NotifyQosSess
      * Indicates if this network agent is abandoned. if {@code true}, it ignores the
      * @link NetworkAgent#onNetworkUnwanted()} calls from connectivity service.
      */
-    private boolean mAbandoned = false;
+    protected boolean mAbandoned = false;
 
     /**
      * The callbacks that are used to pass information to {@link DataNetwork} and
