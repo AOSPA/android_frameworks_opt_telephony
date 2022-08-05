@@ -252,13 +252,7 @@ public class DataProfileManager extends Handler {
             while (cursor.moveToNext()) {
                 ApnSetting apn = ApnSetting.makeApnSetting(cursor);
                 if (apn != null) {
-                    DataProfile dataProfile = new DataProfile.Builder()
-                            .setApnSetting(apn)
-                            .setTrafficDescriptor(new TrafficDescriptor(apn.getApnName(), null))
-                            .setPreferred(false)
-                            .build();
-                    profiles.add(dataProfile);
-                    log("Added " + dataProfile);
+                    allApnSettings.add(apn);
                 }
             }
             cursor.close();
