@@ -78,7 +78,11 @@ import com.android.internal.telephony.data.DataEnabledOverride;
 import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.uicc.IccUtils;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
+import com.android.internal.telephony.uicc.IccCardStatus.PinState;
 import com.android.internal.telephony.uicc.UiccCard;
+import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.uicc.UiccProfile;
 import com.android.internal.telephony.uicc.UiccSlot;
@@ -415,13 +419,20 @@ public class SubscriptionController extends ISub.Stub {
         return SubscriptionInfoUpdater.isSubInfoInitialized();
     }
 
-    private boolean isSimLocked(int phoneId) {
-        int simState = mTelephonyManager.getSimState(phoneId);
+    private boolean isSimLocked(Phone phone) {
+        int family = (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM) ?
+                UiccController.APP_FAM_3GPP : UiccController.APP_FAM_3GPP2;
+        UiccCardApplication uiccCardApp =
+                mUiccController.getUiccCardApplication(phone.getPhoneId(), family);
+        if (uiccCardApp == null) return false;
 
-        return simState == TelephonyManager.SIM_STATE_PIN_REQUIRED
-                || simState == TelephonyManager.SIM_STATE_PUK_REQUIRED
-                || simState == TelephonyManager.SIM_STATE_NETWORK_LOCKED
-                || simState == TelephonyManager.SIM_STATE_PERM_DISABLED;
+        AppState appState = uiccCardApp.getState();
+
+        return (uiccCardApp.getPin1State() == PinState.PINSTATE_ENABLED_PERM_BLOCKED
+                || appState == AppState.APPSTATE_PIN
+                || appState == AppState.APPSTATE_PUK
+                || (appState == AppState.APPSTATE_SUBSCRIPTION_PERSO &&
+                PersoSubState.isPersoLocked(uiccCardApp.getPersoSubState())));
     }
 
     public boolean isSubIdCreationPending() {
@@ -434,7 +445,7 @@ public class SubscriptionController extends ISub.Stub {
 
         Phone[] phones = PhoneFactory.getPhones();
         for (Phone phone : phones) {
-            if (isSimLocked(phone.getPhoneId()) && !isActiveSubId(phone.getSubId())) {
+            if (isSimLocked(phone) && !isActiveSubId(phone.getSubId())) {
                 if (DBG) logd("SubId Creation is Pending for slot : " + phone.getPhoneId());
                 return true;
             }
