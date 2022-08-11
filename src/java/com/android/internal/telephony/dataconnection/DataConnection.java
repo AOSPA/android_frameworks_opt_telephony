@@ -520,7 +520,7 @@ public class DataConnection extends StateMachine {
         return mHandoverState == HANDOVER_STATE_BEING_TRANSFERRED;
     }
 
-    int getCid() {
+    public int getCid() {
         return mCid;
     }
 
@@ -644,6 +644,7 @@ public class DataConnection extends StateMachine {
     }
 
     public void updateQosParameters(final @Nullable DataCallResponse response) {
+        log("updateQosParameters : " + ((response == null) ? "null" : response));
         if (response == null) {
             mDefaultQos = null;
             mQosBearerSessions.clear();
@@ -659,6 +660,7 @@ public class DataConnection extends StateMachine {
     }
 
     private void syncQosToNetworkAgent() {
+        log("syncQosToNetworkAgent");
         final DcNetworkAgent networkAgent = mNetworkAgent;
         final List<QosBearerSession> qosBearerSessions = mQosBearerSessions;
         if (qosBearerSessions == null) {

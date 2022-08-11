@@ -34,6 +34,8 @@ import com.android.ims.ImsManager;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.cdma.EriManager;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
+import com.android.internal.telephony.dataconnection.DataServiceManager;
+import com.android.internal.telephony.dataconnection.DcController;
 import com.android.internal.telephony.dataconnection.DcTracker;
 import com.android.internal.telephony.dataconnection.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.TransportManager;
@@ -317,6 +319,17 @@ public class TelephonyComponentFactory {
 
     public DcTracker makeDcTracker(Phone phone, @TransportType int transportType) {
         return new DcTracker(phone, transportType);
+    }
+
+    public DataServiceManager makeDataServiceManager(Phone phone, @TransportType int transportType,
+                                                     String tagSuffix) {
+        return new DataServiceManager(phone, transportType, tagSuffix);
+    }
+
+    public DcController makeDcController(Phone phone, DcTracker dct,
+                                         DataServiceManager dataServiceManager, Looper looper,
+                                         String tagSuffix) {
+        return DcController.makeDcc(phone, dct, dataServiceManager, looper, tagSuffix);
     }
 
     public CarrierSignalAgent makeCarrierSignalAgent(Phone phone) {

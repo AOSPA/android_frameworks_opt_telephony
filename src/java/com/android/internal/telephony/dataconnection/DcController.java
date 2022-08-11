@@ -55,7 +55,7 @@ import java.util.Objects;
  * and then demultiplexing them to the appropriate DC.
  */
 public class DcController extends Handler {
-    private static final boolean DBG = true;
+    protected static final boolean DBG = true;
     private static final boolean VDBG = false;
 
     /** Physical link state unknown */
@@ -79,14 +79,14 @@ public class DcController extends Handler {
     private final Phone mPhone;
     private final DcTracker mDct;
     private final String mTag;
-    private final DataServiceManager mDataServiceManager;
+    protected final DataServiceManager mDataServiceManager;
     private final DcTesterDeactivateAll mDcTesterDeactivateAll;
 
     // package as its used by Testing code
     // @GuardedBy("mDcListAll")
-    final ArrayList<DataConnection> mDcListAll = new ArrayList<>();
+    protected final ArrayList<DataConnection> mDcListAll = new ArrayList<>();
     // @GuardedBy("mDcListAll")
-    private final HashMap<Integer, DataConnection> mDcListActiveByCid = new HashMap<>();
+    protected final HashMap<Integer, DataConnection> mDcListActiveByCid = new HashMap<>();
     // @GuardedBy("mTrafficDescriptorsByCid")
     private final HashMap<Integer, List<TrafficDescriptor>> mTrafficDescriptorsByCid =
             new HashMap<>();
@@ -110,7 +110,7 @@ public class DcController extends Handler {
      * @param dataServiceManager the data service manager that manages data services
      * @param looper looper for this handler
      */
-    private DcController(String name, Phone phone, DcTracker dct,
+    protected DcController(String name, Phone phone, DcTracker dct,
                          DataServiceManager dataServiceManager, Looper looper) {
         super(looper);
         mPhone = phone;
@@ -163,7 +163,7 @@ public class DcController extends Handler {
         }
     }
 
-    void removeActiveDcByCid(DataConnection dc) {
+    public void removeActiveDcByCid(DataConnection dc) {
         synchronized (mDcListAll) {
             DataConnection removedDc = mDcListActiveByCid.remove(dc.mCid);
             if (DBG && removedDc == null) {
@@ -218,7 +218,7 @@ public class DcController extends Handler {
      * Process the new list of "known" Data Calls
      * @param dcsList as sent by RIL_UNSOL_DATA_CALL_LIST_CHANGED
      */
-    private void onDataStateChanged(ArrayList<DataCallResponse> dcsList) {
+    protected void onDataStateChanged(ArrayList<DataCallResponse> dcsList) {
         final HashMap<Integer, DataConnection> dcListActiveByCid;
         synchronized (mDcListAll) {
             dcListActiveByCid = new HashMap<>(mDcListActiveByCid);
@@ -472,11 +472,11 @@ public class DcController extends Handler {
         mPhysicalLinkStateChangedRegistrants.remove(h);
     }
 
-    private void log(String s) {
+    protected void log(String s) {
         Rlog.d(mTag, s);
     }
 
-    private void loge(String s) {
+    protected void loge(String s) {
         Rlog.e(mTag, s);
     }
 

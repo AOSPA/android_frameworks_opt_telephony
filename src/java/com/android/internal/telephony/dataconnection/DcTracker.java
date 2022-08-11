@@ -118,6 +118,7 @@ import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.RetryManager;
 import com.android.internal.telephony.SettingsObserver;
 import com.android.internal.telephony.SubscriptionInfoUpdater;
+import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons.DataAllowedReasonType;
 import com.android.internal.telephony.dataconnection.DataConnectionReasons.DataDisallowedReasonType;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings.DataEnabledChangedReason;
@@ -760,7 +761,9 @@ public class DcTracker extends Handler {
         mLogTag = "DCT" + tagSuffix;
 
         mTransportType = transportType;
-        mDataServiceManager = new DataServiceManager(phone, transportType, tagSuffix);
+        mDataServiceManager = TelephonyComponentFactory.getInstance()
+                .inject(DataServiceManager.class.getName())
+                .makeDataServiceManager(phone, transportType, tagSuffix);
         mDataThrottler = new DataThrottler(mPhone, transportType);
 
         mResolver = mPhone.getContext().getContentResolver();
@@ -797,8 +800,10 @@ public class DcTracker extends Handler {
         mHandlerThread = new HandlerThread("DcHandlerThread");
         mHandlerThread.start();
         Handler dcHandler = new Handler(mHandlerThread.getLooper());
-        mDcc = DcController.makeDcc(mPhone, this, mDataServiceManager, dcHandler.getLooper(),
-                tagSuffix);
+        mDcc = TelephonyComponentFactory.getInstance()
+                .inject(DcController.class.getName())
+                .makeDcController(mPhone, this, mDataServiceManager, dcHandler.getLooper(),
+                        tagSuffix);
         mDcTesterFailBringUpAll = new DcTesterFailBringUpAll(mPhone, dcHandler);
 
         mDataConnectionTracker = this;

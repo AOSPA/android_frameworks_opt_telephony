@@ -73,21 +73,21 @@ import java.util.concurrent.CountDownLatch;
  * Cellular data service, IWLAN data service).
  */
 public class DataServiceManager extends Handler {
-    private static final boolean DBG = true;
+    protected static final boolean DBG = true;
 
     static final String DATA_CALL_RESPONSE = "data_call_response";
 
     private static final int EVENT_BIND_DATA_SERVICE = 1;
 
-    private static final int EVENT_WATCHDOG_TIMEOUT = 2;
+    protected static final int EVENT_WATCHDOG_TIMEOUT = 2;
 
-    private static final long REQUEST_UNRESPONDED_TIMEOUT = 10 * MINUTE_IN_MILLIS; // 10 mins
+    protected static final long REQUEST_UNRESPONDED_TIMEOUT = 10 * MINUTE_IN_MILLIS; // 10 mins
 
     private static final long CHANGE_PERMISSION_TIMEOUT_MS = 15 * SECOND_IN_MILLIS; // 15 secs
 
-    private final Phone mPhone;
+    protected final Phone mPhone;
 
-    private final String mTag;
+    protected String mTag;
 
     private final CarrierConfigManager mCarrierConfigManager;
     private final AppOpsManager mAppOps;
@@ -95,15 +95,15 @@ public class DataServiceManager extends Handler {
 
     private final int mTransportType;
 
-    private boolean mBound;
+    protected boolean mBound;
 
-    private IDataService mIDataService;
+    protected IDataService mIDataService;
 
     private DataServiceManagerDeathRecipient mDeathRecipient;
 
     private final RegistrantList mServiceBindingChangedRegistrants = new RegistrantList();
 
-    private final Map<IBinder, Message> mMessageMap = new ConcurrentHashMap<>();
+    protected final Map<IBinder, Message> mMessageMap = new ConcurrentHashMap<>();
 
     private final RegistrantList mDataCallListChangedRegistrants = new RegistrantList();
 
@@ -248,11 +248,11 @@ public class DataServiceManager extends Handler {
         }
     }
 
-    private final class CellularDataServiceCallback extends IDataServiceCallback.Stub {
+    protected class CellularDataServiceCallback extends IDataServiceCallback.Stub {
 
         private final String mTag;
 
-        CellularDataServiceCallback(String tag) {
+        protected CellularDataServiceCallback(String tag) {
             mTag = tag;
         }
 
@@ -598,7 +598,7 @@ public class DataServiceManager extends Handler {
         return className;
     }
 
-    private void sendCompleteMessage(Message msg, @DataServiceCallback.ResultCode int code) {
+    protected void sendCompleteMessage(Message msg, @DataServiceCallback.ResultCode int code) {
         if (msg != null) {
             msg.arg1 = code;
             msg.sendToTarget();
@@ -956,11 +956,11 @@ public class DataServiceManager extends Handler {
         return mTransportType;
     }
 
-    private void log(String s) {
+    protected void log(String s) {
         Rlog.d(mTag, s);
     }
 
-    private void loge(String s) {
+    protected void loge(String s) {
         Rlog.e(mTag, s);
     }
 }
