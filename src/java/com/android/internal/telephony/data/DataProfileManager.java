@@ -435,9 +435,6 @@ public class DataProfileManager extends Handler {
      * @param dataProfiles The connected internet data networks' profiles.
      */
     private void onInternetDataNetworkConnected(@NonNull List<DataProfile> dataProfiles) {
-        // If there is already a preferred data profile set, then we don't need to do anything.
-        if (mPreferredDataProfile != null) return;
-
         // If there is no preferred data profile, then we should use one of the data profiles,
         // which is good for internet, as the preferred data profile.
 
@@ -447,6 +444,11 @@ public class DataProfileManager extends Handler {
                 .max(Comparator.comparingLong(DataProfile::getLastSetupTimestamp).reversed())
                 .orElse(null);
         mLastInternetDataProfile = dataProfile;
+
+        // If the preferred profile is one chosen for internet already, we don't need to do
+        // anything.
+        if (mPreferredDataProfile != null && mPreferredDataProfile.equals(dataProfile)) return;
+
         // Save the preferred data profile into database.
         setPreferredDataProfile(dataProfile);
         updateDataProfiles(ONLY_UPDATE_IA_IF_CHANGED);
