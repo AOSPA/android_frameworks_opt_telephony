@@ -340,9 +340,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     private boolean mIsVoiceCapable = true;
     private final AppSmsManager mAppSmsManager;
     private SimActivationTracker mSimActivationTracker;
-    // Keep track of the case where ECM was cancelled to place another outgoing emergency call.
-    // We will need to restart it after the emergency call ends.
-    protected boolean mEcmCanceledForEmergency = false;
     private volatile long mTimeLastEmergencySmsSentMs = EMERGENCY_SMS_NO_TIME_RECORDED;
 
     // Variable to cache the video capability. When RAT changes, we lose this info and are unable
@@ -3060,7 +3057,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * canceled, false if not.
      */
     public boolean isEcmCanceledForEmergency() {
-        return mEcmCanceledForEmergency;
+        return EcbmHandler.getInstance().isEcmCanceledForEmergency();
     }
 
     /**
@@ -3070,7 +3067,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      *                   if it is not in this state.
      */
     public void setEcmCanceledForEmergency(boolean isCanceled) {
-        mEcmCanceledForEmergency = isCanceled;
+        EcbmHandler.getInstance().setEcmCanceledForEmergency(isCanceled);
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
