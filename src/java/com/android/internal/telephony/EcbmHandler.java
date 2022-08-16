@@ -70,6 +70,11 @@ public class EcbmHandler extends Handler {
     // Keep track of whether or not the phone is in Emergency Callback Mode for Phone and
     // subclasses
     protected boolean mIsPhoneInEcmState = false;
+
+    // Keep track of the case where ECM was cancelled to place another outgoing emergency call.
+    // We will need to restart it after the emergency call ends.
+    private boolean mEcmCanceledForEmergency = false;
+
     // mEcmExitRespRegistrant is informed after the phone has been exited
     private Registrant mEcmExitRespRegistrant;
     // mEcmTimerResetRegistrants are informed after Ecm timer is canceled or re-started
@@ -322,16 +327,14 @@ public class EcbmHandler extends Handler {
             case CANCEL_ECM_TIMER:
                 removeCallbacks(mExitEcmRunnable);
                 mEcmTimerResetRegistrants.notifyResult(Boolean.TRUE);
-                // TODO(b/152630901): mPhone not available in handleTimerInEmergencyCallbackMode
-                //setEcmCanceledForEmergency(true /*isCanceled*/);
+                setEcmCanceledForEmergency(true /*isCanceled*/);
                 break;
             case RESTART_ECM_TIMER:
                 long delayInMillis = TelephonyProperties.ecm_exit_timer()
                         .orElse(DEFAULT_ECM_EXIT_TIMER_VALUE);
                 postDelayed(mExitEcmRunnable, delayInMillis);
                 mEcmTimerResetRegistrants.notifyResult(Boolean.FALSE);
-                // TODO(b/152630901): mPhone not available in handleTimerInEmergencyCallbackMode
-                //setEcmCanceledForEmergency(false /*isCanceled*/);
+                setEcmCanceledForEmergency(false /*isCanceled*/);
                 break;
             default:
                 Rlog.e(LOG_TAG, "handleTimerInEmergencyCallbackMode, unsupported action " + action);
@@ -422,6 +425,24 @@ public class EcbmHandler extends Handler {
         editor.remove(PREF_KEY_ECBM_PHONEID);
         editor.remove(PREF_KEY_IS_ECBM_ON_IMS);
         editor.apply();
+    }
+
+    /**
+     * @return true if this Phone is in an emergency call that caused emergency callback mode to be
+     * canceled, false if not.
+     */
+    public boolean isEcmCanceledForEmergency() {
+        return mEcmCanceledForEmergency;
+    }
+
+    /**
+     * Set whether or not this Phone has an active emergency call that was placed during emergency
+     * callback mode and caused it to be temporarily canceled.
+     * @param isCanceled true if an emergency call was placed that caused ECM to be canceled, false
+     *                   if it is not in this state.
+     */
+    public void setEcmCanceledForEmergency(boolean isCanceled) {
+        mEcmCanceledForEmergency = isCanceled;
     }
 
     private void logd(String s) {
