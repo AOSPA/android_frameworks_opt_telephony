@@ -36,6 +36,7 @@ import android.service.euicc.EuiccService;
 import android.service.euicc.GetDefaultDownloadableSubscriptionListResult;
 import android.service.euicc.GetDownloadableSubscriptionMetadataResult;
 import android.service.euicc.GetEuiccProfileInfoListResult;
+import android.telephony.AnomalyReporter;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyFrameworkInitializer;
@@ -70,6 +71,7 @@ import java.io.PrintWriter;
 import java.util.Collections;
 import java.util.List;
 import java.util.Stack;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1210,11 +1212,14 @@ public class EuiccController extends IEuiccController.Stub {
         } else {
             // DSDS Mode
             for (int portIndex : slot.getPortList()) {
-                if (slot.isPortActive(portIndex)
-                        && mSubscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(
-                        slot.getPhoneIdFromPortIndex(portIndex)) == null) {
-                    // If the port is active and empty, return the portIndex.
-                    return portIndex;
+                if (slot.isPortActive(portIndex)) {
+                    SubscriptionInfo subscriptionInfo =
+                              mSubscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(
+                                    slot.getPhoneIdFromPortIndex(portIndex));
+                    if (subscriptionInfo == null || subscriptionInfo.isOpportunistic()) {
+                            // If the port is active and empty/opportunistic, return the portIndex.
+                        return portIndex;
+                    }
                 }
             }
             // Check whether the pSim is active and empty
@@ -1307,7 +1312,14 @@ public class EuiccController extends IEuiccController.Stub {
         }
         String cardIdString = UiccController.getInstance().convertToCardString(cardId);
         for (int slotIndex = 0; slotIndex < slotInfos.length; slotIndex++) {
-            if (IccUtils.compareIgnoreTrailingFs(cardIdString, slotInfos[slotIndex].getCardId())) {
+            if (slotInfos[slotIndex] == null) {
+                AnomalyReporter.reportAnomaly(
+                        UUID.fromString("e9517acf-e1a1-455f-9231-1b5515a0d0eb"),
+                        "EuiccController: Found UiccSlotInfo Null object.");
+            }
+            String retrievedCardId = slotInfos[slotIndex] != null
+                    ? slotInfos[slotIndex].getCardId() : null;
+            if (IccUtils.compareIgnoreTrailingFs(cardIdString, retrievedCardId)) {
                 return slotIndex;
             }
         }
@@ -1970,6 +1982,7 @@ public class EuiccController extends IEuiccController.Stub {
 
     @Override
     public boolean hasCarrierPrivilegesForPackageOnAnyPhone(String callingPackage) {
+        mAppOpsManager.checkPackage(Binder.getCallingUid(), callingPackage);
         final long token = Binder.clearCallingIdentity();
         try {
             // checkCarrierPrivilegesForPackageAnyPhone API requires READ_PHONE_STATE permission,
@@ -1983,6 +1996,7 @@ public class EuiccController extends IEuiccController.Stub {
 
     @Override
     public boolean isCompatChangeEnabled(String callingPackage, long changeId) {
+        mAppOpsManager.checkPackage(Binder.getCallingUid(), callingPackage);
         // Platform compat framework kills the callingPackage app to ensure that the change
         // takes affect immediately. So the corresponding compat checking is moved to controller.
         boolean changeEnabled = CompatChanges.isChangeEnabled(changeId, callingPackage,

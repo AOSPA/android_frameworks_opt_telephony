@@ -47,6 +47,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.Process;
+import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Telephony;
@@ -421,7 +422,7 @@ public abstract class SMSDispatcher extends Handler {
                 logWithLocalLog("handleMessage: No response from " + mCarrierPackageName
                         + " for " + mCarrierMessagingTimeout + " ms");
                 AnomalyReporter.reportAnomaly(sAnomalyNoResponseFromCarrierMessagingService,
-                        "No response from " + mCarrierPackageName);
+                        "No response from " + mCarrierPackageName, mPhone.getCarrierId());
                 onSendComplete(CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK);
             } else {
                 logWithLocalLog("handleMessage: received unexpected message " + msg.what);
@@ -572,7 +573,7 @@ public abstract class SMSDispatcher extends Handler {
             if (mCallbackCalled) {
                 logWithLocalLog("onSendSmsComplete: unexpected call");
                 AnomalyReporter.reportAnomaly(sAnomalyUnexpectedCallback,
-                        "Unexpected onSendSmsComplete");
+                        "Unexpected onSendSmsComplete", mPhone.getCarrierId());
                 return;
             }
             mCallbackCalled = true;
@@ -739,7 +740,7 @@ public abstract class SMSDispatcher extends Handler {
             if (mCallbackCalled) {
                 logWithLocalLog("onSendMultipartSmsComplete: unexpected call");
                 AnomalyReporter.reportAnomaly(sAnomalyUnexpectedCallback,
-                        "Unexpected onSendMultipartSmsComplete");
+                        "Unexpected onSendMultipartSmsComplete", mPhone.getCarrierId());
                 return;
             }
             mCallbackCalled = true;
@@ -903,7 +904,8 @@ public abstract class SMSDispatcher extends Handler {
                     false /* fallbackToCs */,
                     SmsManager.RESULT_ERROR_NONE,
                     tracker.mMessageId,
-                    tracker.isFromDefaultSmsApplication(mContext));
+                    tracker.isFromDefaultSmsApplication(mContext),
+                    tracker.getInterval());
         } else {
             if (DBG) {
                 Rlog.d(TAG, "SMS send failed "
@@ -938,7 +940,8 @@ public abstract class SMSDispatcher extends Handler {
                         false /* fallbackToCs */,
                         getNotInServiceError(ss),
                         tracker.mMessageId,
-                        tracker.isFromDefaultSmsApplication(mContext));
+                        tracker.isFromDefaultSmsApplication(mContext),
+                        tracker.getInterval());
             } else if (error == SmsManager.RESULT_RIL_SMS_SEND_FAIL_RETRY
                     && tracker.mRetryCount < MAX_SEND_RETRIES) {
                 // Retry after a delay if needed.
@@ -960,7 +963,8 @@ public abstract class SMSDispatcher extends Handler {
                         SmsManager.RESULT_RIL_SMS_SEND_FAIL_RETRY,
                         errorCode,
                         tracker.mMessageId,
-                        tracker.isFromDefaultSmsApplication(mContext));
+                        tracker.isFromDefaultSmsApplication(mContext),
+                        tracker.getInterval());
             } else {
                 int errorCode = (smsResponse != null) ? smsResponse.mErrorCode : NO_ERROR_CODE;
                 tracker.onFailed(mContext, error, errorCode);
@@ -971,7 +975,8 @@ public abstract class SMSDispatcher extends Handler {
                         error,
                         errorCode,
                         tracker.mMessageId,
-                        tracker.isFromDefaultSmsApplication(mContext));
+                        tracker.isFromDefaultSmsApplication(mContext),
+                        tracker.getInterval());
             }
         }
     }
@@ -1314,6 +1319,14 @@ public abstract class SMSDispatcher extends Handler {
 
     protected abstract SmsMessageBase.SubmitPduBase getSubmitPdu(String scAddr, String destAddr,
             int destPort, byte[] message, boolean statusReportRequested);
+
+    protected abstract SmsMessageBase.SubmitPduBase getSubmitPdu(String scAddr, String destAddr,
+            String message, boolean statusReportRequested, SmsHeader smsHeader,
+            int priority, int validityPeriod, int messageRef);
+
+
+    protected abstract SmsMessageBase.SubmitPduBase getSubmitPdu(String scAddr, String destAddr,
+            int destPort, byte[] message, boolean statusReportRequested, int messageRef);
 
     /**
      * Calculate the number of septets needed to encode the message. This function should only be
@@ -2024,7 +2037,8 @@ public abstract class SMSDispatcher extends Handler {
                     false /* fallbackToCs */,
                     error,
                     trackers[0].mMessageId,
-                    trackers[0].isFromDefaultSmsApplication(mContext));
+                    trackers[0].isFromDefaultSmsApplication(mContext),
+                    trackers[0].getInterval());
         }
     }
 
@@ -2065,7 +2079,7 @@ public abstract class SMSDispatcher extends Handler {
         public final SmsHeader mSmsHeader;
 
         @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-        private long mTimestamp = System.currentTimeMillis();
+        private long mTimestamp = SystemClock.elapsedRealtime();
         @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public Uri mMessageUri; // Uri of persisted message if we wrote one
 
@@ -2093,6 +2107,7 @@ public abstract class SMSDispatcher extends Handler {
 
         private Boolean mIsFromDefaultSmsApplication;
 
+        private int mCarrierId;
         // SMS anomaly uuid -- unexpected error from RIL
         private final UUID mAnomalyUnexpectedErrorFromRilUUID =
                 UUID.fromString("43043600-ea7a-44d2-9ae6-a58567ac7886");
@@ -2102,7 +2117,7 @@ public abstract class SMSDispatcher extends Handler {
                 AtomicInteger unsentPartCount, AtomicBoolean anyPartFailed, Uri messageUri,
                 SmsHeader smsHeader, boolean expectMore, String fullMessageText, int subId,
                 boolean isText, boolean persistMessage, int userId, int priority,
-                int validityPeriod, boolean isForVvm, long messageId) {
+                int validityPeriod, boolean isForVvm, long messageId, int carrierId) {
             mData = data;
             mSentIntent = sentIntent;
             mDeliveryIntent = deliveryIntent;
@@ -2128,6 +2143,7 @@ public abstract class SMSDispatcher extends Handler {
             mIsFallBackRetry = false;
             mIsForVvm = isForVvm;
             mMessageId = messageId;
+            mCarrierId = carrierId;
         }
 
         public HashMap<String, Object> getData() {
@@ -2188,6 +2204,15 @@ public abstract class SMSDispatcher extends Handler {
             } finally {
                 Binder.restoreCallingIdentity(identity);
             }
+        }
+
+        /**
+         * Returns the interval in milliseconds between sending the message out and current time.
+         * Called after receiving success/failure response to calculate the time
+         * to complete the SMS send to the network.
+         */
+        protected long getInterval() {
+            return SystemClock.elapsedRealtime() - mTimestamp;
         }
 
         /**
@@ -2327,7 +2352,8 @@ public abstract class SMSDispatcher extends Handler {
                 default:
                     String message = "SMS failed";
                     Rlog.d(TAG, message + " with error " + error + ", errorCode " + errorCode);
-                    AnomalyReporter.reportAnomaly(generateUUID(error, errorCode), message);
+                    AnomalyReporter.reportAnomaly(
+                            generateUUID(error, errorCode), message, mCarrierId);
             }
         }
 
@@ -2402,7 +2428,7 @@ public abstract class SMSDispatcher extends Handler {
         return new SmsTracker(data, sentIntent, deliveryIntent, appInfo, destAddr, format,
                 unsentPartCount, anyPartFailed, messageUri, smsHeader, expectMore,
                 fullMessageText, getSubId(), isText, persistMessage, userId, priority,
-                validityPeriod, isForVvm, messageId);
+                validityPeriod, isForVvm, messageId, mPhone.getCarrierId());
     }
 
     protected SmsTracker getSmsTracker(String callingPackage, HashMap<String, Object> data,
