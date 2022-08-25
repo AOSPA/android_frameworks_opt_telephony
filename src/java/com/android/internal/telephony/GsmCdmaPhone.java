@@ -99,6 +99,7 @@ import com.android.internal.telephony.dataconnection.DcTracker;
 import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.gsm.GsmMmiCode;
+import com.android.internal.telephony.gsm.SsData;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCallTracker;
@@ -1715,6 +1716,13 @@ public class GsmCdmaPhone extends Phone {
             return true;
         }
 
+        // Perform FDN check
+        if(FdnUtils.isNumberBlockedByFDN(mPhoneId, ussdRequest, getCountryIso())) {
+            sendUssdResponse(ussdRequest, null, TelephonyManager.USSD_RETURN_FAILURE,
+                    wrappedCallback );
+            return true;
+        }
+
         // Try over IMS if possible.
         Phone imsPhone = mImsPhone;
         if ((imsPhone != null)
@@ -2369,6 +2377,15 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void getCallForwardingOption(int commandInterfaceCFReason, int serviceClass,
             Message onComplete) {
+        // Perform FDN check
+        SsData.ServiceType serviceType = GsmMmiCode.cfReasonToServiceType(commandInterfaceCFReason);
+        if(isRequestBlockedByFDN(SsData.RequestType.SS_INTERROGATION, serviceType)) {
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         Phone imsPhone = mImsPhone;
         if (useSsOverIms(onComplete)) {
             imsPhone.getCallForwardingOption(commandInterfaceCFReason, serviceClass, onComplete);
@@ -2418,6 +2435,16 @@ public class GsmCdmaPhone extends Phone {
             int serviceClass,
             int timerSeconds,
             Message onComplete) {
+        // Perform FDN check
+        SsData.RequestType requestType = GsmMmiCode.cfActionToRequestType(commandInterfaceCFAction);
+        SsData.ServiceType serviceType = GsmMmiCode.cfReasonToServiceType(commandInterfaceCFReason);
+        if(isRequestBlockedByFDN(requestType, serviceType)) {
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         Phone imsPhone = mImsPhone;
         if (useSsOverIms(onComplete)) {
             imsPhone.setCallForwardingOption(commandInterfaceCFAction, commandInterfaceCFReason,
@@ -2471,6 +2498,15 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void getCallBarring(String facility, String password, Message onComplete,
             int serviceClass) {
+        // Perform FDN check
+        SsData.ServiceType serviceType = GsmMmiCode.cbFacilityToServiceType(facility);
+        if (isRequestBlockedByFDN(SsData.RequestType.SS_INTERROGATION, serviceType)) {
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         Phone imsPhone = mImsPhone;
         if (useSsOverIms(onComplete)) {
             imsPhone.getCallBarring(facility, password, onComplete, serviceClass);
@@ -2487,6 +2523,17 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void setCallBarring(String facility, boolean lockState, String password,
             Message onComplete, int serviceClass) {
+        // Perform FDN check
+        SsData.RequestType requestType = lockState ? SsData.RequestType.SS_ACTIVATION :
+                SsData.RequestType.SS_DEACTIVATION;
+        SsData.ServiceType serviceType = GsmMmiCode.cbFacilityToServiceType(facility);
+        if (isRequestBlockedByFDN(requestType, serviceType)) {
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         Phone imsPhone = mImsPhone;
         if (useSsOverIms(onComplete)) {
             imsPhone.setCallBarring(facility, lockState, password, onComplete, serviceClass);
@@ -2510,6 +2557,18 @@ public class GsmCdmaPhone extends Phone {
      */
     public void changeCallBarringPassword(String facility, String oldPwd, String newPwd,
             Message onComplete) {
+        // Perform FDN check
+        SsData.ServiceType serviceType = GsmMmiCode.cbFacilityToServiceType(facility);
+        ArrayList<String> controlStrings = GsmMmiCode.getControlStringsForPwd(
+                SsData.RequestType.SS_REGISTRATION,
+                serviceType);
+        if(FdnUtils.isSuppServiceRequestBlockedByFdn(mPhoneId, controlStrings, getCountryIso())) {
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         if (isPhoneTypeGsm()) {
             mCi.changeBarringPassword(facility, oldPwd, newPwd, onComplete);
         } else {
@@ -2519,6 +2578,14 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void getOutgoingCallerIdDisplay(Message onComplete) {
+        // Perform FDN check
+        if(isRequestBlockedByFDN(SsData.RequestType.SS_INTERROGATION, SsData.ServiceType.SS_CLIR)){
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         Phone imsPhone = mImsPhone;
         if (useSsOverIms(onComplete)) {
             imsPhone.getOutgoingCallerIdDisplay(onComplete);
@@ -2537,6 +2604,15 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void setOutgoingCallerIdDisplay(int commandInterfaceCLIRMode, Message onComplete) {
+        // Perform FDN check
+        SsData.RequestType requestType = GsmMmiCode.clirModeToRequestType(commandInterfaceCLIRMode);
+        if (isRequestBlockedByFDN(requestType, SsData.ServiceType.SS_CLIR)) {
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         Phone imsPhone = mImsPhone;
         if (useSsOverIms(onComplete)) {
             imsPhone.setOutgoingCallerIdDisplay(commandInterfaceCLIRMode, onComplete);
@@ -2559,6 +2635,14 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void queryCLIP(Message onComplete) {
+        // Perform FDN check
+        if(isRequestBlockedByFDN(SsData.RequestType.SS_INTERROGATION, SsData.ServiceType.SS_CLIP)){
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         Phone imsPhone = mImsPhone;
         if (useSsOverIms(onComplete)) {
             imsPhone.queryCLIP(onComplete);
@@ -2577,6 +2661,14 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void getCallWaiting(Message onComplete) {
+        // Perform FDN check
+        if(isRequestBlockedByFDN(SsData.RequestType.SS_INTERROGATION, SsData.ServiceType.SS_WAIT)){
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         Phone imsPhone = mImsPhone;
         if (useSsOverIms(onComplete)) {
             imsPhone.getCallWaiting(onComplete);
@@ -2618,6 +2710,16 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void setCallWaiting(boolean enable, int serviceClass, Message onComplete) {
+        // Perform FDN check
+        SsData.RequestType requestType = enable ? SsData.RequestType.SS_ACTIVATION :
+                SsData.RequestType.SS_DEACTIVATION;
+        if (isRequestBlockedByFDN(requestType, SsData.ServiceType.SS_WAIT)) {
+            AsyncResult.forMessage(onComplete, null,
+                    new CommandException(CommandException.Error.FDN_CHECK_FAILURE));
+            onComplete.sendToTarget();
+            return;
+        }
+
         Phone imsPhone = mImsPhone;
         if (useSsOverIms(onComplete)) {
             imsPhone.setCallWaiting(enable, onComplete);
@@ -4588,9 +4690,12 @@ public class GsmCdmaPhone extends Phone {
             return;
         }
 
-        UiccPort port = mUiccController.getUiccPort(mPhoneId);
-        String iccId = (port == null) ? null : port.getIccId();
+        // Due to timing issue, sometimes UiccPort is coming null, so don't use UiccPort object
+        // to retrieve the iccId here. Instead, depend on the UiccSlot API.
+        String iccId = slot.getIccId(slot.getPortIndexFromPhoneId(mPhoneId));
         if (iccId == null) {
+            loge("reapplyUiccAppsEnablementIfNeeded iccId is null, phoneId: " + mPhoneId
+                    + " portIndex: " + slot.getPortIndexFromPhoneId(mPhoneId));
             return;
         }
 
@@ -4793,5 +4898,17 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public InboundSmsHandler getInboundSmsHandler(boolean is3gpp2) {
         return mIccSmsInterfaceManager.getInboundSmsHandler(is3gpp2);
+    }
+
+    /**
+     * The following function checks if supplementary service request is blocked due to FDN.
+     * @param requestType request type associated with the supplementary service
+     * @param serviceType supplementary service type
+     * @return {@code true} if request is blocked due to FDN.
+     */
+    private boolean isRequestBlockedByFDN(SsData.RequestType requestType,
+            SsData.ServiceType serviceType) {
+        ArrayList<String> controlStrings = GsmMmiCode.getControlStrings(requestType, serviceType);
+        return FdnUtils.isSuppServiceRequestBlockedByFdn(mPhoneId, controlStrings, getCountryIso());
     }
 }

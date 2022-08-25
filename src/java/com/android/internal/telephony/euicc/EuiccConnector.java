@@ -57,6 +57,7 @@ import android.service.euicc.IOtaStatusChangedCallback;
 import android.service.euicc.IRetainSubscriptionsForFactoryResetCallback;
 import android.service.euicc.ISwitchToSubscriptionCallback;
 import android.service.euicc.IUpdateSubscriptionNicknameCallback;
+import android.telephony.AnomalyReporter;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.UiccCardInfo;
@@ -83,6 +84,7 @@ import java.io.PrintWriter;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * State machine which maintains the binding to the EuiccService implementation and issues commands.
@@ -1053,7 +1055,15 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         }
         String cardIdString = UiccController.getInstance().convertToCardString(cardId);
         for (int slotIndex = 0; slotIndex < slotInfos.length; slotIndex++) {
-            if (IccUtils.compareIgnoreTrailingFs(cardIdString, slotInfos[slotIndex].getCardId())) {
+            // Report Anomaly in case UiccSlotInfo is not.
+            if (slotInfos[slotIndex] == null) {
+                AnomalyReporter.reportAnomaly(
+                        UUID.fromString("4195b83d-6cee-4999-a02f-d0b9f7079b9d"),
+                        "EuiccConnector: Found UiccSlotInfo Null object.");
+            }
+            String retrievedCardId = slotInfos[slotIndex] != null
+                    ? slotInfos[slotIndex].getCardId() : null;
+            if (IccUtils.compareIgnoreTrailingFs(cardIdString, retrievedCardId)) {
                 return slotIndex;
             }
         }
@@ -1216,6 +1226,9 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         IState state = getCurrentState();
         Log.wtf(TAG, "Unhandled message " + msg.what + " in state "
                 + (state == null ? "null" : state.getName()));
+        AnomalyReporter.reportAnomaly(
+                UUID.fromString("0db20514-5fa1-4e62-a7b7-2acf5f92c957"),
+                "EuiccConnector: Found unhandledMessage " + String.valueOf(msg.what));
     }
 
     @Override
