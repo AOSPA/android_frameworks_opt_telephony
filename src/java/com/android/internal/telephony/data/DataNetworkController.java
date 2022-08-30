@@ -1517,7 +1517,10 @@ public class DataNetworkController extends Handler {
         // Check if the request is preferred on cellular and radio is/will be turned off.
         // We are using getDesiredPowerState() instead of isRadioOn() because we also don't want
         // to setup data network when radio power is about to be turned off.
+        // Besides, in legacy IWLAN mode, data should be allowed.
         if (transport == AccessNetworkConstants.TRANSPORT_TYPE_WWAN
+                && !mAccessNetworksManager.isInLegacyMode()
+                && getDataNetworkType(transport) != TelephonyManager.NETWORK_TYPE_IWLAN
                 && (!mPhone.getServiceStateTracker().getDesiredPowerState()
                 || mPhone.mCi.getRadioState() != TelephonyManager.RADIO_POWER_ON)) {
             evaluation.addDataDisallowedReason(DataDisallowedReason.RADIO_POWER_OFF);
