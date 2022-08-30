@@ -60,7 +60,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     public final String LOG_TAG;
     protected static final boolean DBG = true;
 
-    private static final int REQUEST_LOG_SIZE = 32;
+    private static final int REQUEST_LOG_SIZE = 256;
 
     private static final int ACTION_NO_OP   = 0;
     private static final int ACTION_REQUEST = 1;
@@ -307,6 +307,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
 
     // apply or revoke requests if our active-ness changes
     private void onActivePhoneSwitch() {
+        logl("onActivePhoneSwitch");
         if (mSubscriptionId == mSubscriptionController.getActiveDataSubscriptionId()) {
             logl("onActivePhoneSwitch: set primary flag for phoneId: " + mPhone.getPhoneId());
             setScoreFilter(new NetworkScore.Builder().setLegacyInt(TELEPHONY_NETWORK_SCORE)
@@ -352,7 +353,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         final int newSubscriptionId = mSubscriptionController.getSubIdUsingPhoneId(
                 mPhone.getPhoneId());
         if (mSubscriptionId != newSubscriptionId) {
-            if (DBG) log("onSubIdChange " + mSubscriptionId + "->" + newSubscriptionId);
+            if (DBG) logl("onSubIdChange " + mSubscriptionId + "->" + newSubscriptionId);
             mSubscriptionId = newSubscriptionId;
             setCapabilityFilter(makeNetworkFilter(mSubscriptionId));
         }
@@ -562,6 +563,8 @@ public class TelephonyNetworkFactory extends NetworkFactory {
      */
     public void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
         final IndentingPrintWriter pw = new IndentingPrintWriter(writer, "  ");
+        pw.println("TelephonyNetworkFactory-" + mPhone.getPhoneId());
+        pw.increaseIndent();
         pw.println("Network Requests:");
         pw.increaseIndent();
         for (Map.Entry<TelephonyNetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
@@ -570,7 +573,11 @@ public class TelephonyNetworkFactory extends NetworkFactory {
             pw.println(nr + (transport != AccessNetworkConstants.TRANSPORT_TYPE_INVALID
                     ? (" applied on " + transport) : " not applied"));
         }
+        pw.decreaseIndent();
+        pw.print("Local logs:");
+        pw.increaseIndent();
         mLocalLog.dump(fd, pw, args);
+        pw.decreaseIndent();
         pw.decreaseIndent();
     }
 }
