@@ -29,6 +29,9 @@ import static com.android.internal.telephony.CommandsInterface.CF_REASON_NOT_REA
 import static com.android.internal.telephony.CommandsInterface.CF_REASON_NO_REPLY;
 import static com.android.internal.telephony.CommandsInterface.CF_REASON_UNCONDITIONAL;
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_VOICE;
+import static com.android.internal.telephony.SsDomainController.SS_CLIP;
+import static com.android.internal.telephony.SsDomainController.SS_CLIR;
+import static com.android.internal.telephony.SsDomainController.SS_CW;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -253,6 +256,8 @@ public class GsmCdmaPhone extends Phone {
     private boolean mResetModemOnRadioTechnologyChange = false;
     private boolean mSsOverCdmaSupported = false;
 
+    private SsDomainController mSsDomainController;
+
     private int mRilVersion;
     private boolean mBroadcastEmergencyCallStateChanges = false;
     private @ServiceState.RegState int mTelecomVoiceServiceStateOverride =
@@ -269,6 +274,7 @@ public class GsmCdmaPhone extends Phone {
     private final CarrierPrivilegesTracker mCarrierPrivilegesTracker;
 
     private final SubscriptionManager.OnSubscriptionsChangedListener mSubscriptionsChangedListener;
+    private final CallWaitingController mCallWaitingController;
 
     // Constructors
 
@@ -374,6 +380,8 @@ public class GsmCdmaPhone extends Phone {
                 .inject(LinkBandwidthEstimator.class.getName())
                 .makeLinkBandwidthEstimator(this);
 
+        mCallWaitingController = new CallWaitingController(this);
+
         loadTtyMode();
 
         CallManager.getInstance().registerPhone(this);
@@ -389,6 +397,8 @@ public class GsmCdmaPhone extends Phone {
         SubscriptionManager subMan = context.getSystemService(SubscriptionManager.class);
         subMan.addOnSubscriptionsChangedListener(
                 new HandlerExecutor(this), mSubscriptionsChangedListener);
+
+        mSsDomainController = new SsDomainController(this);
 
         logd("GsmCdmaPhone: constructor: sub = " + mPhoneId);
     }
@@ -1480,9 +1490,10 @@ public class GsmCdmaPhone extends Phone {
                 stripSeparators(dialString));
         boolean isMmiCode = (dialPart.startsWith("*") || dialPart.startsWith("#"))
                 && dialPart.endsWith("#");
-        boolean isSuppServiceCode = ImsPhoneMmiCode.isSuppServiceCodes(dialPart, this);
-        boolean isPotentialUssdCode = isMmiCode && !isSuppServiceCode;
-        boolean useImsForUt = imsPhone != null && imsPhone.isUtEnabled();
+        SsDomainController.SuppServiceRoutingInfo ssInfo =
+                ImsPhoneMmiCode.getSuppServiceRoutingInfo(dialPart, this);
+        boolean isPotentialUssdCode = isMmiCode && (ssInfo == null);
+        boolean useImsForUt = ssInfo != null && ssInfo.useSsOverUt();
         boolean useImsForCall = useImsForCall(dialArgs)
                 && !shallDialOnCircuitSwitch(dialArgs.intentExtras)
                 && (isWpsCall ? allowWpsOverIms : true);
@@ -1496,7 +1507,8 @@ public class GsmCdmaPhone extends Phone {
                     + ", useImsForEmergency=" + useImsForEmergency
                     + ", useImsForUt=" + useImsForUt
                     + ", isUt=" + isMmiCode
-                    + ", isSuppServiceCode=" + isSuppServiceCode
+                    + ", isSuppServiceCode=" + (ssInfo != null)
+                    + ", useSsOverUt=" + (ssInfo != null && ssInfo.useSsOverUt())
                     + ", isPotentialUssdCode=" + isPotentialUssdCode
                     + ", isWpsCall=" + isWpsCall
                     + ", allowWpsOverIms=" + allowWpsOverIms
@@ -1552,6 +1564,10 @@ public class GsmCdmaPhone extends Phone {
                     throw ce;
                 }
             }
+        }
+
+        if (ssInfo != null && !ssInfo.supportsCsfb()) {
+            throw new CallStateException("not support csfb for supplementary services");
         }
 
         if (mSST != null && mSST.mSS.getState() == ServiceState.STATE_OUT_OF_SERVICE
@@ -2355,17 +2371,85 @@ public class GsmCdmaPhone extends Phone {
         mSsOverCdmaSupported = b.getBoolean(CarrierConfigManager.KEY_SUPPORT_SS_OVER_CDMA_BOOL);
     }
 
+    private void updateSsOverUtConfig(PersistableBundle b) {
+        mSsDomainController.updateSsOverUtConfig(b);
+    }
+
     @Override
-    public boolean useSsOverIms(Message onComplete) {
+    public SsDomainController getSsDomainController() {
+        return mSsDomainController;
+    }
+
+    /** Checks the static configuration for the given Call Barring service. */
+    public boolean useCbOverUt(String facility) {
+        return mSsDomainController.useCbOverUt(facility);
+    }
+
+    /** Checks the static configuration for the given Call Forwarding service. */
+    public boolean useCfOverUt(int reason) {
+        return mSsDomainController.useCfOverUt(reason);
+    }
+
+    /** Checks the static configuration for the given supplementary service. */
+    public boolean useSsOverUt(String service) {
+        return mSsDomainController.useSsOverUt(service);
+    }
+
+    @Override
+    public boolean useSsOverUt(Message onComplete) {
         boolean isUtEnabled = isUtEnabled();
 
-        Rlog.d(LOG_TAG, "useSsOverIms: isUtEnabled()= " + isUtEnabled +
-                " isCsRetry(onComplete))= " + isCsRetry(onComplete));
+        Rlog.d(LOG_TAG, "useSsOverUt: isUtEnabled()= " + isUtEnabled
+                + " isCsRetry(onComplete))= " + isCsRetry(onComplete));
 
         if (isUtEnabled && !isCsRetry(onComplete)) {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Checks the availability of Ut directly without SsDomainController.
+     * This is only applicable for the case that the terminal-based call waiting service
+     * is handled by the IMS service alone without interworking with CallWaitingController.
+     */
+    private boolean useCallWaitingOverUt(Message onComplete) {
+        Phone imsPhone = mImsPhone;
+        if (imsPhone == null) {
+            logd("useCallWaitingOverUt: called for GsmCdma");
+            return false;
+        }
+
+        boolean isUtEnabled = imsPhone.isUtEnabled();
+        Rlog.d(LOG_TAG, "useCallWaitingOverUt isUtEnabled= " + isUtEnabled
+                + " isCsRetry(onComplete))= " + isCsRetry(onComplete));
+        return isUtEnabled && !isCsRetry(onComplete);
+    }
+
+    /**
+     * Returns whether CSFB is supported for supplementary services.
+     */
+    public boolean supportCsfbForSs() {
+        return mSsDomainController.supportCsfb();
+    }
+
+    /**
+     * Returns whether the carrier supports the terminal-based call waiting service
+     * and Ims service handles it by itself.
+     */
+    private boolean getOemHandlesTerminalBasedCallWaiting() {
+        return mSsDomainController.getOemHandlesTerminalBasedCallWaiting();
+    }
+
+    /**
+     * Sends response indicating no nework is available for supplementary services.
+     */
+    private void responseInvalidState(Message onComplete) {
+        if (onComplete == null) return;
+        AsyncResult.forMessage(onComplete, null,
+                new CommandException(CommandException.Error.INVALID_STATE,
+                        "No network available for supplementary services"));
+        onComplete.sendToTarget();
     }
 
     @Override
@@ -2387,9 +2471,15 @@ public class GsmCdmaPhone extends Phone {
         }
 
         Phone imsPhone = mImsPhone;
-        if (useSsOverIms(onComplete)) {
-            imsPhone.getCallForwardingOption(commandInterfaceCFReason, serviceClass, onComplete);
-            return;
+        if (useCfOverUt(commandInterfaceCFReason)) {
+            if (useSsOverUt(onComplete)) {
+                imsPhone.getCallForwardingOption(commandInterfaceCFReason,
+                        serviceClass, onComplete);
+                return;
+            } else if (!supportCsfbForSs()) {
+                responseInvalidState(onComplete);
+                return;
+            }
         }
 
         if (isPhoneTypeGsm()) {
@@ -2446,10 +2536,15 @@ public class GsmCdmaPhone extends Phone {
         }
 
         Phone imsPhone = mImsPhone;
-        if (useSsOverIms(onComplete)) {
-            imsPhone.setCallForwardingOption(commandInterfaceCFAction, commandInterfaceCFReason,
-                    dialingNumber, serviceClass, timerSeconds, onComplete);
-            return;
+        if (useCfOverUt(commandInterfaceCFReason)) {
+            if (useSsOverUt(onComplete)) {
+                imsPhone.setCallForwardingOption(commandInterfaceCFAction, commandInterfaceCFReason,
+                        dialingNumber, serviceClass, timerSeconds, onComplete);
+                return;
+            } else if (!supportCsfbForSs()) {
+                responseInvalidState(onComplete);
+                return;
+            }
         }
 
         if (isPhoneTypeGsm()) {
@@ -2508,9 +2603,14 @@ public class GsmCdmaPhone extends Phone {
         }
 
         Phone imsPhone = mImsPhone;
-        if (useSsOverIms(onComplete)) {
-            imsPhone.getCallBarring(facility, password, onComplete, serviceClass);
-            return;
+        if (useCbOverUt(facility)) {
+            if (useSsOverUt(onComplete)) {
+                imsPhone.getCallBarring(facility, password, onComplete, serviceClass);
+                return;
+            } else if (!supportCsfbForSs()) {
+                responseInvalidState(onComplete);
+                return;
+            }
         }
 
         if (isPhoneTypeGsm()) {
@@ -2535,9 +2635,14 @@ public class GsmCdmaPhone extends Phone {
         }
 
         Phone imsPhone = mImsPhone;
-        if (useSsOverIms(onComplete)) {
-            imsPhone.setCallBarring(facility, lockState, password, onComplete, serviceClass);
-            return;
+        if (useCbOverUt(facility)) {
+            if (useSsOverUt(onComplete)) {
+                imsPhone.setCallBarring(facility, lockState, password, onComplete, serviceClass);
+                return;
+            } else if (!supportCsfbForSs()) {
+                responseInvalidState(onComplete);
+                return;
+            }
         }
 
         if (isPhoneTypeGsm()) {
@@ -2587,9 +2692,14 @@ public class GsmCdmaPhone extends Phone {
         }
 
         Phone imsPhone = mImsPhone;
-        if (useSsOverIms(onComplete)) {
-            imsPhone.getOutgoingCallerIdDisplay(onComplete);
-            return;
+        if (useSsOverUt(SS_CLIR)) {
+            if (useSsOverUt(onComplete)) {
+                imsPhone.getOutgoingCallerIdDisplay(onComplete);
+                return;
+            } else if (!supportCsfbForSs()) {
+                responseInvalidState(onComplete);
+                return;
+            }
         }
 
         if (isPhoneTypeGsm()) {
@@ -2614,9 +2724,14 @@ public class GsmCdmaPhone extends Phone {
         }
 
         Phone imsPhone = mImsPhone;
-        if (useSsOverIms(onComplete)) {
-            imsPhone.setOutgoingCallerIdDisplay(commandInterfaceCLIRMode, onComplete);
-            return;
+        if (useSsOverUt(SS_CLIR)) {
+            if (useSsOverUt(onComplete)) {
+                imsPhone.setOutgoingCallerIdDisplay(commandInterfaceCLIRMode, onComplete);
+                return;
+            } else if (!supportCsfbForSs()) {
+                responseInvalidState(onComplete);
+                return;
+            }
         }
 
         if (isPhoneTypeGsm()) {
@@ -2644,9 +2759,14 @@ public class GsmCdmaPhone extends Phone {
         }
 
         Phone imsPhone = mImsPhone;
-        if (useSsOverIms(onComplete)) {
-            imsPhone.queryCLIP(onComplete);
-            return;
+        if (useSsOverUt(SS_CLIP)) {
+            if (useSsOverUt(onComplete)) {
+                imsPhone.queryCLIP(onComplete);
+                return;
+            } else if (!supportCsfbForSs()) {
+                responseInvalidState(onComplete);
+                return;
+            }
         }
 
         if (isPhoneTypeGsm()) {
@@ -2669,10 +2789,24 @@ public class GsmCdmaPhone extends Phone {
             return;
         }
 
+        if (mCallWaitingController.getCallWaiting(onComplete)) return;
+
         Phone imsPhone = mImsPhone;
-        if (useSsOverIms(onComplete)) {
-            imsPhone.getCallWaiting(onComplete);
-            return;
+        if (useSsOverUt(SS_CW)) {
+            if (useSsOverUt(onComplete)) {
+                imsPhone.getCallWaiting(onComplete);
+                return;
+            } else if (!supportCsfbForSs()) {
+                responseInvalidState(onComplete);
+                return;
+            }
+        } else if (getOemHandlesTerminalBasedCallWaiting()) {
+            // Ims service handles the terminal-based call waiting service by itself.
+            // Use legacy implementation. Forward the request to Ims service if Ut is available.
+            if (useCallWaitingOverUt(onComplete)) {
+                imsPhone.getCallWaiting(onComplete);
+                return;
+            }
         }
 
         if (isPhoneTypeGsm()) {
@@ -2720,10 +2854,24 @@ public class GsmCdmaPhone extends Phone {
             return;
         }
 
+        if (mCallWaitingController.setCallWaiting(enable, serviceClass, onComplete)) return;
+
         Phone imsPhone = mImsPhone;
-        if (useSsOverIms(onComplete)) {
-            imsPhone.setCallWaiting(enable, onComplete);
-            return;
+        if (useSsOverUt(SS_CW)) {
+            if (useSsOverUt(onComplete)) {
+                imsPhone.setCallWaiting(enable, onComplete);
+                return;
+            } else if (!supportCsfbForSs()) {
+                responseInvalidState(onComplete);
+                return;
+            }
+        } else if (getOemHandlesTerminalBasedCallWaiting()) {
+            // Ims service handles the terminal-based call waiting service by itself.
+            // Use legacy implementation. Forward the request to Ims service if Ut is available.
+            if (useCallWaitingOverUt(onComplete)) {
+                imsPhone.setCallWaiting(enable, onComplete);
+                return;
+            }
         }
 
         if (isPhoneTypeGsm()) {
@@ -2747,6 +2895,24 @@ public class GsmCdmaPhone extends Phone {
             AsyncResult.forMessage(onComplete, CommandsInterface.SS_STATUS_UNKNOWN, null);
             onComplete.sendToTarget();
         }
+    }
+
+    @Override
+    public int getTerminalBasedCallWaitingState(boolean forCsOnly) {
+        return mCallWaitingController.getTerminalBasedCallWaitingState(forCsOnly);
+    }
+
+    @Override
+    public void setTerminalBasedCallWaitingStatus(int state) {
+        if (mImsPhone != null) {
+            mImsPhone.setTerminalBasedCallWaitingStatus(state);
+        }
+    }
+
+    @Override
+    public void setTerminalBasedCallWaitingSupported(boolean supported) {
+        mCallWaitingController.setTerminalBasedCallWaitingSupported(supported);
+        mSsDomainController.setOemHandlesTerminalBasedCallWaiting(!supported);
     }
 
     @Override
@@ -3194,6 +3360,7 @@ public class GsmCdmaPhone extends Phone {
                 updateVoNrSettings(b);
                 updateSsOverCdmaSupported(b);
                 loadAllowedNetworksFromSubscriptionDatabase();
+                updateSsOverUtConfig(b);
                 // Obtain new radio capabilities from the modem, since some are SIM-dependent
                 mCi.getRadioCapability(obtainMessage(EVENT_GET_RADIO_CAPABILITY));
                 break;
@@ -4256,6 +4423,7 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void setImsRegistrationState(boolean registered) {
         mSST.setImsRegistrationState(registered);
+        mCallWaitingController.setImsRegistrationState(registered);
     }
 
     @Override
@@ -4319,6 +4487,20 @@ public class GsmCdmaPhone extends Phone {
                 " mTelecomVoiceServiceStateOverride=" + mTelecomVoiceServiceStateOverride + "("
                         + ServiceState.rilServiceStateToString(mTelecomVoiceServiceStateOverride)
                         + ")");
+        pw.flush();
+
+        try {
+            mSsDomainController.dump(pw);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        pw.flush();
+
+        try {
+            mCallWaitingController.dump(pw);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         pw.flush();
     }
 
@@ -4599,13 +4781,7 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public boolean isUtEnabled() {
-        Phone imsPhone = mImsPhone;
-        if (imsPhone != null) {
-            return imsPhone.isUtEnabled();
-        } else {
-            logd("isUtEnabled: called for GsmCdma");
-            return false;
-        }
+        return mSsDomainController.isUtEnabled();
     }
 
     public String getDtmfToneDelayKey() {

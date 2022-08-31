@@ -514,6 +514,7 @@ public class ImsSmsDispatcher extends SMSDispatcher {
 
     @VisibleForTesting
     public void fallbackToPstn(SmsTracker tracker) {
+        tracker.mMessageRef = nextMessageRef();
         mSmsDispatchersController.sendRetrySms(tracker);
     }
 
