@@ -2896,15 +2896,9 @@ public class SubscriptionController extends ISub.Stub {
                         subId);
 
         TelecomManager telecomManager = mContext.getSystemService(TelecomManager.class);
-        PhoneAccountHandle currentHandle = telecomManager.getUserSelectedOutgoingPhoneAccount();
-        logd("[setDefaultVoiceSubId] current phoneAccountHandle=" + currentHandle);
 
-        if (!Objects.equals(currentHandle, newHandle)) {
-            telecomManager.setUserSelectedOutgoingPhoneAccount(newHandle);
-            logd("[setDefaultVoiceSubId] change to phoneAccountHandle=" + newHandle);
-        } else {
-            logd("[setDefaultVoiceSubId] default phoneAccountHandle not changed.");
-        }
+        telecomManager.setUserSelectedOutgoingPhoneAccount(newHandle);
+        logd("[setDefaultVoiceSubId] requesting change to phoneAccountHandle=" + newHandle);
 
         if (previousDefaultSub != getDefaultSubId()) {
             sendDefaultChangedBroadcast(getDefaultSubId());
@@ -4548,11 +4542,11 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     private void refreshCachedOpportunisticSubscriptionInfoList() {
-        List<SubscriptionInfo> subList = getSubInfo(
-                SubscriptionManager.IS_OPPORTUNISTIC + "=1 AND ("
-                        + SubscriptionManager.SIM_SLOT_INDEX + ">=0 OR "
-                        + SubscriptionManager.IS_EMBEDDED + "=1)", null);
         synchronized (mSubInfoListLock) {
+            List<SubscriptionInfo> subList = getSubInfo(
+                    SubscriptionManager.IS_OPPORTUNISTIC + "=1 AND ("
+                            + SubscriptionManager.SIM_SLOT_INDEX + ">=0 OR "
+                            + SubscriptionManager.IS_EMBEDDED + "=1)", null);
             List<SubscriptionInfo> oldOpptCachedList = mCacheOpportunisticSubInfoList;
 
             if (subList != null) {
