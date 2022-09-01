@@ -2572,8 +2572,11 @@ public class ServiceStateTracker extends Handler {
         }
 
         for (PhysicalChannelConfig pcc : pccs) {
+            boolean isNetworkTypeMatched = pcc.getNetworkType() == networkType ||
+                    (networkType == TelephonyManager.NETWORK_TYPE_LTE &&
+                    pcc.getNetworkType() == TelephonyManager.NETWORK_TYPE_LTE_CA);
             if (pcc.getConnectionStatus() == PhysicalChannelConfig.CONNECTION_PRIMARY_SERVING
-                    && pcc.getNetworkType() == networkType && pcc.getPhysicalCellId() == pci) {
+                    && isNetworkTypeMatched && pcc.getPhysicalCellId() == pci) {
                 return pcc;
             }
         }
