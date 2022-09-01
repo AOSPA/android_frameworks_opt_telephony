@@ -181,6 +181,7 @@ public class SimulatedCommands extends BaseCommands
     private boolean mDcSuccess = true;
     private SetupDataCallResult mSetupDataCallResult;
     private boolean mIsRadioPowerFailResponse = false;
+    private boolean mIsReportSmsMemoryStatusFailResponse = false;
     private String smscAddress;
 
     public boolean mSetRadioPowerForEmergencyCall;
@@ -1302,8 +1303,17 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void reportSmsMemoryStatus(boolean available, Message result) {
-        resultSuccess(result, null);
+        if (!mIsReportSmsMemoryStatusFailResponse) {
+            resultSuccess(result, null);
+        } else {
+            CommandException ex = new CommandException(CommandException.Error.GENERIC_FAILURE);
+            resultFail(result, null, ex);
+        }
         SimulatedCommandsVerifier.getInstance().reportSmsMemoryStatus(available, result);
+    }
+
+    public void setReportSmsMemoryStatusFailResponse(boolean fail) {
+        mIsReportSmsMemoryStatusFailResponse = fail;
     }
 
     @Override
@@ -2349,6 +2359,18 @@ public class SimulatedCommands extends BaseCommands
     public void unregisterForPcoData(Handler h) {
         SimulatedCommandsVerifier.getInstance().unregisterForPcoData(h);
         mPcoDataRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForNotAvailable(Handler h, int what, Object obj) {
+        SimulatedCommandsVerifier.getInstance().registerForNotAvailable(h, what, obj);
+        super.registerForNotAvailable(h, what, obj);
+    }
+
+    @Override
+    public void unregisterForNotAvailable(Handler h) {
+        SimulatedCommandsVerifier.getInstance().unregisterForNotAvailable(h);
+        super.unregisterForNotAvailable(h);
     }
 
     @Override

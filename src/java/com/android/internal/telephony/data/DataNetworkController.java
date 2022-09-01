@@ -16,7 +16,6 @@
 
 package com.android.internal.telephony.data;
 
-
 import android.annotation.CallbackExecutor;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
@@ -953,8 +952,13 @@ public class DataNetworkController extends Handler {
                         + DataUtils.networkCapabilityToString(capability) + " preferred on "
                         + AccessNetworkConstants.transportTypeToString(preferredTransport));
                 DataNetworkController.this.onEvaluatePreferredTransport(capability);
-                sendMessage(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
-                        DataEvaluationReason.PREFERRED_TRANSPORT_CHANGED));
+                if (!hasMessages(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS)) {
+                    sendMessage(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
+                            DataEvaluationReason.PREFERRED_TRANSPORT_CHANGED));
+                } else {
+                    log("onPreferredTransportChanged: Skipped evaluating unsatisfied network "
+                            + "requests because another evaluation was already scheduled.");
+                }
             }
         });
 
@@ -1098,7 +1102,13 @@ public class DataNetworkController extends Handler {
                 onTearDownAllDataNetworks(msg.arg1);
                 break;
             case EVENT_REGISTER_DATA_NETWORK_CONTROLLER_CALLBACK:
-                mDataNetworkControllerCallbacks.add((DataNetworkControllerCallback) msg.obj);
+                DataNetworkControllerCallback callback = (DataNetworkControllerCallback) msg.obj;
+                mDataNetworkControllerCallbacks.add(callback);
+                // Notify upon registering if no data networks currently exist.
+                if (mDataNetworkList.isEmpty()) {
+                    callback.invokeFromExecutor(
+                            () -> callback.onAnyDataNetworkExistingChanged(false));
+                }
                 break;
             case EVENT_UNREGISTER_DATA_NETWORK_CONTROLLER_CALLBACK:
                 mDataNetworkControllerCallbacks.remove((DataNetworkControllerCallback) msg.obj);
@@ -1353,7 +1363,7 @@ public class DataNetworkController extends Handler {
     }
 
     /**
-     * @return {@code true} internet is unmetered.
+     * @return {@code true} if internet is unmetered.
      */
     public boolean isInternetUnmetered() {
         return mDataNetworkList.stream()
@@ -1363,6 +1373,17 @@ public class DataNetworkController extends Handler {
                         .hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
                         || dataNetwork.getNetworkCapabilities()
                         .hasCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED));
+    }
+
+    /**
+     * @return {@code true} if all data networks are disconnected.
+     */
+    public boolean areAllDataDisconnected() {
+        if (!mDataNetworkList.isEmpty()) {
+            log("areAllDataDisconnected false due to: " + mDataNetworkList.stream()
+                    .map(DataNetwork::name).collect(Collectors.joining(", ")));
+        }
+        return mDataNetworkList.isEmpty();
     }
 
     /**
@@ -1699,6 +1720,31 @@ public class DataNetworkController extends Handler {
             }
         }
 
+        // If the data network is IMS that supports voice call, and has MMTEL request (client
+        // specified VoPS is required.)
+        if (dataNetwork.getAttachedNetworkRequestList().get(
+                new int[]{NetworkCapabilities.NET_CAPABILITY_MMTEL}) != null) {
+            // When reaching here, it means the network supports MMTEL, and also has MMTEL request
+            // attached to it.
+            if (!dataNetwork.shouldDelayImsTearDown()) {
+                if (dataNetwork.getTransport() == AccessNetworkConstants.TRANSPORT_TYPE_WWAN) {
+                    NetworkRegistrationInfo nri = mServiceState.getNetworkRegistrationInfo(
+                            NetworkRegistrationInfo.DOMAIN_PS,
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+                    if (nri != null) {
+                        DataSpecificRegistrationInfo dsri = nri.getDataSpecificInfo();
+                        if (dsri != null && dsri.getVopsSupportInfo() != null
+                                && !dsri.getVopsSupportInfo().isVopsSupported()) {
+                            evaluation.addDataDisallowedReason(
+                                    DataDisallowedReason.VOPS_NOT_SUPPORTED);
+                        }
+                    }
+                }
+            } else {
+                log("Ignored VoPS check due to delay IMS tear down until call ends.");
+            }
+        }
+
         // Check if data is disabled
         boolean dataDisabled = false;
         if (!mDataSettingsManager.isDataEnabled()) {
@@ -1729,9 +1775,11 @@ public class DataNetworkController extends Handler {
                     && !dataProfile.getApnSetting().canSupportLingeringNetworkType(networkType)) {
                 log("networkType=" + TelephonyManager.getNetworkTypeName(networkType)
                         + ", networkTypeBitmask="
-                        + dataProfile.getApnSetting().getNetworkTypeBitmask()
+                        + TelephonyManager.convertNetworkTypeBitmaskToString(
+                                dataProfile.getApnSetting().getNetworkTypeBitmask())
                         + ", lingeringNetworkTypeBitmask="
-                        + dataProfile.getApnSetting().getLingeringNetworkTypeBitmask());
+                        + TelephonyManager.convertNetworkTypeBitmaskToString(
+                                dataProfile.getApnSetting().getLingeringNetworkTypeBitmask()));
                 evaluation.addDataDisallowedReason(
                         DataDisallowedReason.DATA_NETWORK_TYPE_NOT_ALLOWED);
             }
@@ -1766,9 +1814,7 @@ public class DataNetworkController extends Handler {
             // If there are reasons we should tear down the network, check if those are hard reasons
             // or soft reasons. In some scenarios, we can make exceptions if they are soft
             // disallowed reasons.
-            if ((mPhone.isInEmergencyCall() || mPhone.isInEcm())
-                    && dataNetwork.getNetworkCapabilities().hasCapability(
-                            NetworkCapabilities.NET_CAPABILITY_SUPL)) {
+            if ((mPhone.isInEmergencyCall() || mPhone.isInEcm()) && dataNetwork.isEmergencySupl()) {
                 // Check if it's SUPL during emergency call.
                 evaluation.addDataAllowedReason(DataAllowedReason.EMERGENCY_SUPL);
             } else if (!dataNetwork.getNetworkCapabilities().hasCapability(
