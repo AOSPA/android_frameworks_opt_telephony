@@ -2896,15 +2896,9 @@ public class SubscriptionController extends ISub.Stub {
                         subId);
 
         TelecomManager telecomManager = mContext.getSystemService(TelecomManager.class);
-        PhoneAccountHandle currentHandle = telecomManager.getUserSelectedOutgoingPhoneAccount();
-        logd("[setDefaultVoiceSubId] current phoneAccountHandle=" + currentHandle);
 
-        if (!Objects.equals(currentHandle, newHandle)) {
-            telecomManager.setUserSelectedOutgoingPhoneAccount(newHandle);
-            logd("[setDefaultVoiceSubId] change to phoneAccountHandle=" + newHandle);
-        } else {
-            logd("[setDefaultVoiceSubId] default phoneAccountHandle not changed.");
-        }
+        telecomManager.setUserSelectedOutgoingPhoneAccount(newHandle);
+        logd("[setDefaultVoiceSubId] requesting change to phoneAccountHandle=" + newHandle);
 
         if (previousDefaultSub != getDefaultSubId()) {
             sendDefaultChangedBroadcast(getDefaultSubId());
@@ -4548,11 +4542,11 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     private void refreshCachedOpportunisticSubscriptionInfoList() {
-        List<SubscriptionInfo> subList = getSubInfo(
-                SubscriptionManager.IS_OPPORTUNISTIC + "=1 AND ("
-                        + SubscriptionManager.SIM_SLOT_INDEX + ">=0 OR "
-                        + SubscriptionManager.IS_EMBEDDED + "=1)", null);
         synchronized (mSubInfoListLock) {
+            List<SubscriptionInfo> subList = getSubInfo(
+                    SubscriptionManager.IS_OPPORTUNISTIC + "=1 AND ("
+                            + SubscriptionManager.SIM_SLOT_INDEX + ">=0 OR "
+                            + SubscriptionManager.IS_EMBEDDED + "=1)", null);
             List<SubscriptionInfo> oldOpptCachedList = mCacheOpportunisticSubInfoList;
 
             if (subList != null) {
@@ -4821,6 +4815,63 @@ public class SubscriptionController extends ISub.Stub {
             // FIXME(b/205726099) return void
         }
         return ret;
+    }
+
+    /**
+     * Querying last used TP - MessageRef for particular subId from SIMInfo table.
+     * @return messageRef
+     */
+    public int getMessageRef(int subId) {
+        try (Cursor cursor = mContext.getContentResolver().query(SubscriptionManager.CONTENT_URI,
+                new String[]{SubscriptionManager.TP_MESSAGE_REF},
+                SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID + "=\"" + subId
+                        + "\"", null, null)) {
+            try {
+                if (cursor != null && cursor.moveToFirst()) {
+                    do {
+                        return cursor.getInt(cursor.getColumnIndexOrThrow(
+                                SubscriptionManager.TP_MESSAGE_REF));
+                    } while (cursor.moveToNext());
+                } else {
+                    if (DBG) logd("Valid row not present in db");
+                }
+            } catch (Exception e) {
+                if (DBG) logd("Query failed " + e.getMessage());
+            } finally {
+                if (cursor != null) {
+                    cursor.close();
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Update the TP - Message Reference value for every SMS Sent
+     * @param messageRef
+     * @param subId
+     */
+    public void updateMessageRef(int subId, int messageRef) {
+        TelephonyPermissions.enforceCallingOrSelfModifyPermissionOrCarrierPrivilege(
+                mContext, subId, mContext.getOpPackageName());
+
+        if (mContext == null) {
+            logel("[updateMessageRef] mContext is null");
+            return;
+        }
+        try {
+            if (SubscriptionManager.CONTENT_URI != null) {
+                ContentValues values = new ContentValues(1);
+                values.put(SubscriptionManager.TP_MESSAGE_REF, messageRef);
+                mContext.getContentResolver().update(SubscriptionManager.CONTENT_URI, values,
+                        SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID + "=\"" + subId
+                                + "\"", null);
+            } else {
+                if (DBG) logd("TP - Message reference value not updated to DB");
+            }
+        } finally {
+            if (DBG) logd("TP - Message reference updated to DB Successfully :" + messageRef);
+        }
     }
 
     /**
