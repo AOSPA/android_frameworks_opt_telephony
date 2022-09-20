@@ -14,6 +14,13 @@
  * limitations under the License.
  */
 
+/*
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
 package com.android.internal.telephony.test;
 
 import android.compat.annotation.UnsupportedAppUsage;
@@ -61,6 +68,7 @@ import com.android.internal.telephony.CallFailCause;
 import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.LastCallFailCause;
+import com.android.internal.telephony.OperatorInfo;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RILUtils;
@@ -1500,6 +1508,10 @@ public class SimulatedCommands extends BaseCommands
     public void exitEmergencyCallbackMode(Message result) {unimplemented(result);}
     @Override
     public void setNetworkSelectionModeManual(String operatorNumeric, int ran, Message result) {
+        unimplemented(result);
+    }
+    @Override
+    public void setNetworkSelectionModeManual(OperatorInfo network, Message result) {
         unimplemented(result);
     }
 

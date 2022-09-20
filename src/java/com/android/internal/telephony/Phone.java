@@ -14,6 +14,13 @@
  * limitations under the License.
  */
 
+/*
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
 package com.android.internal.telephony;
 
 import android.annotation.NonNull;
@@ -186,7 +193,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     // Used to intercept the carrier selection calls so that
     // we can save the values.
     private static final int EVENT_SET_NETWORK_MANUAL_COMPLETE      = 16;
-    private static final int EVENT_SET_NETWORK_AUTOMATIC_COMPLETE   = 17;
+    public static final int EVENT_SET_NETWORK_AUTOMATIC_COMPLETE   = 17;
     protected static final int EVENT_SET_CLIR_COMPLETE              = 18;
     protected static final int EVENT_REGISTERED_TO_NETWORK          = 19;
     protected static final int EVENT_SET_VM_NUMBER_DONE             = 20;
@@ -272,7 +279,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     private static final String DNS_SERVER_CHECK_DISABLED_KEY = "dns_server_check_disabled_key";
 
     // Integer used to let the calling application know that the we are ignoring auto mode switch.
-    private static final int ALREADY_IN_AUTO_SELECTION = 1;
+    public static final int ALREADY_IN_AUTO_SELECTION = 1;
 
     //Used to indicate smart DDS switch during voice call is supported or not.
     protected boolean mSmartTempDdsSwitchSupported = false;
@@ -293,7 +300,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * if we are looking for automatic selection. operatorAlphaLong is the
      * corresponding operator name.
      */
-    protected static class NetworkSelectMessage {
+    public static class NetworkSelectMessage {
         public Message message;
         public String operatorNumeric;
         public String operatorAlphaLong;
@@ -1553,8 +1560,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         nsm.operatorAlphaShort = network.getOperatorAlphaShort();
 
         Message msg = obtainMessage(EVENT_SET_NETWORK_MANUAL_COMPLETE, nsm);
-        mCi.setNetworkSelectionModeManual(network.getOperatorNumeric(), network.getRan(), msg);
-
+        mCi.setNetworkSelectionModeManual(network, msg);
         if (persistSelection) {
             updateSavedNetworkOperator(nsm);
         } else {
@@ -1580,7 +1586,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         mEmergencyCallToggledRegistrants.remove(h);
     }
 
-    private void updateSavedNetworkOperator(NetworkSelectMessage nsm) {
+    public void updateSavedNetworkOperator(NetworkSelectMessage nsm) {
         int subId = getSubId();
         if (SubscriptionController.getInstance().isActiveSubId(subId)) {
             // open the shared preferences editor, and write the value.
@@ -1613,7 +1619,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     /**
      * Used to track the settings upon completion of the network change.
      */
-    private void handleSetSelectNetwork(AsyncResult ar) {
+    public void handleSetSelectNetwork(AsyncResult ar) {
         // look for our wrapper within the asyncresult, skip the rest if it
         // is null.
         if (!(ar.userObj instanceof NetworkSelectMessage)) {
