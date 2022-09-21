@@ -1311,11 +1311,12 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     public void testSetRadioPower() throws Exception {
         mPhoneUT.setRadioPower(false);
         verify(mSST).setRadioPowerForReason(false, false, false, false,
-                Phone.RADIO_POWER_REASON_USER);
+                TelephonyManager.RADIO_POWER_REASON_USER);
 
         // Turn on radio for emergency call.
         mPhoneUT.setRadioPower(true, true, false, true);
-        verify(mSST).setRadioPowerForReason(true, true, false, true, Phone.RADIO_POWER_REASON_USER);
+        verify(mSST).setRadioPowerForReason(true, true, false, true,
+                TelephonyManager.RADIO_POWER_REASON_USER);
     }
 
     @Test
@@ -1323,12 +1324,12 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     public void testSetRadioPowerOnForTestEmergencyCall() {
         mPhoneUT.setRadioPower(false);
         verify(mSST).setRadioPowerForReason(false, false, false, false,
-                Phone.RADIO_POWER_REASON_USER);
+                TelephonyManager.RADIO_POWER_REASON_USER);
 
         mPhoneUT.setRadioPowerOnForTestEmergencyCall(false);
         verify(mSST).clearAllRadioOffReasons();
         verify(mSST).setRadioPowerForReason(eq(true), eq(false), anyBoolean(), eq(false),
-                eq(Phone.RADIO_POWER_REASON_USER));
+                eq(TelephonyManager.RADIO_POWER_REASON_USER));
     }
 
     @Test
@@ -1619,7 +1620,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         doReturn(true).when(mTelephonyManager).isEmergencyNumber(anyString());
         doReturn(isEmergencyPerDialedSim).when(mEmergencyNumberTracker).isEmergencyNumber(
-                anyString(), anyBoolean());
+                anyString());
 
         mPhoneUT.setImsPhone(mImsPhone);
     }

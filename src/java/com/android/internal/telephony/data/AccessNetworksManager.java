@@ -134,7 +134,8 @@ public class AccessNetworksManager extends Handler {
             ApnSetting.TYPE_CBS,
             ApnSetting.TYPE_SUPL,
             ApnSetting.TYPE_EMERGENCY,
-            ApnSetting.TYPE_XCAP
+            ApnSetting.TYPE_XCAP,
+            ApnSetting.TYPE_DUN
     };
 
     private final Phone mPhone;
@@ -420,7 +421,7 @@ public class AccessNetworksManager extends Handler {
                 int unsatisfied = satisfiedApnTypes ^ apnTypes;
                 reportAnomaly("QNS requested unsupported APN Types:"
                         + Integer.toBinaryString(unsatisfied),
-                        "3e89a3df-3524-45fa-b5f2-0fb0e4c77ec4");
+                        "3e89a3df-3524-45fa-b5f2-0fb0e4c77ec5");
             }
 
             if (!qualifiedNetworksList.isEmpty()) {
@@ -436,6 +437,9 @@ public class AccessNetworksManager extends Handler {
      * @param apnType The requested apnType.
      */
     private void trackFrequentApnTypeChange(@ApnSetting.ApnType int apnType) {
+        DataNetworkController dnc = mPhone.getDataNetworkController();
+        // ignore the report when no existing network request
+        if (!dnc.isCapabilityRequestExisting(DataUtils.apnTypeToNetworkCapability(apnType))) return;
         SlidingWindowEventCounter counter = mApnTypeToQnsChangeNetworkCounter.get(apnType);
         if (counter == null) {
             counter = new SlidingWindowEventCounter(
@@ -447,7 +451,7 @@ public class AccessNetworksManager extends Handler {
             reportAnomaly("QNS requested network change for "
                             + ApnSetting.getApnTypeString(apnType) + " "
                             + counter.getFrequencyString(),
-                    "3e89a3df-3524-45fa-b5f2-b8911abc7d57");
+                    "3e89a3df-3524-45fa-b5f2-b8911abc7d56");
         }
     }
 
@@ -740,17 +744,8 @@ public class AccessNetworksManager extends Handler {
         }
 
         // If we can't find the corresponding transport, always route to cellular.
-        if (!mCurrentTransports.containsKey(apnType)) {
-            final SharedPreferences sp
-                    = PreferenceManager.getDefaultSharedPreferences(mPhone.getContext());
-            final String key = String.format(APN_TRANSPORT, apnType, mPhone.getPhoneId());
-            final int transport = sp.getInt(key, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
-            mCurrentTransports.put(apnType, transport);
-            logl("getCurrentTransport: apnType=" + ApnSetting.getApnTypeString(apnType)
-                    + ", transport=" + AccessNetworkConstants.transportTypeToString(transport));
-            return transport;
-        }
-        return mCurrentTransports.get(apnType);
+        return mCurrentTransports.get(apnType) == null
+                ? AccessNetworkConstants.TRANSPORT_TYPE_WWAN : mCurrentTransports.get(apnType);
     }
 
     /**
@@ -777,13 +772,6 @@ public class AccessNetworksManager extends Handler {
             logl("setCurrentTransport: apnType=" + ApnSetting.getApnTypeString(apnType)
                     + ", transport=" + AccessNetworkConstants.transportTypeToString(transport));
         }
-        final SharedPreferences sp
-                = PreferenceManager.getDefaultSharedPreferences(mPhone.getContext());
-        final SharedPreferences.Editor editor = sp.edit();
-        final String key = String.format(APN_TRANSPORT, apnType, mPhone.getPhoneId());
-        editor.putInt(key, transport);
-        boolean result = editor.commit();
-        logl("setCurrentTransport: key=" + key + ", result=" + result);
     }
 
     private static @TransportType int getTransportFromAccessNetwork(int accessNetwork) {
