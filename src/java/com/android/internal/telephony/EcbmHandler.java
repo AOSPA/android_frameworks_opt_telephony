@@ -297,7 +297,6 @@ public class EcbmHandler extends Handler {
         // send an Intent
         sendEmergencyCallbackModeChange();
         // Re-initiate data connection
-        setInternalDataEnabled(true);
         trackers[phoneId].mPhone.notifyEmergencyCallRegistrants(false);
     }
 
@@ -337,14 +336,6 @@ public class EcbmHandler extends Handler {
 
     public void notifyEcbmTimerReset(Boolean flag) {
         mEcmTimerResetRegistrants.notifyResult(flag);
-    }
-
-    public void setInternalDataEnabled(boolean flag) {
-        for (int i = 0; i < mNumPhones; i++) {
-            if (trackers[i].mPhone != null && trackers[i].mPhone.getDataEnabledSettings() != null) {
-                trackers[i].mPhone.getDataEnabledSettings().setInternalDataEnabled(flag);
-            }
-        }
     }
 
     /**

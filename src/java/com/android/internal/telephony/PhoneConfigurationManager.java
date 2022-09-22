@@ -73,6 +73,7 @@ public class PhoneConfigurationManager {
     private TelephonyManager mTelephonyManager;
     private static final RegistrantList sMultiSimConfigChangeRegistrants = new RegistrantList();
     private static final String ALLOW_MOCK_MODEM_PROPERTY = "persist.radio.allow_mock_modem";
+    private static final String BOOT_ALLOW_MOCK_MODEM_PROPERTY = "ro.boot.radio.allow_mock_modem";
     private static final boolean DEBUG = !"user".equals(Build.TYPE);
 
     private final String ACTION_MSIM_VOICE_CAPABILITY =
@@ -501,9 +502,11 @@ public class PhoneConfigurationManager {
         boolean statusRadioConfig = false;
         boolean statusRil = false;
         final boolean isAllowed = SystemProperties.getBoolean(ALLOW_MOCK_MODEM_PROPERTY, false);
+        final boolean isAllowedForBoot =
+                SystemProperties.getBoolean(BOOT_ALLOW_MOCK_MODEM_PROPERTY, false);
 
-        // Check for ALLOW_MOCK_MODEM_PROPERTY on user builds
-        if (isAllowed || DEBUG) {
+        // Check for ALLOW_MOCK_MODEM_PROPERTY and BOOT_ALLOW_MOCK_MODEM_PROPERTY on user builds
+        if (isAllowed || isAllowedForBoot || DEBUG) {
             if (serviceName != null) {
                 statusRadioConfig = mRadioConfig.setModemService(serviceName);
 

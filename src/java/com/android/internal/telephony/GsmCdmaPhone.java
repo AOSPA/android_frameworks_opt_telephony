@@ -136,6 +136,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -1461,8 +1462,7 @@ public class GsmCdmaPhone extends Phone {
         // emergency number list on another SIM, but is not on theirs.  In this case we will use the
         // emergency number list for this carrier's SIM only.
         if (useOnlyDialedSimEccList) {
-            isEmergency = getEmergencyNumberTracker().isEmergencyNumber(dialString,
-                    true /* exactMatch */);
+            isEmergency = getEmergencyNumberTracker().isEmergencyNumber(dialString);
             logi("dial; isEmergency=" + isEmergency
                     + " (based on this phone only); globalIsEmergency="
                     + tm.isEmergencyNumber(dialString));
@@ -1837,7 +1837,7 @@ public class GsmCdmaPhone extends Phone {
     public void setRadioPower(boolean power, boolean forEmergencyCall,
             boolean isSelectedPhoneForEmergencyCall, boolean forceApply) {
         setRadioPowerForReason(power, forEmergencyCall, isSelectedPhoneForEmergencyCall, forceApply,
-                Phone.RADIO_POWER_REASON_USER);
+                TelephonyManager.RADIO_POWER_REASON_USER);
     }
 
     @Override
@@ -1845,6 +1845,11 @@ public class GsmCdmaPhone extends Phone {
             boolean isSelectedPhoneForEmergencyCall, boolean forceApply, int reason) {
         mSST.setRadioPowerForReason(power, forEmergencyCall, isSelectedPhoneForEmergencyCall,
                 forceApply, reason);
+    }
+
+    @Override
+    public Set<Integer> getRadioPowerOffReasons() {
+        return mSST.getRadioPowerOffReasons();
     }
 
     private void storeVoiceMailNumber(String number) {

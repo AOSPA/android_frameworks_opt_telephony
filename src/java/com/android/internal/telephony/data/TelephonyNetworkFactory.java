@@ -337,7 +337,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 if (mPhone.isUsingNewDataStack()) {
                     releaseNetworkInternal(networkRequest);
                 } else {
-                    releaseNetworkInternal(networkRequest, DcTracker.RELEASE_TYPE_NORMAL,
+                    releaseNetworkInternal(networkRequest, DcTracker.RELEASE_TYPE_DETACH,
                             getTransportTypeFromNetworkRequest(networkRequest));
                 }
             }
@@ -439,7 +439,6 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         if (mAccessNetworksManager.getCurrentTransport(apnType) == targetTransport) {
             log("APN type " + ApnSetting.getApnTypeString(apnType) + " is already on "
                     + AccessNetworkConstants.transportTypeToString(targetTransport));
-            handoverParams.callback.onCompleted(true, false);
             return;
         }
 
@@ -456,7 +455,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 if (dcTracker != null) {
                     DataConnection dc = dcTracker.getDataConnectionByApnType(
                             ApnSetting.getApnTypeString(apnType));
-                    if (dc != null && (dc.isActive() || dc.isActivating())) {
+                    if (dc != null && (dc.isActive())) {
                         Message onCompleteMsg = mInternalHandler.obtainMessage(
                                 EVENT_DATA_HANDOVER_COMPLETED);
                         onCompleteMsg.getData().putParcelable(

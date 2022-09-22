@@ -251,7 +251,7 @@ public class PhoneSwitcher extends Handler {
         @Override
         public void set(int newValue) {
             super.set(newValue);
-            SubscriptionController.invalidateActiveDataSubIdCaches();
+            SubscriptionManager.invalidateActiveDataSubIdCaches();
         }
     };
 
@@ -403,7 +403,7 @@ public class PhoneSwitcher extends Handler {
     public static PhoneSwitcher make(int maxDataAttachModemCount, Context context, Looper looper) {
         if (sPhoneSwitcher == null) {
             sPhoneSwitcher = new PhoneSwitcher(maxDataAttachModemCount, context, looper);
-            SubscriptionController.invalidateActiveDataSubIdCaches();
+            SubscriptionManager.invalidateActiveDataSubIdCaches();
         }
 
         return sPhoneSwitcher;
@@ -547,11 +547,6 @@ public class PhoneSwitcher extends Handler {
                 } else {
                     phone.getDataEnabledSettings().registerForDataEnabledChanged(
                             this, EVENT_DATA_ENABLED_CHANGED, null);
-                    // When call is ongoing, need to evaluate it after "data during call" option
-                    // is turned on.
-                    // Because when data is on, EVENT_DATA_ENABLED_CHANGED can't cover this case.
-                    phone.getDataEnabledSettings().registerForDataEnabledOverrideChanged(this,
-                            EVENT_DATA_ENABLED_OVERRIDE_RULE_CHANGED);
                 }
 
                 registerForImsRadioTechChange(context, i);
@@ -1007,12 +1002,6 @@ public class PhoneSwitcher extends Handler {
         }
         final DcRequest dcRequest =
                 DcRequest.create(networkRequest, createApnRepository(networkRequest));
-        //        if (networkRequest.type != NetworkRequest.Type.REQUEST &&
-        //                networkRequest.type != NetworkRequest.Type.BACKGROUND_REQUEST) {
-        //           log("Skip non REQUEST/BACKGROUND_REQUEST type request: " + networkRequest);
-        //           return;
-        //        }
-
         if (dcRequest != null) {
             if (!mPrioritizedDcRequests.contains(dcRequest)) {
                 collectRequestNetworkMetrics(networkRequest);
@@ -1037,8 +1026,7 @@ public class PhoneSwitcher extends Handler {
         final DcRequest dcRequest =
                 DcRequest.create(networkRequest, createApnRepository(networkRequest));
         if (dcRequest != null) {
-            if (mPrioritizedDcRequests.contains(dcRequest) &&
-                    mPrioritizedDcRequests.remove(dcRequest)) {
+            if (mPrioritizedDcRequests.remove(dcRequest)) {
                 onEvaluate(REQUESTS_CHANGED, "netReleased");
                 collectReleaseNetworkMetrics(networkRequest);
                 if (VDBG) log("Removed DcRequest, size: " + mPrioritizedDcRequests.size());
@@ -1384,7 +1372,7 @@ public class PhoneSwitcher extends Handler {
         return phoneIdForRequest(networkRequest.getNativeNetworkRequest());
     }
 
-    protected int phoneIdForRequest(NetworkRequest netRequest) {
+    private int phoneIdForRequest(NetworkRequest netRequest) {
         int subId = getSubIdFromNetworkSpecifier(netRequest.getNetworkSpecifier());
 
         if (subId == DEFAULT_SUBSCRIPTION_ID) return mPreferredDataPhoneId;
@@ -1445,15 +1433,12 @@ public class PhoneSwitcher extends Handler {
 
         if (voicePhone != null) {
             if (voicePhone.isUsingNewDataStack()) {
-                isDataAllowedOnVoiceCallSub = voicePhone
-                        .getDataSettingsManager()
+                isDataAllowedOnVoiceCallSub = voicePhone.getDataSettingsManager()
                         .isDataEnabled(ApnSetting.TYPE_DEFAULT);
             } else {
-                isDataAllowedOnVoiceCallSub = voicePhone
-                        .getDataEnabledSettings()
+                isDataAllowedOnVoiceCallSub = voicePhone.getDataEnabledSettings()
                         .isDataEnabled(ApnSetting.TYPE_DEFAULT);
             }
-            log("data enabled on voice sub: " + isDataAllowedOnVoiceCallSub);
         }
 
         if (mPhoneIdInVoiceCall != mPreferredDataPhoneId) {
@@ -1461,13 +1446,8 @@ public class PhoneSwitcher extends Handler {
             if (preferredDataPhone != null) {
 
                 // when DDS mobile data setting is turned off, do not trigger temp DDS switch
-                if (preferredDataPhone.isUsingNewDataStack()) {
-                    isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
-                            && preferredDataPhone.getDataSettingsManager().isDataEnabled();
-                } else {
-                    isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
-                            && preferredDataPhone.getDataEnabledSettings().isDataEnabled();
-                }
+                isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
+                        && preferredDataPhone.getDataSettingsManager().isDataEnabled();
                 log("data enabled on DDS: " + isDataAllowedOnVoiceCallSub);
 
                 // when DDS is in roaming, and data roaming for DDS is turned off,
@@ -1487,13 +1467,8 @@ public class PhoneSwitcher extends Handler {
             // option "data during call" separately once again, and when data is off, data still
             // works as long as the "data during call" is enabled in case of nDDS voice call.
             if (voicePhone != null) {
-                if (voicePhone.isUsingNewDataStack()) {
-                    isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
-                            && voicePhone.getDataSettingsManager().isDataAllowedInVoiceCall();
-                } else {
-                    isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
-                            && voicePhone.getDataEnabledSettings().isDataAllowedInVoiceCall();
-                }
+                isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
+                        && voicePhone.getDataSettingsManager().isDataAllowedInVoiceCall();
             }
         }
         log("updatePreferredDataPhoneId isDataAllowedOnVoiceCallSub: "

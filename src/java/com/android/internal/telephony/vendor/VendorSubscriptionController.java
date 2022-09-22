@@ -217,7 +217,7 @@ public class VendorSubscriptionController extends SubscriptionController {
             logi("set default phoneaccount to  " + subId);
             mTelecomManager.setUserSelectedOutgoingPhoneAccount(phoneAccountHandle);
         }
-        if (!isSubProvisioned(sDefaultFallbackSubId.get())) {
+        if (!isSubProvisioned(mDefaultFallbackSubId.get())) {
             setDefaultFallbackSubId(mNextActivatedSub.getSubscriptionId(),
                 SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM);
         }
