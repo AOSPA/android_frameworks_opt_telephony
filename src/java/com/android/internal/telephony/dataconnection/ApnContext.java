@@ -423,19 +423,15 @@ public class ApnContext {
     public void requestNetwork(NetworkRequest networkRequest, @RequestNetworkType int type,
             Message onHandoverCompleteMsg) {
         synchronized (mRefCountLock) {
-            if (mNetworkRequests.contains(networkRequest) == true) {
-                requestLog(this, "requestNetwork skip duplicate request (" + networkRequest + ")");
-            } else {
-                mNetworkRequests.add(networkRequest);
-                requestLog(this, "requestNetwork for " + networkRequest + ", type="
-                        + DcTracker.requestTypeToString(type));
-                mDcTracker.enableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type,
-                        onHandoverCompleteMsg);
-                if (mDataConnection != null) {
-                    // New network request added. Should re-evaluate properties of
-                    // the data connection. For example, the score may change.
-                    mDataConnection.reevaluateDataConnectionProperties();
-                }
+            mNetworkRequests.add(networkRequest);
+            requestLog(this, "requestNetwork for " + networkRequest + ", type="
+                    + DcTracker.requestTypeToString(type));
+            mDcTracker.enableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type,
+                    onHandoverCompleteMsg);
+            if (mDataConnection != null) {
+                // New network request added. Should re-evaluate properties of
+                // the data connection. For example, the score may change.
+                mDataConnection.reevaluateDataConnectionProperties();
             }
         }
     }
@@ -539,10 +535,6 @@ public class ApnContext {
 
     public int incAndGetConnectionGeneration() {
         return mConnectionGeneration.incrementAndGet();
-    }
-
-    public int decAndGetConnectionGeneration() {
-        return mConnectionGeneration.decrementAndGet();
     }
 
     public int getConnectionGeneration() {
