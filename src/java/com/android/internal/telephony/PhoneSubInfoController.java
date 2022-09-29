@@ -39,6 +39,7 @@ import android.telephony.TelephonyFrameworkInitializer;
 import android.util.EventLog;
 
 import com.android.internal.telephony.uicc.IsimRecords;
+import com.android.internal.telephony.uicc.SIMRecords;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.internal.telephony.uicc.UiccPort;
 import com.android.telephony.Rlog;
@@ -418,6 +419,29 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
                 });
     }
 
+    /**
+     * Returns the USIM service table that fetched from EFUST elementary field that are loaded
+     * based on the appType.
+     */
+    public String getSimServiceTable(int subId, int appType) throws RemoteException {
+        return callPhoneMethodForSubIdWithPrivilegedCheck(subId, "getSimServiceTable",
+                (phone) -> {
+                    UiccPort uiccPort = phone.getUiccPort();
+                    if (uiccPort == null || uiccPort.getUiccProfile() == null) {
+                        loge("getSimServiceTable(): uiccPort or uiccProfile is null");
+                        return null;
+                    }
+                    UiccCardApplication uiccApp = uiccPort.getUiccProfile().getApplicationByType(
+                            appType);
+                    if (uiccApp == null) {
+                        loge("getSimServiceTable(): no app with specified apptype="
+                                + appType);
+                        return null;
+                    }
+                    return ((SIMRecords)uiccApp.getIccRecords()).getSimServiceTable();
+                });
+    }
+
     @Override
     public String getIccSimChallengeResponse(int subId, int appType, int authType, String data,
             String callingPackage, String callingFeatureId) throws RemoteException {
@@ -438,7 +462,9 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
             }
 
             if (authType != UiccCardApplication.AUTH_CONTEXT_EAP_SIM
-                    && authType != UiccCardApplication.AUTH_CONTEXT_EAP_AKA) {
+                    && authType != UiccCardApplication.AUTH_CONTEXT_EAP_AKA
+                    && authType != UiccCardApplication.AUTH_CONTEXT_GBA_BOOTSTRAP
+                    && authType != UiccCardApplication.AUTHTYPE_GBA_NAF_KEY_EXTERNAL) {
                 loge("getIccSimChallengeResponse() unsupported authType: " + authType);
                 return null;
             }
@@ -491,7 +517,7 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
             if (phone != null) {
                 return callMethodHelper.callMethod(phone);
             } else {
-                loge(message + " phone is null for Subscription:" + subId);
+                if (VDBG) loge(message + " phone is null for Subscription:" + subId);
                 return null;
             }
         } finally {
@@ -579,6 +605,30 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
+    }
+
+    /**
+     * Returns SIP URI or tel URI of the Public Service Identity of the SM-SC that fetched from
+     * EFPSISMSC elementary field that are loaded based on the ISIM/USIM appType.
+     */
+    public String getSmscIdentity(int subId, int appType)
+            throws RemoteException {
+        return callPhoneMethodForSubIdWithPrivilegedCheck(subId, "getSmscIdentity",
+                (phone) -> {
+                    UiccPort uiccPort = phone.getUiccPort();
+                    if (uiccPort == null || uiccPort.getUiccProfile() == null) {
+                        loge("getSmscIdentity(): uiccPort or uiccProfile is null");
+                        return null;
+                    }
+                    UiccCardApplication uiccApp = uiccPort.getUiccProfile().getApplicationByType(
+                            appType);
+                    if (uiccApp == null) {
+                        loge("getSmscIdentity(): no app with specified type = "
+                                + appType);
+                        return null;
+                    }
+                    return uiccApp.getIccRecords().getSmscIdentity();
+                });
     }
 
     private void log(String s) {

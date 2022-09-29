@@ -320,7 +320,7 @@ public class PhoneSwitcher extends Handler {
 
     protected RadioConfig mRadioConfig;
 
-    private static final int MAX_LOCAL_LOG_LINES = 32;
+    private static final int MAX_LOCAL_LOG_LINES = 256;
 
     // Default timeout value of network validation in millisecond.
     private final static int DEFAULT_VALIDATION_EXPIRATION_TIME = 2000;
@@ -1019,7 +1019,7 @@ public class PhoneSwitcher extends Handler {
                 mPrioritizedDcRequests.add(dcRequest);
                 Collections.sort(mPrioritizedDcRequests);
                 onEvaluate(REQUESTS_CHANGED, "netRequest");
-                log("Added DcRequest, size: " + mPrioritizedDcRequests.size());
+                if (VDBG) log("Added DcRequest, size: " + mPrioritizedDcRequests.size());
             }
         }
     }
@@ -1041,7 +1041,7 @@ public class PhoneSwitcher extends Handler {
                     mPrioritizedDcRequests.remove(dcRequest)) {
                 onEvaluate(REQUESTS_CHANGED, "netReleased");
                 collectReleaseNetworkMetrics(networkRequest);
-                log("Removed DcRequest, size: " + mPrioritizedDcRequests.size());
+                if (VDBG) log("Removed DcRequest, size: " + mPrioritizedDcRequests.size());
             }
         }
     }
@@ -1351,7 +1351,7 @@ public class PhoneSwitcher extends Handler {
 
     protected void sendRilCommands(int phoneId) {
         if (!SubscriptionManager.isValidPhoneId(phoneId)) {
-            log("sendRilCommands: skip dds switch due to invalid phoneid=" + phoneId);
+            log("sendRilCommands: skip dds switch due to invalid phoneId=" + phoneId);
             return;
         }
 
@@ -1567,8 +1567,17 @@ public class PhoneSwitcher extends Handler {
             return false;
         }
 
-        int phoneIdToHandle = phoneIdForRequest(networkRequest);
+        NetworkRequest netRequest = networkRequest.getNativeNetworkRequest();
+        int subId = getSubIdFromNetworkSpecifier(netRequest.getNetworkSpecifier());
 
+        //if this phone is an emergency networkRequest
+        //and subId is not specified that is invalid or default
+        if (isAnyVoiceCallActiveOnDevice() && isEmergencyNetworkRequest(networkRequest)
+                && (subId == DEFAULT_SUBSCRIPTION_ID || subId == INVALID_SUBSCRIPTION_ID)) {
+            return phoneId == mPhoneIdInVoiceCall;
+        }
+
+        int phoneIdToHandle = phoneIdForRequest(networkRequest);
         return phoneId == phoneIdToHandle;
     }
 
@@ -1804,8 +1813,54 @@ public class PhoneSwitcher extends Handler {
         mLocalLog.log(l);
     }
 
+    /**
+     * Convert data switch reason into string.
+     *
+     * @param reason The switch reason.
+     * @return The switch reason in string format.
+     */
+    private static @NonNull String switchReasonToString(int reason) {
+        switch(reason) {
+            case TelephonyEvent.DataSwitch.Reason.DATA_SWITCH_REASON_UNKNOWN:
+                return "UNKNOWN";
+            case TelephonyEvent.DataSwitch.Reason.DATA_SWITCH_REASON_MANUAL:
+                return "MANUAL";
+            case TelephonyEvent.DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL:
+                return "IN_CALL";
+            case TelephonyEvent.DataSwitch.Reason.DATA_SWITCH_REASON_CBRS:
+                return "CBRS";
+            default: return "UNKNOWN(" + reason + ")";
+        }
+    }
+
+    /**
+     * Concert switching state to string
+     *
+     * @param state The switching state.
+     * @return The switching state in string format.
+     */
+    private static @NonNull String switchStateToString(int state) {
+        switch(state) {
+            case TelephonyEvent.EventState.EVENT_STATE_UNKNOWN:
+                return "UNKNOWN";
+            case TelephonyEvent.EventState.EVENT_STATE_START:
+                return "START";
+            case TelephonyEvent.EventState.EVENT_STATE_END:
+                return "END";
+            default: return "UNKNOWN(" + state + ")";
+        }
+    }
+
+    /**
+     * Log data switch event
+     *
+     * @param subId Subscription index.
+     * @param state The switching state.
+     * @param reason The switching reason.
+     */
     private void logDataSwitchEvent(int subId, int state, int reason) {
-        log("logDataSwitchEvent subId " + subId + " state " + state + " reason " + reason);
+        log("Data switch event. subId=" + subId + ", state=" + switchStateToString(state)
+                + ", reason=" + switchReasonToString(reason));
         DataSwitch dataSwitch = new DataSwitch();
         dataSwitch.state = state;
         dataSwitch.reason = reason;
@@ -1838,6 +1893,7 @@ public class PhoneSwitcher extends Handler {
     public void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
         final IndentingPrintWriter pw = new IndentingPrintWriter(writer, "  ");
         pw.println("PhoneSwitcher:");
+        pw.increaseIndent();
         Calendar c = Calendar.getInstance();
         for (int i = 0; i < mActiveModemCount; i++) {
             PhoneState ps = mPhoneStates[i];
@@ -1846,14 +1902,29 @@ public class PhoneSwitcher extends Handler {
                     (ps.lastRequested == 0 ? "never" :
                      String.format("%tm-%td %tH:%tM:%tS.%tL", c, c, c, c, c, c)));
         }
+        pw.println("mPreferredDataPhoneId=" + mPreferredDataPhoneId);
+        pw.println("mPreferredDataSubId=" + mPreferredDataSubId.get());
+        pw.println("DefaultDataSubId=" + mSubscriptionController.getDefaultDataSubId());
+        pw.println("DefaultDataPhoneId=" + mSubscriptionController.getPhoneId(
+                mSubscriptionController.getDefaultDataSubId()));
+        pw.println("mPrimaryDataSubId=" + mPrimaryDataSubId);
+        pw.println("mOpptDataSubId=" + mOpptDataSubId);
+        pw.println("mIsRegisteredForImsRadioTechChange=" + mIsRegisteredForImsRadioTechChange);
+        pw.println("mPendingSwitchNeedValidation=" + mPendingSwitchNeedValidation);
+        pw.println("mMaxDataAttachModemCount=" + mMaxDataAttachModemCount);
+        pw.println("mActiveModemCount=" + mActiveModemCount);
+        pw.println("mPhoneIdInVoiceCall=" + mPhoneIdInVoiceCall);
+        pw.println("mCurrentDdsSwitchFailure=" + mCurrentDdsSwitchFailure);
+        pw.println("Local logs:");
         pw.increaseIndent();
         mLocalLog.dump(fd, pw, args);
+        pw.decreaseIndent();
         pw.decreaseIndent();
     }
 
     protected boolean isAnyVoiceCallActiveOnDevice() {
         boolean ret = mPhoneIdInVoiceCall != SubscriptionManager.INVALID_PHONE_INDEX;
-        log("isAnyVoiceCallActiveOnDevice: " + ret);
+        if (VDBG) log("isAnyVoiceCallActiveOnDevice: " + ret);
         return ret;
     }
 

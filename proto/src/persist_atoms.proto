@@ -23,7 +23,7 @@ option java_outer_classname = "PersistAtomsProto";
 
 // Holds atoms to store on persist storage in case of power cycle or process crash.
 // NOTE: using int64 rather than google.protobuf.Timestamp for timestamps simplifies implementation.
-// Next id: 50
+// Next id: 53
 message PersistAtoms {
     /* Aggregated RAT usage during the call. */
     repeated VoiceCallRatUsage voice_call_rat_usage = 1;
@@ -177,6 +177,9 @@ message PersistAtoms {
 
     /* Timestamp of last network_requests_v2 pull. */
     optional int64 network_requests_v2_pull_timestamp_millis = 51;
+
+    /* Unmetered networks information. */
+    repeated UnmeteredNetworks unmetered_networks = 52;
 }
 
 // The canonical versions of the following enums live in:
@@ -187,10 +190,10 @@ message PersistAtoms {
 // NOTE: StatsLog functions use int in place of enum
 
 message VoiceCallSession {
+    reserved 4;
     optional int32 bearer_at_start = 1;
     optional int32 bearer_at_end = 2;
     optional int32 direction = 3;
-    optional int32 setup_duration = 4;
     optional bool setup_failed = 5;
     optional int32 disconnect_reason_code = 6;
     optional int32 disconnect_extra_code = 7;
@@ -261,6 +264,7 @@ message OutgoingSms {
     optional int32 carrier_id = 11;
     optional int64 message_id = 12;
     optional int32 retry_id = 13;
+    optional int64 interval_millis = 14;
 }
 
 message CarrierIdMismatch {
@@ -291,6 +295,7 @@ message DataCallSession {
     optional bool ongoing = 18;
     optional int32 band_at_end = 19;
     repeated int32 handover_failure_causes = 20;
+    repeated int32 handover_failure_rat = 21;
 }
 
 message CellularServiceState {
@@ -303,6 +308,7 @@ message CellularServiceState {
     optional bool is_multi_sim = 7;
     optional int32 carrier_id = 8;
     optional int64 total_time_millis = 9; // Duration needs to be rounded when pulled
+    optional bool is_emergency_only = 10;
 
     // Internal use only
     optional int64 last_used_millis = 10001;
@@ -495,4 +501,10 @@ message GbaEvent {
     optional bool successful = 3;
     optional int32 failed_reason = 4;
     optional int32 count = 5;
+}
+
+message UnmeteredNetworks {
+    optional int32 phone_id = 1;
+    optional int32 carrier_id = 2;
+    optional int64 unmetered_networks_bitmask = 3;
 }

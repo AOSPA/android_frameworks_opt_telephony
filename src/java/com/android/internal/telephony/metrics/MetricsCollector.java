@@ -44,6 +44,7 @@ import static com.android.internal.telephony.TelephonyStatsLog.TELEPHONY_NETWORK
 import static com.android.internal.telephony.TelephonyStatsLog.UCE_EVENT_STATS;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_RAT_USAGE;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_DURATION__CALL_DURATION_UNKNOWN;
 
 import android.annotation.Nullable;
 import android.app.StatsManager;
@@ -684,7 +685,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                     perSimStatus.disabled2g, // is2gDisabled
                     perSimStatus.pin1Enabled, // isPin1Enabled
                     perSimStatus.minimumVoltageClass, // simVoltageClass
-                    perSimStatus.userModifiedApnTypes); // userModifiedApnTypeBitmask
+                    perSimStatus.userModifiedApnTypes, // userModifiedApnTypeBitmask
+                    perSimStatus.unmeteredNetworks); // unmeteredNetworks
             data.add(statsEvent);
             result = StatsManager.PULL_SUCCESS;
         }
@@ -718,7 +720,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 state.simSlotIndex,
                 state.isMultiSim,
                 state.carrierId,
-                roundAndConvertMillisToSeconds(state.totalTimeMillis));
+                roundAndConvertMillisToSeconds(state.totalTimeMillis),
+                state.isEmergencyOnly);
     }
 
     private static StatsEvent buildStatsEvent(VoiceCallRatUsage usage) {
@@ -736,7 +739,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 session.bearerAtStart,
                 session.bearerAtEnd,
                 session.direction,
-                session.setupDuration,
+                // deprecated and replaced by setupDurationMillis
+                VOICE_CALL_SESSION__CALL_DURATION__CALL_DURATION_UNKNOWN,
                 session.setupFailed,
                 session.disconnectReasonCode,
                 session.disconnectExtraCode,
@@ -804,7 +808,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 sms.isEsim,
                 sms.carrierId,
                 sms.messageId,
-                sms.retryId);
+                sms.retryId,
+                sms.intervalMillis);
     }
 
     private static StatsEvent buildStatsEvent(DataCallSession dataCallSession) {
@@ -830,7 +835,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                         dataCallSession.durationMinutes * MILLIS_PER_MINUTE),
                 dataCallSession.ongoing,
                 dataCallSession.bandAtEnd,
-                dataCallSession.handoverFailureCauses);
+                dataCallSession.handoverFailureCauses,
+                dataCallSession.handoverFailureRat);
     }
 
     private static StatsEvent buildStatsEvent(ImsRegistrationStats stats) {

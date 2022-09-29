@@ -181,10 +181,13 @@ public class SimulatedCommands extends BaseCommands
     private boolean mDcSuccess = true;
     private SetupDataCallResult mSetupDataCallResult;
     private boolean mIsRadioPowerFailResponse = false;
+    private boolean mIsReportSmsMemoryStatusFailResponse = false;
     private String smscAddress;
 
     public boolean mSetRadioPowerForEmergencyCall;
     public boolean mSetRadioPowerAsSelectedPhoneForEmergencyCall;
+
+    public boolean mCallWaitActivated = false;
 
     // mode for Icc Sim Authentication
     private int mAuthenticationMode;
@@ -1302,8 +1305,17 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void reportSmsMemoryStatus(boolean available, Message result) {
-        resultSuccess(result, null);
+        if (!mIsReportSmsMemoryStatusFailResponse) {
+            resultSuccess(result, null);
+        } else {
+            CommandException ex = new CommandException(CommandException.Error.GENERIC_FAILURE);
+            resultFail(result, null, ex);
+        }
         SimulatedCommandsVerifier.getInstance().reportSmsMemoryStatus(available, result);
+    }
+
+    public void setReportSmsMemoryStatusFailResponse(boolean fail) {
+        mIsReportSmsMemoryStatusFailResponse = fail;
     }
 
     @Override
@@ -1426,6 +1438,14 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void queryCallWaiting(int serviceClass, Message response) {
+        if (response != null && serviceClass == SERVICE_CLASS_NONE) {
+            int[] r = new int[2];
+            r[0] = (mCallWaitActivated ? 1 : 0);
+            r[1] = (mCallWaitActivated ? SERVICE_CLASS_VOICE : SERVICE_CLASS_NONE);
+            resultSuccess(response, r);
+            return;
+        }
+
         unimplemented(response);
     }
 
@@ -1434,11 +1454,15 @@ public class SimulatedCommands extends BaseCommands
      * @param serviceClass is a sum of SERVICE_CLASS_*
      * @param response is callback message
      */
-
     @Override
     public void setCallWaiting(boolean enable, int serviceClass,
             Message response) {
-        unimplemented(response);
+        if ((serviceClass & SERVICE_CLASS_VOICE) == SERVICE_CLASS_VOICE) {
+            mCallWaitActivated = enable;
+        }
+        if (response != null) {
+            resultSuccess(response, null);
+        }
     }
 
     /**
@@ -2349,6 +2373,18 @@ public class SimulatedCommands extends BaseCommands
     public void unregisterForPcoData(Handler h) {
         SimulatedCommandsVerifier.getInstance().unregisterForPcoData(h);
         mPcoDataRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForNotAvailable(Handler h, int what, Object obj) {
+        SimulatedCommandsVerifier.getInstance().registerForNotAvailable(h, what, obj);
+        super.registerForNotAvailable(h, what, obj);
+    }
+
+    @Override
+    public void unregisterForNotAvailable(Handler h) {
+        SimulatedCommandsVerifier.getInstance().unregisterForNotAvailable(h);
+        super.unregisterForNotAvailable(h);
     }
 
     @Override

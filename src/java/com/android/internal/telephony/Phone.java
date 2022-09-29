@@ -486,8 +486,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     protected LinkBandwidthEstimator mLinkBandwidthEstimator;
 
-    // TODO: Temp code. Use cl/399526916 for future canary process. After rolling out to 100%
-    //  dogfooders, the code below should be completely removed.
+    /** The flag indicating using the new data stack or not. */
+    // This flag and the old data stack code will be deleted in Android 14.
     private final boolean mNewDataStackEnabled;
 
     public IccRecords getIccRecords() {
@@ -4973,7 +4973,17 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return null;
     }
 
-    public boolean useSsOverIms(Message onComplete) {
+    /**
+     * Returns the instance of SsDomainController
+     */
+    public SsDomainController getSsDomainController() {
+        return null;
+    }
+
+    /**
+     * Returns whether it will be served with Ut or not.
+     */
+    public boolean useSsOverUt(Message onComplete) {
         return false;
     }
 
@@ -5075,12 +5085,32 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     * @return {@code true} if using the new telephony data stack. See go/atdr for the design.
+     * @return {@code true} if using the new telephony data stack.
      */
-    // TODO: Temp code. Use cl/421423121 for future canary process. After rolling out to 100%
-    //  dogfooders, the code below should be completely removed before T AOSP release.
+    // This flag and the old data stack code will be deleted in Android 14.
     public boolean isUsingNewDataStack() {
         return mNewDataStackEnabled;
+    }
+
+    /**
+     * Returns the user's last setting for terminal-based call waiting
+     * @param forCsOnly indicates the caller expects the result for CS calls only
+     */
+    public int getTerminalBasedCallWaitingState(boolean forCsOnly) {
+        return CallWaitingController.TERMINAL_BASED_NOT_SUPPORTED;
+    }
+
+    /**
+     * Notifies the change of the user setting of the terminal-based call waiting service
+     * to IMS service.
+     */
+    public void setTerminalBasedCallWaitingStatus(int state) {
+    }
+
+    /**
+     * Notifies that the IMS service connected supports the terminal-based call waiting service
+     */
+    public void setTerminalBasedCallWaitingSupported(boolean supported) {
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {

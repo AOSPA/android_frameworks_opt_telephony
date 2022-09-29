@@ -34,6 +34,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
@@ -72,6 +73,7 @@ import android.util.LocalLog;
 import android.util.Log;
 
 import com.android.ims.ImsManager;
+import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.IccCardConstants.State;
 import com.android.internal.telephony.data.DataEnabledOverride;
@@ -525,17 +527,6 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     /**
-     * Broadcast when SubscriptionInfo has changed
-     * FIXME: Hopefully removed if the API council accepts SubscriptionInfoListener
-     */
-     private void broadcastSimInfoContentChanged() {
-        Intent intent = new Intent(TelephonyIntents.ACTION_SUBINFO_CONTENT_CHANGE);
-        mContext.sendBroadcast(intent);
-        intent = new Intent(TelephonyIntents.ACTION_SUBINFO_RECORD_UPDATED);
-        mContext.sendBroadcast(intent);
-     }
-
-    /**
      * Notify the changed of subscription info.
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -545,9 +536,6 @@ public class SubscriptionController extends ISub.Stub {
                         mContext.getSystemService(Context.TELEPHONY_REGISTRY_SERVICE);
         if (DBG) logd("notifySubscriptionInfoChanged:");
         trm.notifySubscriptionInfoChanged();
-
-        // FIXME: Remove if listener technique accepted.
-        broadcastSimInfoContentChanged();
 
         MultiSimSettingController.getInstance().notifySubscriptionInfoChanged();
         TelephonyMetrics metrics = TelephonyMetrics.getInstance();
@@ -1602,9 +1590,9 @@ public class SubscriptionController extends ISub.Stub {
                     if (!TextUtils.isEmpty(simCarrierName)) {
                         nameToSet = simCarrierName;
                     } else {
-                        nameToSet = "CARD " + Integer.toString(slotIndex + 1);
+                        Resources r = Resources.getSystem();
+                        nameToSet = r.getString(R.string.default_card_name, (slotIndex + 1));
                     }
-
                     ContentValues value = new ContentValues();
                     value.put(SubscriptionManager.DISPLAY_NAME, nameToSet);
                     resolver.update(SubscriptionManager.getUriForSubscriptionId(subId), value,
@@ -2071,7 +2059,9 @@ public class SubscriptionController extends ISub.Stub {
                 if (TextUtils.isEmpty(nameToSet)) {
                     if (nameSource == SubscriptionManager.NAME_SOURCE_USER_INPUT
                             && SubscriptionManager.isValidSlotIndex(getSlotIndex(subId))) {
-                        nameToSet = "CARD " + (getSlotIndex(subId) + 1);
+                        Resources r = Resources.getSystem();
+                        nameToSet = r.getString(R.string.default_card_name,
+                                (getSlotIndex(subId) + 1));
                     } else {
                         nameToSet = mContext.getString(SubscriptionManager.DEFAULT_NAME_RES);
                     }
@@ -2882,7 +2872,8 @@ public class SubscriptionController extends ISub.Stub {
         if (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID) {
             throw new RuntimeException("setDefaultVoiceSubId called with DEFAULT_SUB_ID");
         }
-        if (DBG) logdl("[setDefaultVoiceSubId] subId=" + subId);
+
+        logdl("[setDefaultVoiceSubId] subId=" + subId);
 
         int previousDefaultSub = getDefaultSubId();
 
@@ -2895,15 +2886,9 @@ public class SubscriptionController extends ISub.Stub {
                         subId);
 
         TelecomManager telecomManager = mContext.getSystemService(TelecomManager.class);
-        PhoneAccountHandle currentHandle = telecomManager.getUserSelectedOutgoingPhoneAccount();
-        logd("[setDefaultVoiceSubId] current phoneAccountHandle=" + currentHandle);
 
-        if (!Objects.equals(currentHandle, newHandle)) {
-            telecomManager.setUserSelectedOutgoingPhoneAccount(newHandle);
-            logd("[setDefaultVoiceSubId] change to phoneAccountHandle=" + newHandle);
-        } else {
-            logd("[setDefaultVoiceSubId] default phoneAccountHandle not changed.");
-        }
+        telecomManager.setUserSelectedOutgoingPhoneAccount(newHandle);
+        logd("[setDefaultVoiceSubId] requesting change to phoneAccountHandle=" + newHandle);
 
         if (previousDefaultSub != getDefaultSubId()) {
             sendDefaultChangedBroadcast(getDefaultSubId());
@@ -3369,6 +3354,7 @@ public class SubscriptionController extends ISub.Stub {
             case SubscriptionManager.GROUP_UUID:
                 if (mContext.checkCallingOrSelfPermission(
                         Manifest.permission.READ_PRIVILEGED_PHONE_STATE) != PERMISSION_GRANTED) {
+                    EventLog.writeEvent(0x534e4554, "213457638", Binder.getCallingUid());
                     return null;
                 }
                 break;
@@ -4546,11 +4532,11 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     private void refreshCachedOpportunisticSubscriptionInfoList() {
-        List<SubscriptionInfo> subList = getSubInfo(
-                SubscriptionManager.IS_OPPORTUNISTIC + "=1 AND ("
-                        + SubscriptionManager.SIM_SLOT_INDEX + ">=0 OR "
-                        + SubscriptionManager.IS_EMBEDDED + "=1)", null);
         synchronized (mSubInfoListLock) {
+            List<SubscriptionInfo> subList = getSubInfo(
+                    SubscriptionManager.IS_OPPORTUNISTIC + "=1 AND ("
+                            + SubscriptionManager.SIM_SLOT_INDEX + ">=0 OR "
+                            + SubscriptionManager.IS_EMBEDDED + "=1)", null);
             List<SubscriptionInfo> oldOpptCachedList = mCacheOpportunisticSubInfoList;
 
             if (subList != null) {
@@ -4819,6 +4805,63 @@ public class SubscriptionController extends ISub.Stub {
             // FIXME(b/205726099) return void
         }
         return ret;
+    }
+
+    /**
+     * Querying last used TP - MessageRef for particular subId from SIMInfo table.
+     * @return messageRef
+     */
+    public int getMessageRef(int subId) {
+        try (Cursor cursor = mContext.getContentResolver().query(SubscriptionManager.CONTENT_URI,
+                new String[]{SubscriptionManager.TP_MESSAGE_REF},
+                SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID + "=\"" + subId
+                        + "\"", null, null)) {
+            try {
+                if (cursor != null && cursor.moveToFirst()) {
+                    do {
+                        return cursor.getInt(cursor.getColumnIndexOrThrow(
+                                SubscriptionManager.TP_MESSAGE_REF));
+                    } while (cursor.moveToNext());
+                } else {
+                    if (DBG) logd("Valid row not present in db");
+                }
+            } catch (Exception e) {
+                if (DBG) logd("Query failed " + e.getMessage());
+            } finally {
+                if (cursor != null) {
+                    cursor.close();
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Update the TP - Message Reference value for every SMS Sent
+     * @param messageRef
+     * @param subId
+     */
+    public void updateMessageRef(int subId, int messageRef) {
+        TelephonyPermissions.enforceCallingOrSelfModifyPermissionOrCarrierPrivilege(
+                mContext, subId, mContext.getOpPackageName());
+
+        if (mContext == null) {
+            logel("[updateMessageRef] mContext is null");
+            return;
+        }
+        try {
+            if (SubscriptionManager.CONTENT_URI != null) {
+                ContentValues values = new ContentValues(1);
+                values.put(SubscriptionManager.TP_MESSAGE_REF, messageRef);
+                mContext.getContentResolver().update(SubscriptionManager.CONTENT_URI, values,
+                        SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID + "=\"" + subId
+                                + "\"", null);
+            } else {
+                if (DBG) logd("TP - Message reference value not updated to DB");
+            }
+        } finally {
+            if (DBG) logd("TP - Message reference updated to DB Successfully :" + messageRef);
+        }
     }
 
     /**
