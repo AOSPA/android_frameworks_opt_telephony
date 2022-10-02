@@ -34,6 +34,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.MccTable;
 import com.android.internal.telephony.SmsConstants;
@@ -397,18 +398,20 @@ public class SIMRecords extends IccRecords {
         mNewVoiceMailTag = alphaTag;
 
         AdnRecord adn = new AdnRecord(mNewVoiceMailTag, mNewVoiceMailNum);
-
         if (mMailboxIndex != 0 && mMailboxIndex != 0xff) {
 
             new AdnRecordLoader(mFh).updateEF(adn, EF_MBDN, EF_EXT6,
                     mMailboxIndex, null,
-                    obtainMessage(EVENT_SET_MBDN_DONE, onComplete));
+                    obtainMessage(EVENT_SET_MBDN_DONE, AdnRecordLoader.VOICEMAIL_ALPHATAG_ARG,
+                            0 /* ignored arg2 */, onComplete));
 
         } else if (isCphsMailboxEnabled()) {
 
             new AdnRecordLoader(mFh).updateEF(adn, EF_MAILBOX_CPHS,
                     EF_EXT1, 1, null,
-                    obtainMessage(EVENT_SET_CPHS_MAILBOX_DONE, onComplete));
+                    obtainMessage(EVENT_SET_CPHS_MAILBOX_DONE,
+                            AdnRecordLoader.VOICEMAIL_ALPHATAG_ARG,
+                            0 /* ignored arg2 */, onComplete));
 
         } else {
             AsyncResult.forMessage((onComplete)).exception =
@@ -1037,10 +1040,20 @@ public class SIMRecords extends IccRecords {
 
                     if (DBG) log("EVENT_SET_MBDN_DONE ex:" + ar.exception);
                     if (ar.exception == null) {
+                        /**
+                         * Check for any changes made to voicemail alphaTag while saving to SIM.
+                         * if voicemail alphaTag length is more than allowed limit of SIM EF then
+                         * null alphaTag will be saved to SIM {@code AdnRecordLoader}.
+                         */
+                        if (ar.result != null) {
+                            AdnRecord adnRecord = (AdnRecord) (ar.result);
+                            if (adnRecord != null) {
+                                mNewVoiceMailTag = adnRecord.mAlphaTag;
+                            }
+                        }
                         mVoiceMailNum = mNewVoiceMailNum;
                         mVoiceMailTag = mNewVoiceMailTag;
                     }
-
                     if (isCphsMailboxEnabled()) {
                         adn = new AdnRecord(mVoiceMailTag, mVoiceMailNum);
                         Message onCphsCompleted = (Message) ar.userObj;
@@ -1064,7 +1077,8 @@ public class SIMRecords extends IccRecords {
                         new AdnRecordLoader(mFh)
                                 .updateEF(adn, EF_MAILBOX_CPHS, EF_EXT1, 1, null,
                                 obtainMessage(EVENT_SET_CPHS_MAILBOX_DONE,
-                                        onCphsCompleted));
+                                       AdnRecordLoader.VOICEMAIL_ALPHATAG_ARG,
+                                        0 /* ignored arg2 */, onCphsCompleted));
                     } else {
                         if (ar.userObj != null) {
                             CarrierConfigManager configManager = (CarrierConfigManager)
@@ -1096,6 +1110,12 @@ public class SIMRecords extends IccRecords {
                     isRecordLoadResponse = false;
                     ar = (AsyncResult) msg.obj;
                     if (ar.exception == null) {
+                        if (ar.result != null) {
+                            AdnRecord adnRecord = (AdnRecord) (ar.result);
+                            if (adnRecord != null) {
+                                mNewVoiceMailTag = adnRecord.mAlphaTag;
+                            }
+                        }
                         mVoiceMailNum = mNewVoiceMailNum;
                         mVoiceMailTag = mNewVoiceMailTag;
                     } else {
@@ -2210,6 +2230,11 @@ public class SIMRecords extends IccRecords {
         }
 
         log("[CSP] Value Added Service Group (0xC0), not found!");
+    }
+
+    @VisibleForTesting
+    public void setMailboxIndex(int mailboxIndex) {
+        mMailboxIndex = mailboxIndex;
     }
 
     @Override

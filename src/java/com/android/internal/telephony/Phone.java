@@ -599,10 +599,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                 .makeAppSmsManager(context);
         mLocalLog = new LocalLog(64);
 
-        if (TelephonyUtils.IS_DEBUGGABLE) {
-            mTelephonyTester = new TelephonyTester(this);
-        }
-
         setUnitTestMode(unitTestMode);
 
         SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(context);
@@ -643,6 +639,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
         if (getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
             return;
+        }
+
+        if (TelephonyUtils.IS_DEBUGGABLE) {
+            mTelephonyTester = new TelephonyTester(this);
         }
 
         // Initialize device storage and outgoing SMS usage monitors for SMSDispatchers.
