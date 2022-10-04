@@ -159,8 +159,9 @@ public class IccSmsInterfaceManager {
     protected IccSmsInterfaceManager(Phone phone) {
         this(phone, phone.getContext(),
                 (AppOpsManager) phone.getContext().getSystemService(Context.APP_OPS_SERVICE),
-                new SmsDispatchersController(
-                        phone, phone.mSmsStorageMonitor, phone.mSmsUsageMonitor),
+                TelephonyComponentFactory.getInstance().inject(
+                        SmsDispatchersController.class.getName())
+                        .makeSmsDispatchersController(phone),
                 new SmsPermissions(phone, phone.getContext(),
                         (AppOpsManager) phone.getContext().getSystemService(
                                 Context.APP_OPS_SERVICE)));
