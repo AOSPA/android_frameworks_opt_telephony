@@ -134,8 +134,7 @@ public class DataConfigManager extends Handler {
     private static final String DATA_CONFIG_NETWORK_TYPE_IDEN = "iDEN";
 
     /** Network type LTE. Should not be used outside of DataConfigManager. */
-    // TODO: Public only for use by DcTracker. This should be private once DcTracker is removed.
-    public static final String DATA_CONFIG_NETWORK_TYPE_LTE = "LTE";
+    private static final String DATA_CONFIG_NETWORK_TYPE_LTE = "LTE";
 
     /** Network type HSPA+. Should not be used outside of DataConfigManager. */
     private static final String DATA_CONFIG_NETWORK_TYPE_HSPAP = "HSPA+";
@@ -153,12 +152,10 @@ public class DataConfigManager extends Handler {
     private static final String DATA_CONFIG_NETWORK_TYPE_LTE_CA = "LTE_CA";
 
     /** Network type NR_NSA. Should not be used outside of DataConfigManager. */
-    // TODO: Public only for use by DcTracker. This should be private once DcTracker is removed.
-    public static final String DATA_CONFIG_NETWORK_TYPE_NR_NSA = "NR_NSA";
+    private static final String DATA_CONFIG_NETWORK_TYPE_NR_NSA = "NR_NSA";
 
     /** Network type NR_NSA_MMWAVE. Should not be used outside of DataConfigManager. */
-    // TODO: Public only for use by DcTracker. This should be private once DcTracker is removed.
-    public static final String DATA_CONFIG_NETWORK_TYPE_NR_NSA_MMWAVE = "NR_NSA_MMWAVE";
+    private static final String DATA_CONFIG_NETWORK_TYPE_NR_NSA_MMWAVE = "NR_NSA_MMWAVE";
 
     /** Network type NR_SA. Should not be used outside of DataConfigManager. */
     private static final String DATA_CONFIG_NETWORK_TYPE_NR_SA = "NR_SA";
@@ -232,11 +229,6 @@ public class DataConfigManager extends Handler {
      * at {@link TelephonyNetworkAgent#onNetworkUnwanted}
      */
     private EventFrequency mNetworkUnwantedAnomalyReportThreshold;
-
-    /**
-     * Anomaly report thresholds for frequent APN type change at {@link AccessNetworksManager}
-     */
-    private EventFrequency mQnsFrequentApnTypeChangeAnomalyReportThreshold;
 
     /**
      * {@code true} if enabled anomaly detection for param when QNS wants to change preferred
@@ -421,8 +413,6 @@ public class DataConfigManager extends Handler {
                 properties.getString(KEY_ANOMALY_NETWORK_UNWANTED, null), 0, 12);
         mSetupDataCallAnomalyReportThreshold = parseSlidingWindowCounterThreshold(
                 properties.getString(KEY_ANOMALY_SETUP_DATA_CALL_FAILURE, null), 0, 12);
-        mQnsFrequentApnTypeChangeAnomalyReportThreshold = parseSlidingWindowCounterThreshold(
-                properties.getString(KEY_ANOMALY_QNS_CHANGE_NETWORK, null), 0, 5);
         mIsInvalidQnsParamAnomalyReportEnabled = properties.getBoolean(
                 KEY_ANOMALY_QNS_PARAM, false);
         mNetworkConnectingTimeout = properties.getInt(
@@ -876,15 +866,6 @@ public class DataConfigManager extends Handler {
     }
 
     /**
-     * Anomaly report thresholds for frequent QNS change of preferred network
-     * at {@link AccessNetworksManager}
-     * @return EventFrequency to trigger the anomaly report
-     */
-    public @NonNull EventFrequency getAnomalyQnsChangeThreshold() {
-        return mQnsFrequentApnTypeChangeAnomalyReportThreshold;
-    }
-
-    /**
      * @return {@code true} if enabled anomaly report for invalid param when QNS wants to change
      * preferred network at {@link AccessNetworksManager}.
      */
@@ -1009,9 +990,8 @@ public class DataConfigManager extends Handler {
      * @param displayInfo The {@link TelephonyDisplayInfo} used to determine the type.
      * @return The equivalent {@link DataConfigNetworkType}.
      */
-    public static @NonNull @DataConfigNetworkType String getDataConfigNetworkType(
+    private static @NonNull @DataConfigNetworkType String getDataConfigNetworkType(
             @NonNull TelephonyDisplayInfo displayInfo) {
-        // TODO: Make method private once DataConnection is removed
         int networkType = displayInfo.getNetworkType();
         switch (displayInfo.getOverrideNetworkType()) {
             case TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED:
@@ -1305,8 +1285,6 @@ public class DataConfigManager extends Handler {
         pw.println("mSetupDataCallAnomalyReport=" + mSetupDataCallAnomalyReportThreshold);
         pw.println("mNetworkUnwantedAnomalyReport=" + mNetworkUnwantedAnomalyReportThreshold);
         pw.println("mImsReleaseRequestAnomalyReport=" + mImsReleaseRequestAnomalyReportThreshold);
-        pw.println("mQnsFrequentApnTypeChangeAnomalyReportThreshold="
-                + mQnsFrequentApnTypeChangeAnomalyReportThreshold);
         pw.println("mIsInvalidQnsParamAnomalyReportEnabled="
                 + mIsInvalidQnsParamAnomalyReportEnabled);
         pw.println("mNetworkConnectingTimeout=" + mNetworkConnectingTimeout);

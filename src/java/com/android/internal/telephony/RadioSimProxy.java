@@ -41,12 +41,33 @@ public class RadioSimProxy extends RadioServiceProxy {
      * Set IRadioSim as the AIDL implementation for RadioServiceProxy
      * @param halVersion Radio HAL version
      * @param sim IRadioSim implementation
+     *
+     * @return updated HAL version
      */
-    public void setAidl(HalVersion halVersion, android.hardware.radio.sim.IRadioSim sim) {
+    public HalVersion setAidl(HalVersion halVersion, android.hardware.radio.sim.IRadioSim sim) {
         mHalVersion = halVersion;
         mSimProxy = sim;
         mIsAidl = true;
-        Rlog.d(TAG, "AIDL initialized");
+
+        try {
+            HalVersion newHalVersion;
+            int version = sim.getInterfaceVersion();
+            switch(version) {
+                default:
+                    newHalVersion = RIL.RADIO_HAL_VERSION_2_0;
+                    break;
+            }
+            Rlog.d(TAG, "AIDL version=" + version + ", halVersion=" + newHalVersion);
+
+            if (mHalVersion.less(newHalVersion)) {
+                mHalVersion = newHalVersion;
+            }
+        } catch (RemoteException e) {
+            Rlog.e(TAG, "setAidl: " + e);
+        }
+
+        Rlog.d(TAG, "AIDL initialized mHalVersion=" + mHalVersion);
+        return mHalVersion;
     }
 
     /**
@@ -576,7 +597,7 @@ public class RadioSimProxy extends RadioServiceProxy {
                 halImsiInfo.base.expirationTime = imsiEncryptionInfo.getExpirationTime().getTime();
             }
             for (byte b : imsiEncryptionInfo.getPublicKey().getEncoded()) {
-                halImsiInfo.base.carrierKey.add(new Byte(b));
+                halImsiInfo.base.carrierKey.add(Byte.valueOf(b));
             }
             halImsiInfo.keyType = (byte) imsiEncryptionInfo.getKeyType();
 
@@ -592,7 +613,7 @@ public class RadioSimProxy extends RadioServiceProxy {
                 halImsiInfo.expirationTime = imsiEncryptionInfo.getExpirationTime().getTime();
             }
             for (byte b : imsiEncryptionInfo.getPublicKey().getEncoded()) {
-                halImsiInfo.carrierKey.add(new Byte(b));
+                halImsiInfo.carrierKey.add(Byte.valueOf(b));
             }
 
             ((android.hardware.radio.V1_1.IRadio) mRadioProxy).setCarrierInfoForImsiEncryption(

@@ -614,13 +614,16 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
 
         List<SubscriptionInfo> subInfoList = new ArrayList<>();
         // 1: not embedded, but has matching iccid with an embedded subscription.
-        subInfoList.add(new SubscriptionInfo(
-                        0, "1", 0, "", "", 0, 0, "", 0, null, "0", "0", "", false /* isEmbedded */,
-                        null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("1")
+                .build());
         // 2: embedded but no longer present.
-        subInfoList.add(new SubscriptionInfo(
-                0, "2", 0, "", "", 0, 0, "", 0, null, "0", "0", "", true /* isEmbedded */,
-                null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("2")
+                .setEmbedded(true)
+                .build());
 
         when(mSubscriptionController.getSubscriptionInfoListForEmbeddedSubscriptionUpdate(
                 new String[] { "1", "3"}, false /* removable */)).thenReturn(subInfoList);
@@ -668,13 +671,16 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
 
         List<SubscriptionInfo> subInfoList = new ArrayList<>();
         // 1: not embedded, but has matching iccid with an embedded subscription.
-        subInfoList.add(new SubscriptionInfo(
-                0, "1", 0, "", "", 0, 0, "", 0, null, "0", "0", "", false /* isEmbedded */,
-                null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("1")
+                .build());
         // 2: embedded.
-        subInfoList.add(new SubscriptionInfo(
-                0, "2", 0, "", "", 0, 0, "", 0, null, "0", "0", "", true /* isEmbedded */,
-                null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("2")
+                .setEmbedded(true)
+                .build());
 
         when(mSubscriptionController.getSubscriptionInfoListForEmbeddedSubscriptionUpdate(
                 new String[0], false /* removable */)).thenReturn(subInfoList);
@@ -702,9 +708,10 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
 
         List<SubscriptionInfo> subInfoList = new ArrayList<>();
         // 1: not embedded.
-        subInfoList.add(new SubscriptionInfo(
-                0, "1", 0, "", "", 0, 0, "", 0, null, "0", "0", "", false /* isEmbedded */,
-                null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("1")
+                .build());
 
         when(mSubscriptionController.getSubscriptionInfoListForEmbeddedSubscriptionUpdate(
                 new String[0], false /* removable */)).thenReturn(subInfoList);
