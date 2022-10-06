@@ -53,6 +53,7 @@ import android.os.PersistableBundle;
 import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.RemoteException;
+import android.provider.DeviceConfig;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneCapability;
 import android.telephony.PhoneStateListener;
@@ -65,6 +66,7 @@ import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsRegistrationAttributes;
 import android.telephony.ims.RegistrationManager;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.LocalLog;
 
@@ -85,8 +87,6 @@ import com.android.internal.telephony.SubscriptionInfoUpdater;
 import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.data.DataNetworkController.NetworkRequestList;
 import com.android.internal.telephony.data.DataSettingsManager.DataSettingsManagerCallback;
-import com.android.internal.telephony.dataconnection.ApnConfigTypeRepository;
-import com.android.internal.telephony.dataconnection.DcRequest;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.DataSwitch;
@@ -98,7 +98,6 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -114,6 +113,9 @@ import java.util.concurrent.CompletableFuture;
  */
 public class PhoneSwitcher extends Handler {
     protected static final String LOG_TAG = "PhoneSwitcher";
+    /** DeviceConfig key of the time threshold in ms for defining a network status to be stable. **/
+    private static final String KEY_AUTO_DATA_SWITCH_AVAILABILITY_STABILITY_TIME_THRESHOLD =
+            "auto_data_switch_availability_stability_time_threshold";
     protected static final boolean VDBG = false;
 
     private static final int DEFAULT_NETWORK_CHANGE_TIMEOUT_MS = 5000;
@@ -184,7 +186,6 @@ public class PhoneSwitcher extends Handler {
         }
     }
 
-    protected final List<DcRequest> mPrioritizedDcRequests = new ArrayList<>();
     private final @NonNull NetworkRequestList mNetworkRequestList = new NetworkRequestList();
     protected final RegistrantList mActivePhoneRegistrants;
     protected final SubscriptionController mSubscriptionController;
@@ -300,6 +301,7 @@ public class PhoneSwitcher extends Handler {
     private static final int EVENT_PROCESS_SIM_STATE_CHANGE       = 119;
     @VisibleForTesting
     public static final int EVENT_IMS_RADIO_TECH_CHANGED          = 120;
+    public static final int EVENT_DEVICE_CONFIG_CHANGED           = 121;
     protected final static int EVENT_VOICE_CALL_ENDED             = 121;
     protected static final int EVENT_UNSOL_MAX_DATA_ALLOWED_CHANGED = 122;
     protected static final int EVENT_OEM_HOOK_SERVICE_READY       = 123;
@@ -331,6 +333,13 @@ public class PhoneSwitcher extends Handler {
     private int mImsRegistrationTech = REGISTRATION_TECH_NONE;
 
     protected List<Set<CommandException.Error>> mCurrentDdsSwitchFailure;
+
+    /**
+     * Time threshold in ms to define a internet connection status to be stable(e.g. out of service,
+     * in service, wifi is the default active network.etc), while -1 indicates auto switch
+     * feature disabled.
+     */
+    private long mAutoDataSwitchAvailabilityStabilityTimeThreshold = -1;
 
     /** Data settings manager callback. Key is the phone id. */
     private final @NonNull Map<Integer, DataSettingsManagerCallback> mDataSettingsManagerCallbacks =
@@ -520,34 +529,29 @@ public class PhoneSwitcher extends Handler {
                     phone.getImsPhone().registerForPreciseCallStateChanged(
                             this, EVENT_PRECISE_CALL_STATE_CHANGED, null);
                 }
-                if (phone.isUsingNewDataStack()) {
-                    mDataSettingsManagerCallbacks.computeIfAbsent(phone.getPhoneId(),
-                            v -> new DataSettingsManagerCallback(this::post) {
-                                @Override
-                                public void onDataDuringCallChanged(boolean enabled) {
-                                    evaluateIfDataSwitchIsNeeded(
-                                            "EVENT_DATA_DURING_CALL_ENABLED_CHANGED");
-                                }
+                mDataSettingsManagerCallbacks.computeIfAbsent(phone.getPhoneId(),
+                        v -> new DataSettingsManagerCallback(this::post) {
+                            @Override
+                            public void onDataDuringCallChanged(boolean enabled) {
+                                evaluateIfDataSwitchIsNeeded(
+                                        "EVENT_DATA_DURING_CALL_ENABLED_CHANGED");
+                            }
 
-                                @Override
-                                public void onDataEnabledChanged(boolean enabled,
-                                        @TelephonyManager.DataEnabledChangedReason int reason,
-                                        @NonNull String callingPackage) {
-                                    evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
-                                }
+                            @Override
+                            public void onDataEnabledChanged(boolean enabled,
+                                    @TelephonyManager.DataEnabledChangedReason int reason,
+                                    @NonNull String callingPackage) {
+                                evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
+                            }
 
-                                @Override
-                                public void onDataRoamingEnabledChanged(boolean enabled) {
-                                    log("onDataRoamingEnabledChanged: enabled: " + enabled);
-                                    evaluateIfDataSwitchIsNeeded(
-                                            "EVENT_DATA_ROAMING_ENABLED_CHANGED");
-                                }});
-                    phone.getDataSettingsManager().registerCallback(
-                            mDataSettingsManagerCallbacks.get(phone.getPhoneId()));
-                } else {
-                    phone.getDataEnabledSettings().registerForDataEnabledChanged(
-                            this, EVENT_DATA_ENABLED_CHANGED, null);
-                }
+                            @Override
+                            public void onDataRoamingEnabledChanged(boolean enabled) {
+                                log("onDataRoamingEnabledChanged: enabled: " + enabled);
+                                evaluateIfDataSwitchIsNeeded(
+                                        "EVENT_DATA_ROAMING_ENABLED_CHANGED");
+                            }});
+                phone.getDataSettingsManager().registerCallback(
+                        mDataSettingsManagerCallbacks.get(phone.getPhoneId()));
 
                 registerForImsRadioTechChange(context, i);
             }
@@ -603,6 +607,17 @@ public class PhoneSwitcher extends Handler {
                 builder.build(), this);
         // we want to see all requests
         networkFactory.registerIgnoringScore();
+
+        // Register for device config update
+        DeviceConfig.addOnPropertiesChangedListener(
+                DeviceConfig.NAMESPACE_TELEPHONY, this::post,
+                properties -> {
+                    if (TextUtils.equals(DeviceConfig.NAMESPACE_TELEPHONY,
+                            properties.getNamespace())) {
+                        sendEmptyMessage(EVENT_DEVICE_CONFIG_CHANGED);
+                    }
+                });
+        updateDeviceConfig();
 
         updateHalCommandToUse();
 
@@ -894,12 +909,26 @@ public class PhoneSwitcher extends Handler {
                 }
                 break;
             }
+            case EVENT_DEVICE_CONFIG_CHANGED: {
+                updateDeviceConfig();
+                break;
+            }
             case EVENT_SUB_INFO_READY: {
                 log("Sub info is ready");
                 onEvaluate(REQUESTS_UNCHANGED, "sub_info_ready");
                 break;
             }
         }
+    }
+
+    /** Update local properties from {@link DeviceConfig} */
+    private void updateDeviceConfig() {
+        DeviceConfig.Properties properties = //read all telephony properties
+                DeviceConfig.getProperties(DeviceConfig.NAMESPACE_TELEPHONY);
+
+        mAutoDataSwitchAvailabilityStabilityTimeThreshold = properties.getInt(
+                KEY_AUTO_DATA_SWITCH_AVAILABILITY_STABILITY_TIME_THRESHOLD, -1);
+
     }
 
     protected synchronized void onMultiSimConfigChanged(int activeModemCount) {
@@ -930,22 +959,17 @@ public class PhoneSwitcher extends Handler {
                         this, EVENT_PRECISE_CALL_STATE_CHANGED, null);
             }
 
-            if (phone.isUsingNewDataStack()) {
-                mDataSettingsManagerCallbacks.computeIfAbsent(phone.getPhoneId(),
-                        v -> new DataSettingsManagerCallback(this::post) {
-                            @Override
-                            public void onDataEnabledChanged(boolean enabled,
-                                    @TelephonyManager.DataEnabledChangedReason int reason,
-                                    @NonNull String callingPackage) {
-                                evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
-                            }
-                        });
-                phone.getDataSettingsManager().registerCallback(
-                        mDataSettingsManagerCallbacks.get(phone.getPhoneId()));
-            } else {
-                phone.getDataEnabledSettings().registerForDataEnabledChanged(
-                        this, EVENT_DATA_ENABLED_CHANGED, null);
-            }
+            mDataSettingsManagerCallbacks.computeIfAbsent(phone.getPhoneId(),
+                    v -> new DataSettingsManagerCallback(this::post) {
+                        @Override
+                        public void onDataEnabledChanged(boolean enabled,
+                                @TelephonyManager.DataEnabledChangedReason int reason,
+                                @NonNull String callingPackage) {
+                            evaluateIfDataSwitchIsNeeded("EVENT_DATA_ENABLED_CHANGED");
+                        }
+                    });
+            phone.getDataSettingsManager().registerCallback(
+                    mDataSettingsManagerCallbacks.get(phone.getPhoneId()));
 
             Set<CommandException.Error> ddsFailure = new HashSet<CommandException.Error>();
             mCurrentDdsSwitchFailure.add(ddsFailure);
@@ -991,62 +1015,21 @@ public class PhoneSwitcher extends Handler {
     }
 
     private void onRequestNetwork(NetworkRequest networkRequest) {
-        if (PhoneFactory.getDefaultPhone().isUsingNewDataStack()) {
-            TelephonyNetworkRequest telephonyNetworkRequest = new TelephonyNetworkRequest(
-                    networkRequest, PhoneFactory.getDefaultPhone());
-            if (!mNetworkRequestList.contains(telephonyNetworkRequest)) {
-                mNetworkRequestList.add(telephonyNetworkRequest);
-                onEvaluate(REQUESTS_CHANGED, "netRequest");
-            }
-            return;
-        }
-        final DcRequest dcRequest =
-                DcRequest.create(networkRequest, createApnRepository(networkRequest));
-        if (dcRequest != null) {
-            if (!mPrioritizedDcRequests.contains(dcRequest)) {
-                collectRequestNetworkMetrics(networkRequest);
-                mPrioritizedDcRequests.add(dcRequest);
-                Collections.sort(mPrioritizedDcRequests);
-                onEvaluate(REQUESTS_CHANGED, "netRequest");
-                if (VDBG) log("Added DcRequest, size: " + mPrioritizedDcRequests.size());
-            }
+        TelephonyNetworkRequest telephonyNetworkRequest = new TelephonyNetworkRequest(
+                networkRequest, PhoneFactory.getDefaultPhone());
+        if (!mNetworkRequestList.contains(telephonyNetworkRequest)) {
+            mNetworkRequestList.add(telephonyNetworkRequest);
+            onEvaluate(REQUESTS_CHANGED, "netRequest");
         }
     }
 
     private void onReleaseNetwork(NetworkRequest networkRequest) {
-        if (PhoneFactory.getDefaultPhone().isUsingNewDataStack()) {
-            TelephonyNetworkRequest telephonyNetworkRequest = new TelephonyNetworkRequest(
-                    networkRequest, PhoneFactory.getDefaultPhone());
-            if (mNetworkRequestList.remove(telephonyNetworkRequest)) {
-                onEvaluate(REQUESTS_CHANGED, "netReleased");
-                collectReleaseNetworkMetrics(networkRequest);
-            }
-            return;
+        TelephonyNetworkRequest telephonyNetworkRequest = new TelephonyNetworkRequest(
+                networkRequest, PhoneFactory.getDefaultPhone());
+        if (mNetworkRequestList.remove(telephonyNetworkRequest)) {
+            onEvaluate(REQUESTS_CHANGED, "netReleased");
+            collectReleaseNetworkMetrics(networkRequest);
         }
-        final DcRequest dcRequest =
-                DcRequest.create(networkRequest, createApnRepository(networkRequest));
-        if (dcRequest != null) {
-            if (mPrioritizedDcRequests.remove(dcRequest)) {
-                onEvaluate(REQUESTS_CHANGED, "netReleased");
-                collectReleaseNetworkMetrics(networkRequest);
-                if (VDBG) log("Removed DcRequest, size: " + mPrioritizedDcRequests.size());
-            }
-        }
-    }
-
-    private ApnConfigTypeRepository createApnRepository(NetworkRequest networkRequest) {
-        int phoneIdForRequest = phoneIdForRequest(networkRequest);
-        int subId = mSubscriptionController.getSubIdUsingPhoneId(phoneIdForRequest);
-        CarrierConfigManager configManager = (CarrierConfigManager) mContext
-                .getSystemService(Context.CARRIER_CONFIG_SERVICE);
-
-        PersistableBundle carrierConfig;
-        if (configManager != null) {
-            carrierConfig = configManager.getConfigForSubId(subId);
-        } else {
-            carrierConfig = null;
-        }
-        return new ApnConfigTypeRepository(carrierConfig);
     }
 
     private void removeDefaultNetworkChangeCallback() {
@@ -1201,22 +1184,12 @@ public class PhoneSwitcher extends Handler {
                     }
 
                     if (newActivePhones.size() < mMaxDataAttachModemCount) {
-                        if (PhoneFactory.getDefaultPhone().isUsingNewDataStack()) {
-                            for (TelephonyNetworkRequest networkRequest : mNetworkRequestList) {
-                                int phoneIdForRequest = phoneIdForRequest(networkRequest);
-                                if (phoneIdForRequest == INVALID_PHONE_INDEX) continue;
-                                if (newActivePhones.contains(phoneIdForRequest)) continue;
-                                newActivePhones.add(phoneIdForRequest);
-                                if (newActivePhones.size() >= mMaxDataAttachModemCount) break;
-                            }
-                        } else {
-                            for (DcRequest dcRequest : mPrioritizedDcRequests) {
-                                int phoneIdForRequest = phoneIdForRequest(dcRequest.networkRequest);
-                                if (phoneIdForRequest == INVALID_PHONE_INDEX) continue;
-                                if (newActivePhones.contains(phoneIdForRequest)) continue;
-                                newActivePhones.add(phoneIdForRequest);
-                                if (newActivePhones.size() >= mMaxDataAttachModemCount) break;
-                            }
+                        for (TelephonyNetworkRequest networkRequest : mNetworkRequestList) {
+                            int phoneIdForRequest = phoneIdForRequest(networkRequest);
+                            if (phoneIdForRequest == INVALID_PHONE_INDEX) continue;
+                            if (newActivePhones.contains(phoneIdForRequest)) continue;
+                            newActivePhones.add(phoneIdForRequest);
+                            if (newActivePhones.size() >= mMaxDataAttachModemCount) break;
                         }
                     }
 
@@ -1366,13 +1339,8 @@ public class PhoneSwitcher extends Handler {
         }
     }
 
-    // Merge phoneIdForRequest(NetworkRequest netRequest) after Phone.isUsingNewDataStack() is
-    // cleaned up.
     private int phoneIdForRequest(TelephonyNetworkRequest networkRequest) {
-        return phoneIdForRequest(networkRequest.getNativeNetworkRequest());
-    }
-
-    private int phoneIdForRequest(NetworkRequest netRequest) {
+        NetworkRequest netRequest = networkRequest.getNativeNetworkRequest();
         int subId = getSubIdFromNetworkSpecifier(netRequest.getNetworkSpecifier());
 
         if (subId == DEFAULT_SUBSCRIPTION_ID) return mPreferredDataPhoneId;
@@ -1432,13 +1400,8 @@ public class PhoneSwitcher extends Handler {
         boolean isDataAllowedOnVoiceCallSub = false;
 
         if (voicePhone != null) {
-            if (voicePhone.isUsingNewDataStack()) {
-                isDataAllowedOnVoiceCallSub = voicePhone.getDataSettingsManager()
-                        .isDataEnabled(ApnSetting.TYPE_DEFAULT);
-            } else {
-                isDataAllowedOnVoiceCallSub = voicePhone.getDataEnabledSettings()
-                        .isDataEnabled(ApnSetting.TYPE_DEFAULT);
-            }
+            isDataAllowedOnVoiceCallSub = voicePhone.getDataSettingsManager()
+                    .isDataEnabled(ApnSetting.TYPE_DEFAULT);
         }
 
         if (mPhoneIdInVoiceCall != mPreferredDataPhoneId) {
@@ -1890,6 +1853,8 @@ public class PhoneSwitcher extends Handler {
         pw.println("mActiveModemCount=" + mActiveModemCount);
         pw.println("mPhoneIdInVoiceCall=" + mPhoneIdInVoiceCall);
         pw.println("mCurrentDdsSwitchFailure=" + mCurrentDdsSwitchFailure);
+        pw.println("mAutoDataSwitchAvailabilityStabilityTimeThreshold="
+                + mAutoDataSwitchAvailabilityStabilityTimeThreshold);
         pw.println("Local logs:");
         pw.increaseIndent();
         mLocalLog.dump(fd, pw, args);
@@ -1946,25 +1911,11 @@ public class PhoneSwitcher extends Handler {
         if (ddsPhoneId != INVALID_PHONE_INDEX && ddsPhoneId == phoneId) {
             return true;
         } else {
-            if (PhoneFactory.getDefaultPhone().isUsingNewDataStack()) {
-                if (mNetworkRequestList.isEmpty()) return false;
-                for (TelephonyNetworkRequest networkRequest : mNetworkRequestList) {
-                    phoneIdForRequest = phoneIdForRequest(networkRequest);
-                    if (phoneIdForRequest == phoneId) {
-                        return true;
-                    }
-                }
-            } else {
-                if (mPrioritizedDcRequests.size() == 0) {
-                    return false;
-                }
-                for (DcRequest dcRequest : mPrioritizedDcRequests) {
-                    if (dcRequest != null) {
-                        phoneIdForRequest = phoneIdForRequest(dcRequest.networkRequest);
-                        if (phoneIdForRequest == phoneId) {
-                            return true;
-                        }
-                    }
+            if (mNetworkRequestList.isEmpty()) return false;
+            for (TelephonyNetworkRequest networkRequest : mNetworkRequestList) {
+                phoneIdForRequest = phoneIdForRequest(networkRequest);
+                if (phoneIdForRequest == phoneId) {
+                    return true;
                 }
             }
         }
