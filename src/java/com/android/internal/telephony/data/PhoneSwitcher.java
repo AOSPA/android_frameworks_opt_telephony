@@ -452,6 +452,7 @@ public class PhoneSwitcher extends Handler {
                 break;
             }
         }
+        log("isPhoneInVoiceCallChanged: mPhoneIdInVoiceCall=" + mPhoneIdInVoiceCall);
 
         if (mPhoneIdInVoiceCall != oldPhoneIdInVoiceCall) {
             log("isPhoneInVoiceCallChanged from phoneId " + oldPhoneIdInVoiceCall
@@ -762,12 +763,20 @@ public class PhoneSwitcher extends Handler {
                 // register for radio tech change to listen to radio tech handover in case previous
                 // attempt was not successful
                 registerForImsRadioTechChange();
-                final boolean isTelephonyTempDdsSwitchEnabled = isTelephonyTempDdsSwitchEnabled();
+                boolean shouldEvaluateAfterCallStateChange = isTelephonyTempDdsSwitchEnabled();
                 // When smart temp dds is enabled, need to identify whether emergency override is
                 // taking effective, otherwise, if the phoneId in voice call didn't change,
                 // do nothing.
-                if (isTelephonyTempDdsSwitchEnabled && !isPhoneInVoiceCallChanged()) {
+                if (shouldEvaluateAfterCallStateChange && !isPhoneInVoiceCallChanged()) {
                     break;
+                } else if (isNddsPhoneIdle() && isPhoneInVoiceCallChanged()) {
+                    // When smart temp dds is enabled & DDS sub is PIN-1 enabled, modem would not
+                    // send recommendation on voice call end if DDS sub is hot-swapped and PIN-1
+                    // is not entered while call was active.  Re-evaluate voice call phoneid once
+                    // voice call ends.
+                    log("EVENT_PRECISE_CALL_STATE_CHANGED: Enforce evaluating once");
+                    // Always evaluating once after call ends.
+                    shouldEvaluateAfterCallStateChange = true;
                 }
 
                 if (!isAnyVoiceCallActiveOnDevice()) {
@@ -795,7 +804,7 @@ public class PhoneSwitcher extends Handler {
                         mEmergencyOverride.mPendingOriginatingCall = false;
                     }
                 }
-                if (isTelephonyTempDdsSwitchEnabled) {
+                if (shouldEvaluateAfterCallStateChange) {
                     evaluateIfDataSwitchIsNeeded("EVENT_PRECISE_CALL_STATE_CHANGED");
                 }
                 break;
@@ -1950,6 +1959,16 @@ public class PhoneSwitcher extends Handler {
 
     private boolean isInCall(Phone phone) {
         if ((phone != null) && (phone.getState() != PhoneConstants.State.IDLE)) return true;
+        return false;
+    }
+
+    private boolean isNddsPhoneIdle() {
+        for (Phone phone : PhoneFactory.getPhones()) {
+            if ((phone != null) && (phone.getSubId() != mPrimaryDataSubId)
+                        && (!isInCall(phone) || !isInCall(phone.getImsPhone()))) {
+                return true;
+            }
+        }
         return false;
     }
 }

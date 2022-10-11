@@ -3547,6 +3547,11 @@ public class DataNetworkControllerTest extends TelephonyTest {
         mDataNetworkControllerUT.removeNetworkRequest(request);
         processAllMessages();
 
+        // Simulate Connectivity releases network.
+        List<DataNetwork> dataNetworks = getDataNetworks();
+        dataNetworks.get(0).tearDown(DataNetwork.TEAR_DOWN_REASON_CONNECTIVITY_SERVICE_UNWANTED);
+        processAllMessages();
+
         // Data should be torn down on this non-preferred sub.
         verifyAllDataDisconnected();
     }

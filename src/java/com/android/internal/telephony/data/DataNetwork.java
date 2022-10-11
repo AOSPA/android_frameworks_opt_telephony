@@ -1735,7 +1735,9 @@ public class DataNetwork extends StateMachine {
             int preferredDataPhoneId = PhoneSwitcher.getInstance().getPreferredDataPhoneId();
             if (preferredDataPhoneId != SubscriptionManager.INVALID_PHONE_INDEX
                     && preferredDataPhoneId != mPhone.getPhoneId()) {
-                tearDown(TEAR_DOWN_REASON_PREFERRED_DATA_SWITCHED);
+                // Let Connectivity release this immediately after linger time expires.
+                log("Unregistering TNA-" + mNetworkAgent.getId());
+                mNetworkAgent.unregister();
             }
         }
     }
@@ -3203,13 +3205,7 @@ public class DataNetwork extends StateMachine {
             TelephonyNetworkRequest networkRequest = mAttachedNetworkRequestList.get(0);
             DataProfile dataProfile = mDataNetworkController.getDataProfileManager()
                     .getDataProfileForNetworkRequest(networkRequest, targetNetworkType);
-            // Some carriers have different profiles between cellular and IWLAN. We need to
-            // dynamically switch profile, but only when those profiles have same APN name.
-            if (dataProfile != null && dataProfile.getApnSetting() != null
-                    && mDataProfile.getApnSetting() != null
-                    && TextUtils.equals(dataProfile.getApnSetting().getApnName(),
-                    mDataProfile.getApnSetting().getApnName())
-                    && !dataProfile.equals(mDataProfile)) {
+            if (dataProfile != null) {
                 mHandoverDataProfile = dataProfile;
                 log("Used different data profile for handover. " + mDataProfile);
             }
