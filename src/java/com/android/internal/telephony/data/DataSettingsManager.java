@@ -80,7 +80,7 @@ public class DataSettingsManager extends Handler {
     /** Event for initializing DataSettingsManager. */
     private static final int EVENT_INITIALIZE = 11;
 
-    private final Phone mPhone;
+    protected final Phone mPhone;
     private final ContentResolver mResolver;
     private final SettingsObserver mSettingsObserver;
     private final String mLogTag;
@@ -342,7 +342,8 @@ public class DataSettingsManager extends Handler {
         }
     }
 
-    private void updateDataEnabledAndNotify(@TelephonyManager.DataEnabledChangedReason int reason) {
+    protected void updateDataEnabledAndNotify(
+            @TelephonyManager.DataEnabledChangedReason int reason) {
         updateDataEnabledAndNotify(reason, mPhone.getContext().getOpPackageName());
     }
 
