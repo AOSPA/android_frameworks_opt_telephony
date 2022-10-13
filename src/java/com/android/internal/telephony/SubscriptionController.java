@@ -79,7 +79,6 @@ import com.android.ims.ImsManager;
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.IccCardConstants.State;
-import com.android.internal.telephony.data.DataEnabledOverride;
 import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.uicc.IccUtils;
@@ -319,7 +318,7 @@ public class SubscriptionController extends ISub.Stub {
             SubscriptionManager.WFC_IMS_ROAMING_ENABLED,
             SubscriptionManager.DATA_ROAMING,
             SubscriptionManager.DISPLAY_NAME,
-            SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES,
+            SubscriptionManager.ENABLED_MOBILE_DATA_POLICIES,
             SubscriptionManager.UICC_APPLICATIONS_ENABLED,
             SubscriptionManager.IMS_RCS_UCE_ENABLED,
             SubscriptionManager.CROSS_SIM_CALLING_ENABLED,
@@ -2362,7 +2361,7 @@ public class SubscriptionController extends ISub.Stub {
                 values.put(propKey, cursor.getInt(columnIndex));
                 break;
             case SubscriptionManager.DISPLAY_NAME:
-            case SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES:
+            case SubscriptionManager.ENABLED_MOBILE_DATA_POLICIES:
                 values.put(propKey, cursor.getString(columnIndex));
                 break;
             default:
@@ -3416,7 +3415,7 @@ public class SubscriptionController extends ISub.Stub {
                         case SubscriptionManager.CROSS_SIM_CALLING_ENABLED:
                         case SubscriptionManager.IS_OPPORTUNISTIC:
                         case SubscriptionManager.GROUP_UUID:
-                        case SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES:
+                        case SubscriptionManager.ENABLED_MOBILE_DATA_POLICIES:
                         case SubscriptionManager.ALLOWED_NETWORK_TYPES:
                         case SubscriptionManager.D2D_STATUS_SHARING:
                         case SubscriptionManager.VOIMS_OPT_IN_STATUS:
@@ -3684,7 +3683,7 @@ public class SubscriptionController extends ISub.Stub {
                 return SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
             }
 
-            return phoneSwitcher.getOpportunisticDataSubscriptionId();
+            return phoneSwitcher.getAutoSelectedDataSubId();
         } finally {
             Binder.restoreCallingIdentity(token);
         }
@@ -4617,19 +4616,19 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     /**
-     * Set allowing mobile data during voice call.
+     * Set enabled mobile data policies.
      *
      * @param subId Subscription index
-     * @param rules Data enabled override rules in string format. See {@link DataEnabledOverride}
-     * for details.
+     * @param policies Mobile data policies in string format.
+     *                 See {@link TelephonyManager.MobileDataPolicy} for details.
      * @return {@code true} if settings changed, otherwise {@code false}.
      */
-    public boolean setDataEnabledOverrideRules(int subId, @NonNull String rules) {
-        if (DBG) logd("[setDataEnabledOverrideRules]+ rules:" + rules + " subId:" + subId);
+    public boolean setEnabledMobileDataPolicies(int subId, @NonNull String policies) {
+        if (DBG) logd("[setEnabledMobileDataPolicies]+ policies:" + policies + " subId:" + subId);
 
         validateSubId(subId);
         ContentValues value = new ContentValues(1);
-        value.put(SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES, rules);
+        value.put(SubscriptionManager.ENABLED_MOBILE_DATA_POLICIES, policies);
 
         boolean result = updateDatabase(value, subId, true) > 0;
 
@@ -4643,15 +4642,16 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     /**
-     * Get data enabled override rules.
+     * Get enabled mobile data policies.
      *
      * @param subId Subscription index
-     * @return Data enabled override rules in string
+     * @return Enabled mobile data policies joined by "," (ie. "1,2") or an empty string if no
+     * policies are enabled.
      */
     @NonNull
-    public String getDataEnabledOverrideRules(int subId) {
+    public String getEnabledMobileDataPolicies(int subId) {
         return TelephonyUtils.emptyIfNull(getSubscriptionProperty(subId,
-                SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES));
+                SubscriptionManager.ENABLED_MOBILE_DATA_POLICIES));
     }
 
     /**
