@@ -86,6 +86,7 @@ import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.internal.telephony.data.DataNetworkController;
 import com.android.internal.telephony.data.DataSettingsManager;
 import com.android.internal.telephony.data.LinkBandwidthEstimator;
+import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.EcbmHandler;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.imsphone.ImsPhone;
@@ -340,13 +341,14 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected AtomicReference<UiccCardApplication> mUiccApplication =
             new AtomicReference<UiccCardApplication>();
-    TelephonyTester mTelephonyTester;
+    private TelephonyTester mTelephonyTester;
     private String mName;
     private final String mActionDetached;
     private final String mActionAttached;
     protected DeviceStateMonitor mDeviceStateMonitor;
     protected DisplayInfoController mDisplayInfoController;
     protected AccessNetworksManager mAccessNetworksManager;
+    protected DataEnabledSettings mDataEnabledSettings;
     // Used for identify the carrier of current subscription
     protected CarrierResolver mCarrierResolver;
     protected SignalStrengthController mSignalStrengthController;
@@ -4632,6 +4634,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return false;
     }
 
+    public DataEnabledSettings getDataEnabledSettings() {
+        return mDataEnabledSettings;
+    }
+
     @UnsupportedAppUsage
     public IccSmsInterfaceManager getIccSmsInterfaceManager(){
         return null;
@@ -4984,6 +4990,13 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * Notifies that the IMS service connected supports the terminal-based call waiting service
      */
     public void setTerminalBasedCallWaitingSupported(boolean supported) {
+    }
+
+    /**
+     * @return Telephony tester instance.
+     */
+    public @Nullable TelephonyTester getTelephonyTester() {
+        return mTelephonyTester;
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {

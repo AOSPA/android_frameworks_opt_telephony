@@ -31,6 +31,7 @@ import static android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TE
 import static java.util.Arrays.copyOf;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -61,7 +62,6 @@ import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.TelephonyRegistryManager;
-import android.telephony.data.ApnSetting;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsRegistrationAttributes;
 import android.telephony.ims.RegistrationManager;
@@ -197,6 +197,7 @@ public class PhoneSwitcher extends Handler {
     @VisibleForTesting
     protected final CellularNetworkValidator mValidator;
     private int mPendingSwitchSubId = INVALID_SUBSCRIPTION_ID;
+    private int mLastAutoSelectedSwitchReason = -1;
     private boolean mPendingSwitchNeedValidation;
     @VisibleForTesting
     public final CellularNetworkValidator.ValidationCallback mValidationCallback =
@@ -229,9 +230,12 @@ public class PhoneSwitcher extends Handler {
     // Internet data if mOpptDataSubId is not set.
     protected int mPrimaryDataSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
 
-    // mOpptDataSubId must be an active subscription. If it's set, it overrides mPrimaryDataSubId
-    // to be used for Internet data.
-    private int mOpptDataSubId = SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
+    // The automatically suggested preferred data subId (by e.g. CBRS or auto data switch), a
+    // candidate for preferred data subId, which is eventually presided by
+    // updatePreferredDataPhoneId().
+    // If CBRS/auto switch feature selects the primary data subId as the preferred data subId,
+    // its value will be DEFAULT_SUBSCRIPTION_ID.
+    private int mAutoSelectedDataSubId = SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
 
     // The phone ID that has an active voice call. If set, and its mobile data setting is on,
     // it will become the mPreferredDataPhoneId.
@@ -1211,7 +1215,7 @@ public class PhoneSwitcher extends Handler {
 
                 if (VDBG) {
                     log("mPrimaryDataSubId = " + mPrimaryDataSubId);
-                    log("mOpptDataSubId = " + mOpptDataSubId);
+                    log("mAutoSelectedDataSubId = " + mAutoSelectedDataSubId);
                     for (int i = 0; i < mActiveModemCount; i++) {
                         log(" phone[" + i + "] using sub[" + mPhoneSubscriptions[i] + "]");
                     }
@@ -1394,8 +1398,8 @@ public class PhoneSwitcher extends Handler {
     }
 
     private int getSubIdForDefaultNetworkRequests() {
-        if (mSubscriptionController.isActiveSubId(mOpptDataSubId)) {
-            return mOpptDataSubId;
+        if (mSubscriptionController.isActiveSubId(mAutoSelectedDataSubId)) {
+            return mAutoSelectedDataSubId;
         } else {
             return mPrimaryDataSubId;
         }
@@ -1406,11 +1410,14 @@ public class PhoneSwitcher extends Handler {
     protected void updatePreferredDataPhoneId() {
         log("updatePreferredDataPhoneId+");
         Phone voicePhone = findPhoneById(mPhoneIdInVoiceCall);
+        // check user enabled data on the default phone
+        int defaultDataPhoneId = SubscriptionController.getInstance().getPhoneId(mPrimaryDataSubId);
+        Phone defaultDataPhone = findPhoneById(defaultDataPhoneId);
         boolean isDataAllowedOnVoiceCallSub = false;
-
-        if (voicePhone != null) {
-            isDataAllowedOnVoiceCallSub = voicePhone.getDataSettingsManager()
-                    .isDataEnabled(ApnSetting.TYPE_DEFAULT);
+        if (voicePhone != null && defaultDataPhone != null
+                && defaultDataPhone.isUserDataEnabled()) {
+            // check voice during call feature is enabled
+            isDataAllowedOnVoiceCallSub = voicePhone.getDataSettingsManager().isDataEnabled();
         }
 
         if (mPhoneIdInVoiceCall != mPreferredDataPhoneId) {
@@ -1440,7 +1447,8 @@ public class PhoneSwitcher extends Handler {
             // works as long as the "data during call" is enabled in case of nDDS voice call.
             if (voicePhone != null) {
                 isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
-                        && voicePhone.getDataSettingsManager().isDataAllowedInVoiceCall();
+                        && voicePhone.getDataSettingsManager().isMobileDataPolicyEnabled(TelephonyManager
+                        .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL);
             }
         }
         log("updatePreferredDataPhoneId isDataAllowedOnVoiceCallSub: "
@@ -1569,22 +1577,35 @@ public class PhoneSwitcher extends Handler {
      */
     private void setOpportunisticDataSubscription(int subId, boolean needValidation,
             ISetOpportunisticDataCallback callback) {
-        if (!mSubscriptionController.isActiveSubId(subId)
-                && subId != SubscriptionManager.DEFAULT_SUBSCRIPTION_ID) {
-            log("Can't switch data to inactive subId " + subId);
+        validate(subId, needValidation,
+                DataSwitch.Reason.DATA_SWITCH_REASON_CBRS, callback);
+    }
+
+    /**
+     * Try setup a new internet connection on the subId that's pending validation. If the validation
+     * succeeds, this subId will be evaluated for being the preferred data subId; If fails, nothing
+     * happens.
+     * Callback will be updated with the validation result.
+     *
+     * @param subId Sub Id that's pending switch, awaiting validation.
+     * @param needValidation {@code false} if switch to the subId even if validation fails.
+     * @param switchReason The switch reason for this validation
+     * @param callback Optional - specific for external opportunistic sub validation request.
+     */
+    private void validate(int subId, boolean needValidation, int switchReason,
+            @Nullable ISetOpportunisticDataCallback callback) {
+        int subIdToValidate = (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID)
+                ? mPrimaryDataSubId : subId;
+        if (!mSubscriptionController.isActiveSubId(subIdToValidate)) {
+            log("Can't switch data to inactive subId " + subIdToValidate);
+            if (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID) {
+                // the default data sub is not selected yet, store the intent of switching to
+                // default subId once it becomes available.
+                mAutoSelectedDataSubId = SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
+            }
             sendSetOpptCallbackHelper(callback, SET_OPPORTUNISTIC_SUB_INACTIVE_SUBSCRIPTION);
             return;
         }
-
-        // Remove EVENT_NETWORK_VALIDATION_DONE. Don't handle validation result of previously subId
-        // if queued.
-        removeMessages(EVENT_NETWORK_VALIDATION_DONE);
-        removeMessages(EVENT_NETWORK_AVAILABLE);
-
-        int subIdToValidate = (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID)
-                ? mPrimaryDataSubId : subId;
-
-        mPendingSwitchSubId = INVALID_SUBSCRIPTION_ID;
 
         if (mValidator.isValidating()) {
             mValidator.stopValidation();
@@ -1592,22 +1613,29 @@ public class PhoneSwitcher extends Handler {
             mSetOpptSubCallback = null;
         }
 
-        if (subId == mOpptDataSubId) {
+        // Remove EVENT_NETWORK_VALIDATION_DONE. Don't handle validation result of previous subId
+        // if queued.
+        removeMessages(EVENT_NETWORK_VALIDATION_DONE);
+        removeMessages(EVENT_NETWORK_AVAILABLE);
+
+        mPendingSwitchSubId = INVALID_SUBSCRIPTION_ID;
+
+        if (subIdToValidate == mPreferredDataSubId.get()) {
             sendSetOpptCallbackHelper(callback, SET_OPPORTUNISTIC_SUB_SUCCESS);
             return;
         }
 
-        logDataSwitchEvent(subId == DEFAULT_SUBSCRIPTION_ID ? mPrimaryDataSubId : subId,
+        mLastAutoSelectedSwitchReason = switchReason;
+        logDataSwitchEvent(subIdToValidate,
                 TelephonyEvent.EventState.EVENT_STATE_START,
-                DataSwitch.Reason.DATA_SWITCH_REASON_CBRS);
-        registerDefaultNetworkChangeCallback(
-                subId == DEFAULT_SUBSCRIPTION_ID ? mPrimaryDataSubId : subId,
-                DataSwitch.Reason.DATA_SWITCH_REASON_CBRS);
+                switchReason);
+        registerDefaultNetworkChangeCallback(subIdToValidate,
+                switchReason);
 
         // If validation feature is not supported, set it directly. Otherwise,
         // start validation on the subscription first.
         if (!mValidator.isValidationFeatureSupported()) {
-            setOpportunisticSubscriptionInternal(subId);
+            setAutoSelectedDataSubIdInternal(subIdToValidate);
             sendSetOpptCallbackHelper(callback, SET_OPPORTUNISTIC_SUB_SUCCESS);
             return;
         }
@@ -1649,12 +1677,15 @@ public class PhoneSwitcher extends Handler {
     }
 
     /**
-     * Set opportunistic data subscription.
+     * Evaluate whether the specified sub Id can be set to be the preferred data sub Id.
+     *
+     * @param subId The subId that we tried to validate: could possibly be unvalidated if validation
+     * feature is not supported.
      */
-    private void setOpportunisticSubscriptionInternal(int subId) {
-        if (mOpptDataSubId != subId) {
-            mOpptDataSubId = subId;
-            onEvaluate(REQUESTS_UNCHANGED, "oppt data subId changed");
+    private void setAutoSelectedDataSubIdInternal(int subId) {
+        if (mAutoSelectedDataSubId != subId) {
+            mAutoSelectedDataSubId = subId;
+            onEvaluate(REQUESTS_UNCHANGED, switchReasonToString(mLastAutoSelectedSwitchReason));
         }
     }
 
@@ -1667,11 +1698,10 @@ public class PhoneSwitcher extends Handler {
         } else if (!confirm) {
             resultForCallBack = SET_OPPORTUNISTIC_SUB_VALIDATION_FAILED;
         } else {
-            if (mSubscriptionController.isOpportunistic(subId)) {
-                setOpportunisticSubscriptionInternal(subId);
+            if (subId == mPrimaryDataSubId) {
+                setAutoSelectedDataSubIdInternal(DEFAULT_SUBSCRIPTION_ID);
             } else {
-                // Switching data back to primary subscription.
-                setOpportunisticSubscriptionInternal(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID);
+                setAutoSelectedDataSubIdInternal(subId);
             }
             resultForCallBack = SET_OPPORTUNISTIC_SUB_SUCCESS;
         }
@@ -1744,10 +1774,6 @@ public class PhoneSwitcher extends Handler {
     private void updateHalCommandToUse() {
         mHalCommandToUse = mRadioConfig.isSetPreferredDataCommandSupported()
                 ? HAL_COMMAND_PREFERRED_DATA : HAL_COMMAND_ALLOW_DATA;
-    }
-
-    public int getOpportunisticDataSubscriptionId() {
-        return mOpptDataSubId;
     }
 
     public int getPreferredDataPhoneId() {
@@ -1831,6 +1857,13 @@ public class PhoneSwitcher extends Handler {
         return mPreferredDataSubId.get();
     }
 
+    /**
+     * @return The auto selected data subscription id.
+     */
+    public int getAutoSelectedDataSubId() {
+        return mAutoSelectedDataSubId;
+    }
+
     // TODO (b/148396668): add an internal callback method to monitor phone capability change,
     // and hook this call to that callback.
     private void onPhoneCapabilityChanged(PhoneCapability capability) {
@@ -1855,7 +1888,7 @@ public class PhoneSwitcher extends Handler {
         pw.println("DefaultDataPhoneId=" + mSubscriptionController.getPhoneId(
                 mSubscriptionController.getDefaultDataSubId()));
         pw.println("mPrimaryDataSubId=" + mPrimaryDataSubId);
-        pw.println("mOpptDataSubId=" + mOpptDataSubId);
+        pw.println("mAutoSelectedDataSubId=" + mAutoSelectedDataSubId);
         pw.println("mIsRegisteredForImsRadioTechChange=" + mIsRegisteredForImsRadioTechChange);
         pw.println("mPendingSwitchNeedValidation=" + mPendingSwitchNeedValidation);
         pw.println("mMaxDataAttachModemCount=" + mMaxDataAttachModemCount);
