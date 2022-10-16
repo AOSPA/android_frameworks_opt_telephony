@@ -71,6 +71,7 @@ import android.util.SparseArray;
 
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.TelephonyTest;
+import com.android.internal.telephony.data.DataConfigManager.DataConfigManagerCallback;
 import com.android.internal.telephony.data.DataEvaluation.DataAllowedReason;
 import com.android.internal.telephony.data.DataNetwork.DataNetworkCallback;
 import com.android.internal.telephony.data.DataNetworkController.NetworkRequestList;
@@ -312,6 +313,24 @@ public class DataNetworkTest extends TelephonyTest {
                 mMockedWwanDataServiceManager);
         mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
                 mMockedWlanDataServiceManager);
+
+        for (int transport : new int[]{AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                AccessNetworkConstants.TRANSPORT_TYPE_WLAN}) {
+            doAnswer(invocation -> {
+                Message msg = (Message) invocation.getArguments()[1];
+                msg.sendToTarget();
+                return null;
+            }).when(mDataServiceManagers.get(transport)).startHandover(anyInt(),
+                    any(Message.class));
+
+            doAnswer(invocation -> {
+                Message msg = (Message) invocation.getArguments()[1];
+                msg.sendToTarget();
+                return null;
+            }).when(mDataServiceManagers.get(transport)).cancelHandover(anyInt(),
+                    any(Message.class));
+        }
+
         doReturn(true).when(mSST).isConcurrentVoiceAndDataAllowed();
         doReturn(AccessNetworkConstants.TRANSPORT_TYPE_WWAN).when(mAccessNetworksManager)
                 .getPreferredTransportByNetworkCapability(anyInt());
@@ -875,6 +894,7 @@ public class DataNetworkTest extends TelephonyTest {
         mDataNetworkUT.startHandover(AccessNetworkConstants.TRANSPORT_TYPE_WLAN, null);
         processAllMessages();
 
+        verify(mMockedWwanDataServiceManager).startHandover(eq(123), any(Message.class));
         verify(mLinkBandwidthEstimator).unregisterCallback(any(
                 LinkBandwidthEstimatorCallback.class));
         assertThat(mDataNetworkUT.getTransport())
@@ -898,8 +918,9 @@ public class DataNetworkTest extends TelephonyTest {
         Mockito.clearInvocations(mDataNetworkCallback);
         Mockito.clearInvocations(mLinkBandwidthEstimator);
         mDataNetworkUT.startHandover(AccessNetworkConstants.TRANSPORT_TYPE_WWAN, null);
-        processAllMessages();
+        processAllFutureMessages();
 
+        verify(mMockedWlanDataServiceManager).startHandover(eq(456), any(Message.class));
         verify(mLinkBandwidthEstimator).registerCallback(
                 any(LinkBandwidthEstimatorCallback.class));
         assertThat(mDataNetworkUT.getTransport())
@@ -918,6 +939,8 @@ public class DataNetworkTest extends TelephonyTest {
         mDataNetworkUT.startHandover(AccessNetworkConstants.TRANSPORT_TYPE_WLAN, null);
         processAllMessages();
 
+        verify(mMockedWwanDataServiceManager).startHandover(eq(123), any(Message.class));
+        verify(mMockedWwanDataServiceManager).cancelHandover(eq(123), any(Message.class));
         verify(mDataNetworkCallback).onHandoverFailed(eq(mDataNetworkUT),
                 eq(DataFailCause.SERVICE_TEMPORARILY_UNAVAILABLE), eq(-1L),
                 eq(DataCallResponse.HANDOVER_FAILURE_MODE_LEGACY));
@@ -979,7 +1002,7 @@ public class DataNetworkTest extends TelephonyTest {
         testTearDown();
 
         // Verify register all events.
-        verify(mDataConfigManager).registerForConfigUpdate(any(Handler.class), anyInt());
+        verify(mDataConfigManager).registerCallback(any(DataConfigManagerCallback.class));
         verify(mDisplayInfoController).registerForTelephonyDisplayInfoChanged(
                 any(Handler.class), anyInt(), eq(null));
         verify(mMockedWwanDataServiceManager).registerForDataCallListChanged(
@@ -1004,7 +1027,7 @@ public class DataNetworkTest extends TelephonyTest {
         verify(mImsCT).registerForVoiceCallEnded(any(Handler.class), anyInt(), eq(null));
 
         // Verify unregister all events.
-        verify(mDataConfigManager).unregisterForConfigUpdate(any(Handler.class));
+        verify(mDataConfigManager).unregisterCallback(any(DataConfigManagerCallback.class));
         verify(mDisplayInfoController).unregisterForTelephonyDisplayInfoChanged(any(Handler.class));
         verify(mMockedWwanDataServiceManager).unregisterForDataCallListChanged(any(Handler.class));
         verify(mMockedWlanDataServiceManager).unregisterForDataCallListChanged(any(Handler.class));
