@@ -234,7 +234,7 @@ public class DataNetworkController extends Handler {
     protected final @NonNull DataRetryManager mDataRetryManager;
     private final @NonNull ImsManager mImsManager;
     private final @NonNull NetworkPolicyManager mNetworkPolicyManager;
-    private final @NonNull SparseArray<DataServiceManager> mDataServiceManagers =
+    protected final @NonNull SparseArray<DataServiceManager> mDataServiceManagers =
             new SparseArray<>();
 
     /** The subscription index associated with this data network controller. */
@@ -271,7 +271,7 @@ public class DataNetworkController extends Handler {
      * The current data network list, including the ones that are connected, connecting, or
      * disconnecting.
      */
-    private final @NonNull List<DataNetwork> mDataNetworkList = new ArrayList<>();
+    protected final @NonNull List<DataNetwork> mDataNetworkList = new ArrayList<>();
 
     /** {@code true} indicating at least one data network exists. */
     private boolean mAnyDataNetworkExisting;
@@ -806,11 +806,16 @@ public class DataNetworkController extends Handler {
 
         mAccessNetworksManager = phone.getAccessNetworksManager();
         mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
-                new DataServiceManager(mPhone, looper, AccessNetworkConstants.TRANSPORT_TYPE_WWAN));
+                TelephonyComponentFactory.getInstance()
+                        .inject(DataServiceManager.class.getName())
+                        .makeDataServiceManager(phone, looper,
+                                AccessNetworkConstants.TRANSPORT_TYPE_WWAN));
         if (!mAccessNetworksManager.isInLegacyMode()) {
             mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
-                    new DataServiceManager(mPhone, looper,
-                            AccessNetworkConstants.TRANSPORT_TYPE_WLAN));
+                    TelephonyComponentFactory.getInstance()
+                            .inject(DataServiceManager.class.getName())
+                            .makeDataServiceManager(phone, looper,
+                                    AccessNetworkConstants.TRANSPORT_TYPE_WLAN));
         }
         mDataConfigManager = TelephonyComponentFactory.getInstance().inject(
                 DataConfigManager.class.getName())
@@ -2778,7 +2783,7 @@ public class DataNetworkController extends Handler {
      * @param dataNetwork The data network.
      * @param cause The disconnect cause.
      */
-    private void onDataNetworkDisconnected(@NonNull DataNetwork dataNetwork,
+    protected void onDataNetworkDisconnected(@NonNull DataNetwork dataNetwork,
             @DataFailureCause int cause) {
         logl("onDataNetworkDisconnected: " + dataNetwork + ", cause="
                 + DataFailCause.toString(cause) + "(" + cause + ")");
