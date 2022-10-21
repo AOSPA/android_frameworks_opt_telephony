@@ -2326,11 +2326,7 @@ public class DataNetwork extends StateMachine {
         mTrafficDescriptors.clear();
         mTrafficDescriptors.addAll(response.getTrafficDescriptors());
 
-        mQosBearerSessions.clear();
-        mQosBearerSessions.addAll(response.getQosBearerSessions());
-        if (mQosCallbackTracker != null) {
-            mQosCallbackTracker.updateSessions(mQosBearerSessions);
-        }
+        updateQosBearerSessions(response.getQosBearerSessions());
 
         if (!linkProperties.equals(mLinkProperties)) {
             // If the new link properties is not compatible (e.g. IP changes, interface changes),
@@ -2358,6 +2354,20 @@ public class DataNetwork extends StateMachine {
         }
 
         updateNetworkCapabilities();
+    }
+
+    /**
+     * Update QoS bearer sessions based on the latest list of {@link QosBearerSession}.
+     *
+     * @param qosBearerSessions The list of QoS bearer sessions from data service.
+     */
+    public void updateQosBearerSessions(@NonNull List<QosBearerSession> qosBearerSessions) {
+        log("updateQosBearerSessions: " + qosBearerSessions);
+        mQosBearerSessions.clear();
+        mQosBearerSessions.addAll(qosBearerSessions);
+        if (mQosCallbackTracker != null) {
+            mQosCallbackTracker.updateSessions(mQosBearerSessions);
+        }
     }
 
     /**
@@ -2596,7 +2606,10 @@ public class DataNetwork extends StateMachine {
                 validateDataCallResponse(response);
                 mDataCallResponse = response;
                 if (response.getLinkStatus() != DataCallResponse.LINK_STATUS_INACTIVE) {
-                    updateDataNetwork(response);
+                    DataCallResponse dataCallResponse = mDataServiceManagers.get(mTransport)
+                            .appendQosParamsToDataCallResponseIfNeeded(
+                            mCid.get(mTransport), mDataProfile, response);
+                    updateDataNetwork(dataCallResponse);
                 } else {
                     log("onDataStateChanged: PDN inactive reported by "
                             + AccessNetworkConstants.transportTypeToString(mTransport)
