@@ -1020,7 +1020,7 @@ public class SubscriptionInfoUpdater extends Handler {
                 mSubscriptionController.insertEmptySubInfoRecord(
                         embeddedProfile.getIccid(), SubscriptionManager.SIM_NOT_INSERTED);
             } else {
-                nameSource = existingSubscriptions.get(index).getNameSource();
+                nameSource = existingSubscriptions.get(index).getDisplayNameSource();
                 prevCarrierId = existingSubscriptions.get(index).getCarrierId();
                 existingSubscriptions.remove(index);
             }

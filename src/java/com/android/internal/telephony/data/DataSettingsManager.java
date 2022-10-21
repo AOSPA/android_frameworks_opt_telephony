@@ -737,7 +737,7 @@ public class DataSettingsManager extends Handler {
         // mobile data policy : data during call
         if (isMobileDataPolicyEnabled(TelephonyManager
                 .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL)) {
-            overridden = isNonDds;
+            overridden = isNonDds && mPhone.getState() != PhoneConstants.State.IDLE;
         }
         return overridden;
     }
