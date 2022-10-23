@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "00f79844_a0294395",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 1000706
+      },
+      "writtenOn": "2022-10-23T20:00:30Z",
+      "side": 1,
+      "message": "Fixes 2nd sim mobile data on legacy devices",
+      "revId": "fa38813018d2ec610f0aa11295880a67d7534a15",
+      "serverId": "3162e3d8-d894-470e-abd9-724f7b0effad"
+    }
+  ]
+}
