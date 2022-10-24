@@ -2779,6 +2779,22 @@ public interface CommandsInterface {
     default void getUsageSetting(Message result) {}
 
     /**
+     * Register for Emergency network scan result.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    default void registerForEmergencyNetworkScan(Handler h, int what, Object obj) {}
+
+    /**
+     * Unregister for Emergency network scan result.
+     *
+     * @param h Handler to be removed from the registrant list.
+     */
+    default void unregisterForEmergencyNetworkScan(Handler h) {}
+
+    /**
      *  Get phone radio capability
      *
      *  @param result Callback message.

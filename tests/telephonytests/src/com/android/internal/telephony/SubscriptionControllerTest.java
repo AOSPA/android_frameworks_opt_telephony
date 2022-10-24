@@ -312,7 +312,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
                 .getActiveSubscriptionInfo(subID, mCallingPackage, mCallingFeature);
         assertNotNull(subInfo);
         assertEquals(disName, subInfo.getDisplayName());
-        assertEquals(nameSource, subInfo.getNameSource());
+        assertEquals(nameSource, subInfo.getDisplayNameSource());
     }
 
     private void setSimEmbedded(boolean isEmbedded) throws Exception {
@@ -346,7 +346,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
 
         assertNotNull(subInfo);
         assertEquals(DISPLAY_NAME, subInfo.getDisplayName());
-        assertEquals(nameSource, subInfo.getNameSource());
+        assertEquals(nameSource, subInfo.getDisplayNameSource());
     }
 
     @Test @SmallTest
@@ -373,7 +373,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
 
         assertNotNull(subInfo);
         assertEquals(DISPLAY_NAME, subInfo.getDisplayName());
-        assertEquals(nameSource, subInfo.getNameSource());
+        assertEquals(nameSource, subInfo.getDisplayNameSource());
     }
 
     @Test @SmallTest
@@ -400,7 +400,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
 
         assertNotNull(subInfo);
         assertEquals(DISPLAY_NAME, subInfo.getDisplayName());
-        assertEquals(nameSource, subInfo.getNameSource());
+        assertEquals(nameSource, subInfo.getDisplayNameSource());
     }
 
     @Test @SmallTest
@@ -431,7 +431,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
 
         assertNotNull(subInfo);
         assertEquals(DISPLAY_NAME, subInfo.getDisplayName());
-        assertEquals(nameSource, subInfo.getNameSource());
+        assertEquals(nameSource, subInfo.getDisplayNameSource());
     }
 
     @Test @SmallTest
@@ -457,7 +457,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
 
         assertNotNull(subInfo);
         assertEquals(DISPLAY_NAME, subInfo.getDisplayName());
-        assertEquals(nameSource, subInfo.getNameSource());
+        assertEquals(nameSource, subInfo.getDisplayNameSource());
     }
 
     @Test @SmallTest
@@ -482,13 +482,13 @@ public class SubscriptionControllerTest extends TelephonyTest {
 
         assertNotNull(subInfo);
         assertEquals(DISPLAY_NAME, subInfo.getDisplayName());
-        assertEquals(nameSource, subInfo.getNameSource());
+        assertEquals(nameSource, subInfo.getDisplayNameSource());
     }
 
     @Test @SmallTest
     public void testIsExistingNameSourceStillValid_pnnIsNotNull_returnTrue() {
         when((mMockSubscriptionInfo).getSubscriptionId()).thenReturn(FAKE_SUBID);
-        when(mMockSubscriptionInfo.getNameSource())
+        when(mMockSubscriptionInfo.getDisplayNameSource())
                 .thenReturn(SubscriptionManager.NAME_SOURCE_SIM_PNN);
         when(mPhone.getPlmn()).thenReturn("testing_pnn");
 
@@ -498,7 +498,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
     @Test @SmallTest
     public void testIsExistingNameSourceStillValid_spnIsNotNull_returnTrue() {
         when((mMockSubscriptionInfo).getSubscriptionId()).thenReturn(FAKE_SUBID);
-        when(mMockSubscriptionInfo.getNameSource())
+        when(mMockSubscriptionInfo.getDisplayNameSource())
                 .thenReturn(SubscriptionManager.NAME_SOURCE_SIM_SPN);
         when(mUiccController.getUiccProfileForPhone(anyInt())).thenReturn(mUiccProfile);
         when(mUiccProfile.getServiceProviderName()).thenReturn("testing_spn");
@@ -510,7 +510,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
     public void testIsExistingNameSourceStillValid_simIsEmbedded_returnTrue() {
         when(mMockSubscriptionInfo.isEmbedded()).thenReturn(true);
         when((mMockSubscriptionInfo).getSubscriptionId()).thenReturn(FAKE_SUBID);
-        when(mMockSubscriptionInfo.getNameSource())
+        when(mMockSubscriptionInfo.getDisplayNameSource())
                 .thenReturn(SubscriptionManager.NAME_SOURCE_CARRIER);
 
         assertTrue(mSubscriptionControllerUT.isExistingNameSourceStillValid(mMockSubscriptionInfo));
@@ -520,7 +520,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
     public void testIsExistingNameSourceStillValid_carrierConfigIsNull_returnTrue() {
         when(mMockSubscriptionInfo.isEmbedded()).thenReturn(false);
         when((mMockSubscriptionInfo).getSubscriptionId()).thenReturn(FAKE_SUBID);
-        when(mMockSubscriptionInfo.getNameSource())
+        when(mMockSubscriptionInfo.getDisplayNameSource())
                 .thenReturn(SubscriptionManager.NAME_SOURCE_CARRIER);
         when(mCarrierConfigManager.getConfigForSubId(FAKE_SUBID)).thenReturn(null);
 
@@ -531,7 +531,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
     public void testIsExistingNameSourceStillValid_carrierNameOverrideIsTrue_returnTrue() {
         when(mMockSubscriptionInfo.isEmbedded()).thenReturn(false);
         when((mMockSubscriptionInfo).getSubscriptionId()).thenReturn(FAKE_SUBID);
-        when(mMockSubscriptionInfo.getNameSource())
+        when(mMockSubscriptionInfo.getDisplayNameSource())
                 .thenReturn(SubscriptionManager.NAME_SOURCE_CARRIER);
         mCarrierConfigs.putBoolean(CarrierConfigManager.KEY_CARRIER_NAME_OVERRIDE_BOOL, true);
 
@@ -542,7 +542,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
     public void testIsExistingNameSourceStillValid_spnIsNullAndCarrierNameIsNotNull_returnTrue() {
         when(mMockSubscriptionInfo.isEmbedded()).thenReturn(false);
         when((mMockSubscriptionInfo).getSubscriptionId()).thenReturn(FAKE_SUBID);
-        when(mMockSubscriptionInfo.getNameSource())
+        when(mMockSubscriptionInfo.getDisplayNameSource())
                 .thenReturn(SubscriptionManager.NAME_SOURCE_CARRIER);
         when(mUiccController.getUiccProfileForPhone(anyInt())).thenReturn(mUiccProfile);
         when(mUiccProfile.getServiceProviderName()).thenReturn(null);
