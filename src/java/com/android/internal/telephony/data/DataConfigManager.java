@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.data;
 
+import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
 import android.annotation.StringDef;
 import android.content.BroadcastReceiver;
@@ -29,7 +30,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.PersistableBundle;
-import android.os.RegistrantList;
 import android.provider.DeviceConfig;
 import android.telephony.Annotation.ApnType;
 import android.telephony.Annotation.NetCapability;
@@ -41,6 +41,7 @@ import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.IndentingPrintWriter;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -59,9 +60,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
@@ -192,6 +195,10 @@ public class DataConfigManager extends Handler {
     @Retention(RetentionPolicy.SOURCE)
     private @interface DataConfigNetworkType {}
 
+    /** Data config update callbacks. */
+    private final @NonNull Set<DataConfigManagerCallback> mDataConfigManagerCallbacks =
+            new ArraySet<>();
+
     /** DeviceConfig key of anomaly report threshold for back to back ims release-request. */
     private static final String KEY_ANOMALY_IMS_RELEASE_REQUEST = "anomaly_ims_release_request";
     /** DeviceConfig key of anomaly report threshold for frequent setup data failure. */
@@ -199,6 +206,10 @@ public class DataConfigManager extends Handler {
             "anomaly_setup_data_call_failure";
     /** DeviceConfig key of anomaly report threshold for frequent network-unwanted call. */
     private static final String KEY_ANOMALY_NETWORK_UNWANTED = "anomaly_network_unwanted";
+    /** DeviceConfig key of anomaly report threshold for frequent change of preferred network. */
+    private static final String KEY_ANOMALY_QNS_CHANGE_NETWORK = "anomaly_qns_change_network";
+    /** DeviceConfig key of anomaly report threshold for invalid QNS params. */
+    private static final String KEY_ANOMALY_QNS_PARAM = "anomaly_qns_param";
     /** DeviceConfig key of anomaly report threshold for DataNetwork stuck in connecting state. */
     private static final String KEY_ANOMALY_NETWORK_CONNECTING_TIMEOUT =
             "anomaly_network_connecting_timeout";
@@ -208,6 +219,8 @@ public class DataConfigManager extends Handler {
     /** DeviceConfig key of anomaly report threshold for DataNetwork stuck in handover state. */
     private static final String KEY_ANOMALY_NETWORK_HANDOVER_TIMEOUT =
             "anomaly_network_handover_timeout";
+    /** DeviceConfig key of anomaly report: True for enabling APN config invalidity detection */
+    private static final String KEY_ANOMALY_APN_CONFIG_ENABLED = "anomaly_apn_config_enabled";
 
     /** Anomaly report thresholds for frequent setup data call failure. */
     private EventFrequency mSetupDataCallAnomalyReportThreshold;
@@ -220,6 +233,12 @@ public class DataConfigManager extends Handler {
      * at {@link TelephonyNetworkAgent#onNetworkUnwanted}
      */
     private EventFrequency mNetworkUnwantedAnomalyReportThreshold;
+
+    /**
+     * {@code true} if enabled anomaly detection for param when QNS wants to change preferred
+     * network at {@link AccessNetworksManager}.
+     */
+    private boolean mIsInvalidQnsParamAnomalyReportEnabled;
 
     /**
      * Timeout in ms before creating an anomaly report for a DataNetwork stuck in
@@ -239,11 +258,13 @@ public class DataConfigManager extends Handler {
      */
     private int mNetworkHandoverTimeout;
 
+    /**
+     * True if enabled anomaly detection for APN config that's read from {@link DataProfileManager}
+     */
+    private boolean mIsApnConfigAnomalyReportEnabled;
+
     private @NonNull final Phone mPhone;
     private @NonNull final String mLogTag;
-
-    /** The registrants list for config update event. */
-    private @NonNull final RegistrantList mConfigUpdateRegistrants = new RegistrantList();
 
     private @NonNull final CarrierConfigManager mCarrierConfigManager;
     private @NonNull PersistableBundle mCarrierConfig = null;
@@ -263,6 +284,8 @@ public class DataConfigManager extends Handler {
     /** The network types that only support single data networks */
     private @NonNull final @NetworkType List<Integer> mSingleDataNetworkTypeList =
             new ArrayList<>();
+    private @NonNull final @NetCapability Set<Integer> mCapabilitiesExemptFromSingleDataList =
+            new HashSet<>();
     /** The network types that support temporarily not metered */
     private @NonNull final @DataConfigNetworkType Set<String> mUnmeteredNetworkTypes =
             new HashSet<>();
@@ -321,8 +344,46 @@ public class DataConfigManager extends Handler {
 
         // Must be called to set mCarrierConfig and mResources to non-null values
         updateCarrierConfig();
+        // Must be called to set anomaly report threshold to non-null values
         updateDeviceConfig();
-        mConfigUpdateRegistrants.notifyRegistrants();
+    }
+
+    /**
+     * The data config callback.
+     */
+    public static class DataConfigManagerCallback extends DataCallback {
+        /**
+         * Constructor
+         *
+         * @param executor The executor of the callback.
+         */
+        public DataConfigManagerCallback(@NonNull @CallbackExecutor Executor executor) {
+            super(executor);
+        }
+
+        /** Callback on carrier config update.*/
+        public void onCarrierConfigChanged() {}
+
+        /** Callback on device config update.*/
+        public void onDeviceConfigChanged() {}
+    }
+
+    /**
+     * Register the callback for receiving information from {@link DataConfigManager}.
+     *
+     * @param callback The callback.
+     */
+    public void registerCallback(@NonNull DataConfigManagerCallback callback) {
+        mDataConfigManagerCallbacks.add(callback);
+    }
+
+    /**
+     * Unregister the callback.
+     *
+     * @param callback The previously registered callback.
+     */
+    public void unregisterCallback(@NonNull DataConfigManagerCallback callback) {
+        mDataConfigManagerCallbacks.remove(callback);
     }
 
     @Override
@@ -331,12 +392,14 @@ public class DataConfigManager extends Handler {
             case EVENT_CARRIER_CONFIG_CHANGED:
                 log("EVENT_CARRIER_CONFIG_CHANGED");
                 updateCarrierConfig();
-                mConfigUpdateRegistrants.notifyRegistrants();
+                mDataConfigManagerCallbacks.forEach(callback -> callback.invokeFromExecutor(
+                        callback::onCarrierConfigChanged));
                 break;
             case EVENT_DEVICE_CONFIG_CHANGED:
                 log("EVENT_DEVICE_CONFIG_CHANGED");
                 updateDeviceConfig();
-                mConfigUpdateRegistrants.notifyRegistrants();
+                mDataConfigManagerCallbacks.forEach(callback -> callback.invokeFromExecutor(
+                        callback::onDeviceConfigChanged));
                 break;
             default:
                 loge("Unexpected message " + msg.what);
@@ -349,17 +412,13 @@ public class DataConfigManager extends Handler {
                 DeviceConfig.getProperties(DeviceConfig.NAMESPACE_TELEPHONY);
 
         mImsReleaseRequestAnomalyReportThreshold = parseSlidingWindowCounterThreshold(
-                properties.getString(KEY_ANOMALY_IMS_RELEASE_REQUEST, null),
-                0,
-                12);
+                properties.getString(KEY_ANOMALY_IMS_RELEASE_REQUEST, null), 0, 2);
         mNetworkUnwantedAnomalyReportThreshold = parseSlidingWindowCounterThreshold(
-                properties.getString(KEY_ANOMALY_NETWORK_UNWANTED, null),
-                0,
-                12);
+                properties.getString(KEY_ANOMALY_NETWORK_UNWANTED, null), 0, 12);
         mSetupDataCallAnomalyReportThreshold = parseSlidingWindowCounterThreshold(
-                properties.getString(KEY_ANOMALY_SETUP_DATA_CALL_FAILURE, null),
-                0,
-                2);
+                properties.getString(KEY_ANOMALY_SETUP_DATA_CALL_FAILURE, null), 0, 12);
+        mIsInvalidQnsParamAnomalyReportEnabled = properties.getBoolean(
+                KEY_ANOMALY_QNS_PARAM, false);
         mNetworkConnectingTimeout = properties.getInt(
                 KEY_ANOMALY_NETWORK_CONNECTING_TIMEOUT, DEFAULT_NETWORK_TRANSIT_STATE_TIMEOUT_MS);
         mNetworkDisconnectingTimeout = properties.getInt(
@@ -367,6 +426,8 @@ public class DataConfigManager extends Handler {
                 DEFAULT_NETWORK_TRANSIT_STATE_TIMEOUT_MS);
         mNetworkHandoverTimeout = properties.getInt(
                 KEY_ANOMALY_NETWORK_HANDOVER_TIMEOUT, DEFAULT_NETWORK_TRANSIT_STATE_TIMEOUT_MS);
+        mIsApnConfigAnomalyReportEnabled = properties.getBoolean(
+                KEY_ANOMALY_APN_CONFIG_ENABLED, false);
     }
 
     /**
@@ -393,13 +454,13 @@ public class DataConfigManager extends Handler {
         updateNetworkCapabilityPriority();
         updateDataRetryRules();
         updateMeteredApnTypes();
-        updateSingleDataNetworkTypeList();
+        updateSingleDataNetworkTypeAndCapabilityExemption();
         updateUnmeteredNetworkTypes();
         updateBandwidths();
         updateTcpBuffers();
         updateHandoverRules();
 
-        log("Data config updated. Config is " + (isConfigCarrierSpecific() ? "" : "not ")
+        log("Carrier config updated. Config is " + (isConfigCarrierSpecific() ? "" : "not ")
                 + "carrier specific.");
     }
 
@@ -413,7 +474,8 @@ public class DataConfigManager extends Handler {
                     CarrierConfigManager.KEY_TELEPHONY_NETWORK_CAPABILITY_PRIORITIES_STRING_ARRAY);
             if (capabilityPriorityStrings != null) {
                 for (String capabilityPriorityString : capabilityPriorityStrings) {
-                    capabilityPriorityString = capabilityPriorityString.trim().toUpperCase();
+                    capabilityPriorityString =
+                            capabilityPriorityString.trim().toUpperCase(Locale.ROOT);
                     String[] tokens = capabilityPriorityString.split(":");
                     if (tokens.length != 2) {
                         loge("Invalid config \"" + capabilityPriorityString + "\"");
@@ -584,14 +646,21 @@ public class DataConfigManager extends Handler {
     /**
      * Update the network types for only single data networks from the carrier config.
      */
-    private void updateSingleDataNetworkTypeList() {
+    private void updateSingleDataNetworkTypeAndCapabilityExemption() {
         synchronized (this) {
             mSingleDataNetworkTypeList.clear();
+            mCapabilitiesExemptFromSingleDataList.clear();
             int[] singleDataNetworkTypeList = mCarrierConfig.getIntArray(
                     CarrierConfigManager.KEY_ONLY_SINGLE_DC_ALLOWED_INT_ARRAY);
             if (singleDataNetworkTypeList != null) {
-                Arrays.stream(singleDataNetworkTypeList)
-                        .forEach(mSingleDataNetworkTypeList::add);
+                Arrays.stream(singleDataNetworkTypeList).forEach(mSingleDataNetworkTypeList::add);
+            }
+
+            int[] singleDataCapabilitiesExemptList = mCarrierConfig.getIntArray(
+                    CarrierConfigManager.KEY_CAPABILITIES_EXEMPT_FROM_SINGLE_DC_CHECK_INT_ARRAY);
+            if (singleDataCapabilitiesExemptList != null) {
+                Arrays.stream(singleDataCapabilitiesExemptList)
+                        .forEach(mCapabilitiesExemptFromSingleDataList::add);
             }
         }
     }
@@ -601,6 +670,14 @@ public class DataConfigManager extends Handler {
      */
     public @NonNull @NetworkType List<Integer> getNetworkTypesOnlySupportSingleDataNetwork() {
         return Collections.unmodifiableList(mSingleDataNetworkTypeList);
+    }
+
+    /**
+     * @return The list of {@link android.net.NetworkCapabilities.NetCapability} that every of which
+     * is exempt from the single PDN check.
+     */
+    public @NonNull @NetCapability Set<Integer> getCapabilitiesExemptFromSingleDataNetwork() {
+        return Collections.unmodifiableSet(mCapabilitiesExemptFromSingleDataList);
     }
 
     /**
@@ -787,6 +864,14 @@ public class DataConfigManager extends Handler {
     }
 
     /**
+     * @return {@code true} if enabled anomaly report for invalid param when QNS wants to change
+     * preferred network at {@link AccessNetworksManager}.
+     */
+    public boolean isInvalidQnsParamAnomalyReportEnabled() {
+        return mIsInvalidQnsParamAnomalyReportEnabled;
+    }
+
+    /**
      * @return Timeout in ms before creating an anomaly report for a DataNetwork stuck in
      * {@link DataNetwork.ConnectingState}.
      */
@@ -808,6 +893,14 @@ public class DataConfigManager extends Handler {
      */
     public int getNetworkHandoverTimeoutMs() {
         return mNetworkHandoverTimeout;
+    }
+
+    /**
+     * @return {@code true} if enabled anomaly report for invalid APN config
+     * at {@link DataProfileManager}
+     */
+    public boolean isApnConfigAnomalyReportEnabled() {
+        return mIsApnConfigAnomalyReportEnabled;
     }
 
     /**
@@ -1140,24 +1233,6 @@ public class DataConfigManager extends Handler {
     }
 
     /**
-     * Registration point for subscription info ready.
-     *
-     * @param h handler to notify.
-     * @param what what code of message when delivered.
-     */
-    public void registerForConfigUpdate(Handler h, int what) {
-        mConfigUpdateRegistrants.addUnique(h, what, null);
-    }
-
-    /**
-     *
-     * @param h The original handler passed in {@link #registerForConfigUpdate(Handler, int)}.
-     */
-    public void unregisterForConfigUpdate(Handler h) {
-        mConfigUpdateRegistrants.remove(h);
-    }
-
-    /**
      * Log debug messages.
      * @param s debug messages
      */
@@ -1203,15 +1278,21 @@ public class DataConfigManager extends Handler {
         pw.println("mSetupDataCallAnomalyReport=" + mSetupDataCallAnomalyReportThreshold);
         pw.println("mNetworkUnwantedAnomalyReport=" + mNetworkUnwantedAnomalyReportThreshold);
         pw.println("mImsReleaseRequestAnomalyReport=" + mImsReleaseRequestAnomalyReportThreshold);
+        pw.println("mIsInvalidQnsParamAnomalyReportEnabled="
+                + mIsInvalidQnsParamAnomalyReportEnabled);
         pw.println("mNetworkConnectingTimeout=" + mNetworkConnectingTimeout);
         pw.println("mNetworkDisconnectingTimeout=" + mNetworkDisconnectingTimeout);
         pw.println("mNetworkHandoverTimeout=" + mNetworkHandoverTimeout);
+        pw.println("mIsApnConfigAnomalyReportEnabled=" + mIsApnConfigAnomalyReportEnabled);
         pw.println("Metered APN types=" + mMeteredApnTypes.stream()
                 .map(ApnSetting::getApnTypeString).collect(Collectors.joining(",")));
         pw.println("Roaming metered APN types=" + mRoamingMeteredApnTypes.stream()
                 .map(ApnSetting::getApnTypeString).collect(Collectors.joining(",")));
         pw.println("Single data network types=" + mSingleDataNetworkTypeList.stream()
                 .map(TelephonyManager::getNetworkTypeName).collect(Collectors.joining(",")));
+        pw.println("Capabilities exempt from single PDN=" + mCapabilitiesExemptFromSingleDataList
+                .stream().map(DataUtils::networkCapabilityToString)
+                .collect(Collectors.joining(",")));
         pw.println("Unmetered network types=" + String.join(",", mUnmeteredNetworkTypes));
         pw.println("Roaming unmetered network types="
                 + String.join(",", mRoamingUnmeteredNetworkTypes));
