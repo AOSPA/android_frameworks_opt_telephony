@@ -1015,9 +1015,8 @@ public class DataNetwork extends StateMachine {
                     sendMessage(EVENT_DATA_CONFIG_UPDATED);
                 }
             };
-            mRil.registerForPcoData(getHandler(), EVENT_PCO_DATA_RECEIVED, null);
-
             mDataConfigManager.registerCallback(mDataConfigManagerCallback);
+            mRil.registerForPcoData(getHandler(), EVENT_PCO_DATA_RECEIVED, null);
             mPhone.getDisplayInfoController().registerForTelephonyDisplayInfoChanged(
                     getHandler(), EVENT_DISPLAY_INFO_CHANGED, null);
             mPhone.getServiceStateTracker().registerForServiceStateChanged(getHandler(),
@@ -1069,8 +1068,8 @@ public class DataNetwork extends StateMachine {
             mPhone.getServiceStateTracker().unregisterForServiceStateChanged(getHandler());
             mPhone.getDisplayInfoController().unregisterForTelephonyDisplayInfoChanged(
                     getHandler());
-            mRil.unregisterForPcoData(getHandler());
             mDataConfigManager.unregisterCallback(mDataConfigManagerCallback);
+            mRil.unregisterForPcoData(getHandler());
         }
 
         @Override
