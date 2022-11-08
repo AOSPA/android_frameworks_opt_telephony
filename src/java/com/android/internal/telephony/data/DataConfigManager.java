@@ -76,6 +76,12 @@ public class DataConfigManager extends Handler {
     /** The default timeout in ms for data network stuck in a transit state. */
     private static final int DEFAULT_NETWORK_TRANSIT_STATE_TIMEOUT_MS = 300000;
 
+    /** Default time threshold in ms to define a internet connection status to be stable. */
+    public static int DEFAULT_AUTO_DATA_SWITCH_STABILITY_TIME_MS = 10000;
+
+    /** The max number of retries when a pre-switching validation fails. */
+    public static int DEFAULT_AUTO_DATA_SWITCH_MAX_RETRY = 7;
+
     /** Event for carrier config changed. */
     private static final int EVENT_CARRIER_CONFIG_CHANGED = 1;
 
@@ -218,6 +224,12 @@ public class DataConfigManager extends Handler {
             "anomaly_network_handover_timeout";
     /** DeviceConfig key of anomaly report: True for enabling APN config invalidity detection */
     private static final String KEY_ANOMALY_APN_CONFIG_ENABLED = "anomaly_apn_config_enabled";
+    /** DeviceConfig key of the time threshold in ms for defining a network status to be stable. **/
+    private static final String KEY_AUTO_DATA_SWITCH_AVAILABILITY_STABILITY_TIME_THRESHOLD =
+            "auto_data_switch_availability_stability_time_threshold";
+    /** DeviceConfig key of the maximum number of retries when a validation for switching failed.**/
+    private static final String KEY_AUTO_DATA_SWITCH_VALIDATION_MAX_RETRY =
+            "auto_data_switch_validation_max_retry";
 
     /** Anomaly report thresholds for frequent setup data call failure. */
     private EventFrequency mSetupDataCallAnomalyReportThreshold;
@@ -260,6 +272,18 @@ public class DataConfigManager extends Handler {
      */
     private boolean mIsApnConfigAnomalyReportEnabled;
 
+    /**
+     * Time threshold in ms to define a internet connection status to be stable(e.g. out of service,
+     * in service, wifi is the default active network.etc), while -1 indicates auto switch feature
+     * disabled.
+     */
+    private long mAutoDataSwitchAvailabilityStabilityTimeThreshold;
+
+    /**
+     * The maximum number of retries when a pre-switching validation fails.
+     */
+    private int mAutoDataSwitchValidationMaxRetry;
+
     private @NonNull final Phone mPhone;
     private @NonNull final String mLogTag;
 
@@ -297,6 +321,8 @@ public class DataConfigManager extends Handler {
             new ConcurrentHashMap<>();
     /** Rules for handover between IWLAN and cellular network. */
     private @NonNull final List<HandoverRule> mHandoverRuleList = new ArrayList<>();
+    /** {@code True} keep IMS network in case of moving to non VOPS area; {@code false} otherwise.*/
+    private boolean mShouldKeepNetworkUpInNonVops = false;
 
     /**
      * Constructor
@@ -425,6 +451,12 @@ public class DataConfigManager extends Handler {
                 KEY_ANOMALY_NETWORK_HANDOVER_TIMEOUT, DEFAULT_NETWORK_TRANSIT_STATE_TIMEOUT_MS);
         mIsApnConfigAnomalyReportEnabled = properties.getBoolean(
                 KEY_ANOMALY_APN_CONFIG_ENABLED, false);
+        mAutoDataSwitchAvailabilityStabilityTimeThreshold = properties.getInt(
+                KEY_AUTO_DATA_SWITCH_AVAILABILITY_STABILITY_TIME_THRESHOLD,
+                DEFAULT_AUTO_DATA_SWITCH_STABILITY_TIME_MS);
+        mAutoDataSwitchValidationMaxRetry = properties.getInt(
+                KEY_AUTO_DATA_SWITCH_VALIDATION_MAX_RETRY,
+                DEFAULT_AUTO_DATA_SWITCH_MAX_RETRY);
     }
 
     /**
@@ -458,6 +490,7 @@ public class DataConfigManager extends Handler {
         updateDataRetryRules();
         updateMeteredApnTypes();
         updateSingleDataNetworkTypeAndCapabilityExemption();
+        updateVopsConfig();
         updateUnmeteredNetworkTypes();
         updateBandwidths();
         updateTcpBuffers();
@@ -670,6 +703,16 @@ public class DataConfigManager extends Handler {
     }
 
     /**
+     * Update the voice over PS related config from the carrier config.
+     */
+    private void updateVopsConfig() {
+        synchronized (this) {
+            mShouldKeepNetworkUpInNonVops = mCarrierConfig.getBoolean(CarrierConfigManager
+                    .Ims.KEY_KEEP_PDN_UP_IN_NO_VOPS_BOOL);
+        }
+    }
+
+    /**
      * @return The list of {@link NetworkType} that only supports single data networks
      */
     public @NonNull @NetworkType List<Integer> getNetworkTypesOnlySupportSingleDataNetwork() {
@@ -682,6 +725,11 @@ public class DataConfigManager extends Handler {
      */
     public @NonNull @NetCapability Set<Integer> getCapabilitiesExemptFromSingleDataNetwork() {
         return Collections.unmodifiableSet(mCapabilitiesExemptFromSingleDataList);
+    }
+
+    /** {@code True} keep IMS network in case of moving to non VOPS area; {@code false} otherwise.*/
+    public boolean shouldKeepNetworkUpInNonVops() {
+        return mShouldKeepNetworkUpInNonVops;
     }
 
     /**
@@ -905,6 +953,22 @@ public class DataConfigManager extends Handler {
      */
     public boolean isApnConfigAnomalyReportEnabled() {
         return mIsApnConfigAnomalyReportEnabled;
+    }
+
+    /**
+     * @return The maximum number of retries when a validation for switching failed.
+     */
+    public int getAutoDataSwitchValidationMaxRetry() {
+        return mAutoDataSwitchValidationMaxRetry;
+    }
+
+    /**
+     * @return Time threshold in ms to define a internet connection status to be stable
+     * (e.g. out of service, in service, wifi is the default active network.etc), while -1 indicates
+     * auto switch feature disabled.
+     */
+    public long getAutoDataSwitchAvailabilityStabilityTimeThreshold() {
+        return mAutoDataSwitchAvailabilityStabilityTimeThreshold;
     }
 
     /**
@@ -1293,6 +1357,9 @@ public class DataConfigManager extends Handler {
         pw.println("mNetworkDisconnectingTimeout=" + mNetworkDisconnectingTimeout);
         pw.println("mNetworkHandoverTimeout=" + mNetworkHandoverTimeout);
         pw.println("mIsApnConfigAnomalyReportEnabled=" + mIsApnConfigAnomalyReportEnabled);
+        pw.println("mAutoDataSwitchAvailabilityStabilityTimeThreshold="
+                + mAutoDataSwitchAvailabilityStabilityTimeThreshold);
+        pw.println("mAutoDataSwitchValidationMaxRetry=" + mAutoDataSwitchValidationMaxRetry);
         pw.println("Metered APN types=" + mMeteredApnTypes.stream()
                 .map(ApnSetting::getApnTypeString).collect(Collectors.joining(",")));
         pw.println("Roaming metered APN types=" + mRoamingMeteredApnTypes.stream()
@@ -1302,6 +1369,7 @@ public class DataConfigManager extends Handler {
         pw.println("Capabilities exempt from single PDN=" + mCapabilitiesExemptFromSingleDataList
                 .stream().map(DataUtils::networkCapabilityToString)
                 .collect(Collectors.joining(",")));
+        pw.println("mShouldKeepNetworkUpInNoVops=" + mShouldKeepNetworkUpInNonVops);
         pw.println("Unmetered network types=" + String.join(",", mUnmeteredNetworkTypes));
         pw.println("Roaming unmetered network types="
                 + String.join(",", mRoamingUnmeteredNetworkTypes));
