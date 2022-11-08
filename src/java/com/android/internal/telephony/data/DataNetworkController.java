@@ -980,7 +980,7 @@ public class DataNetworkController extends Handler {
         });
 
         mPhone.getServiceStateTracker().registerForServiceStateChanged(this,
-                EVENT_SERVICE_STATE_CHANGED);
+                EVENT_SERVICE_STATE_CHANGED, null);
         mDataConfigManager.registerCallback(new DataConfigManagerCallback(this::post) {
             @Override
             public void onCarrierConfigChanged() {
@@ -1002,7 +1002,7 @@ public class DataNetworkController extends Handler {
 
         if (!mAccessNetworksManager.isInLegacyMode()) {
             mPhone.getServiceStateTracker().registerForServiceStateChanged(this,
-                    EVENT_SERVICE_STATE_CHANGED);
+                    EVENT_SERVICE_STATE_CHANGED, null);
             mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
                     .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
         }
@@ -1335,7 +1335,7 @@ public class DataNetworkController extends Handler {
         if (nriRegState == NetworkRegistrationInfo.REGISTRATION_STATE_HOME
                 || nriRegState == NetworkRegistrationInfo.REGISTRATION_STATE_ROAMING) return true;
 
-        // If data is OOS on the non-DDS,
+        // If data is OOS as this device slot is not modem preferred(i.e. not active for internet),
         // attempt to attach PS on 2G/3G if CS connection is available.
         return ss.getVoiceRegState() == ServiceState.STATE_IN_SERVICE
                 && mPhone.getPhoneId() != PhoneSwitcher.getInstance().getPreferredDataPhoneId()
@@ -1597,8 +1597,15 @@ public class DataNetworkController extends Handler {
         }
 
         // Check if there is any compatible data profile
+        int networkType = getDataNetworkType(transport);
+        if (networkType == TelephonyManager.NETWORK_TYPE_UNKNOWN
+                && transport == AccessNetworkConstants.TRANSPORT_TYPE_WWAN) {
+            // reach here when data is OOS but serviceStateAllowsPSAttach == true, so we adopt the
+            // voice RAT to select data profile
+            networkType = mServiceState.getVoiceNetworkType();
+        }
         DataProfile dataProfile = mDataProfileManager
-                .getDataProfileForNetworkRequest(networkRequest, getDataNetworkType(transport));
+                .getDataProfileForNetworkRequest(networkRequest, networkType);
         if (dataProfile == null) {
             evaluation.addDataDisallowedReason(DataDisallowedReason.NO_SUITABLE_DATA_PROFILE);
         } else if (reason == DataEvaluationReason.NEW_REQUEST
@@ -1789,7 +1796,8 @@ public class DataNetworkController extends Handler {
                     if (nri != null) {
                         DataSpecificRegistrationInfo dsri = nri.getDataSpecificInfo();
                         if (dsri != null && dsri.getVopsSupportInfo() != null
-                                && !dsri.getVopsSupportInfo().isVopsSupported()) {
+                                && !dsri.getVopsSupportInfo().isVopsSupported()
+                                && !mDataConfigManager.shouldKeepNetworkUpInNonVops()) {
                             evaluation.addDataDisallowedReason(
                                     DataDisallowedReason.VOPS_NOT_SUPPORTED);
                         }
@@ -1955,7 +1963,8 @@ public class DataNetworkController extends Handler {
                     DataSpecificRegistrationInfo dsri = nri.getDataSpecificInfo();
                     // Check if the network is non-VoPS.
                     if (dsri != null && dsri.getVopsSupportInfo() != null
-                            && !dsri.getVopsSupportInfo().isVopsSupported()) {
+                            && !dsri.getVopsSupportInfo().isVopsSupported()
+                            && !mDataConfigManager.shouldKeepNetworkUpInNonVops()) {
                         dataEvaluation.addDataDisallowedReason(
                                 DataDisallowedReason.VOPS_NOT_SUPPORTED);
                     }
@@ -2187,16 +2196,19 @@ public class DataNetworkController extends Handler {
     }
 
     /**
-     * Check if there are existing networks having the same interface name.
+     * Get data network by interface name.
      *
-     * @param interfaceName The interface name to check.
-     * @return {@code true} if the existing network has the same interface name.
+     * @param interfaceName The network interface name.
+     * @return The data network if found.
      */
-    public boolean isNetworkInterfaceExisting(@NonNull String interfaceName) {
+    @Nullable
+    public DataNetwork getDataNetworkByInterface(@NonNull String interfaceName) {
         return mDataNetworkList.stream()
                 .filter(dataNetwork -> !dataNetwork.isDisconnecting())
-                .anyMatch(dataNetwork -> interfaceName.equals(
-                        dataNetwork.getLinkProperties().getInterfaceName()));
+                .filter(dataNetwork -> interfaceName.equals(
+                        dataNetwork.getLinkProperties().getInterfaceName()))
+                .findFirst()
+                .orElse(null);
     }
 
     /**
@@ -2451,9 +2463,12 @@ public class DataNetworkController extends Handler {
                 + dataSetupRetryEntry + ", allowed reason=" + allowedReason + ", service state="
                 + mServiceState);
         for (DataNetwork dataNetwork : mDataNetworkList) {
-            if (dataNetwork.getDataProfile().equals(dataProfile)) {
+            DataProfile currentDataProfile = dataNetwork.getDataProfile();
+            if (dataProfile.equals(currentDataProfile)
+                    || mDataProfileManager.areDataProfilesSharingApn(
+                            dataProfile, currentDataProfile)) {
                 log("onSetupDataNetwork: Found existing data network " + dataNetwork
-                        + " has the same data profile.");
+                        + " using the same or a similar data profile.");
                 if (dataSetupRetryEntry != null) {
                     dataSetupRetryEntry.setState(DataRetryEntry.RETRY_STATE_CANCELLED);
                 }

@@ -322,7 +322,8 @@ public class SubscriptionController extends ISub.Stub {
             SubscriptionManager.UICC_APPLICATIONS_ENABLED,
             SubscriptionManager.IMS_RCS_UCE_ENABLED,
             SubscriptionManager.CROSS_SIM_CALLING_ENABLED,
-            SubscriptionManager.NR_ADVANCED_CALLING_ENABLED
+            SubscriptionManager.NR_ADVANCED_CALLING_ENABLED,
+            SubscriptionManager.USER_HANDLE
     ));
 
     public static SubscriptionController init(Context c) {
@@ -509,6 +510,11 @@ public class SubscriptionController extends ISub.Stub {
     private void enforceReadPrivilegedPhoneState(String message) {
         mContext.enforceCallingOrSelfPermission(
                 Manifest.permission.READ_PRIVILEGED_PHONE_STATE, message);
+    }
+
+    private void enforceManageSubscriptionUserAssociation(String message) {
+        mContext.enforceCallingOrSelfPermission(
+                Manifest.permission.MANAGE_SUBSCRIPTION_USER_ASSOCIATION, message);
     }
 
     /**
@@ -1535,7 +1541,9 @@ public class SubscriptionController extends ISub.Stub {
                             // Set the default sub if not set or if single sim device
                             if (!isSubscriptionForRemoteSim(subscriptionType)) {
                                 if (!SubscriptionManager.isValidSubscriptionId(defaultSubId)
-                                        || subIdCountMax == 1 || (!isActiveSubId(defaultSubId))) {
+                                        || subIdCountMax == 1 || (!isActiveSubId(defaultSubId))
+                                        || mDefaultFallbackSubId.get() ==
+                                        SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
                                     logdl("setting default fallback subid to " + subId);
                                     setDefaultFallbackSubId(subId, subscriptionType);
                                 }
@@ -1754,7 +1762,26 @@ public class SubscriptionController extends ISub.Stub {
         // Refresh the Cache of Active Subscription Info List
         refreshCachedActiveSubscriptionInfoList();
 
+        boolean isFallBackRefreshRequired = false;
+        if (mDefaultFallbackSubId.get() > SubscriptionManager.INVALID_SUBSCRIPTION_ID &&
+                mSlotIndexToSubIds.getCopy(slotIndex) != null &&
+                mSlotIndexToSubIds.getCopy(slotIndex).contains(mDefaultFallbackSubId.get())) {
+            isFallBackRefreshRequired = true;
+        }
         mSlotIndexToSubIds.remove(slotIndex);
+        // set mDefaultFallbackSubId to invalid in case mSlotIndexToSubIds do not have any entries
+        if (mSlotIndexToSubIds.size() ==0 ) {
+            mDefaultFallbackSubId.set(SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+        } else if (isFallBackRefreshRequired) {
+            // set mDefaultFallbackSubId to valid subId from mSlotIndexToSubIds
+            for (int index = 0; index < getActiveSubIdArrayList().size(); index ++) {
+                int subId = getActiveSubIdArrayList().get(index);
+                if (subId > SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    mDefaultFallbackSubId.set(subId);
+                    break;
+                }
+            }
+        }
     }
 
     /**
@@ -2357,6 +2384,7 @@ public class SubscriptionController extends ISub.Stub {
             case SubscriptionManager.IMS_RCS_UCE_ENABLED:
             case SubscriptionManager.CROSS_SIM_CALLING_ENABLED:
             case SubscriptionManager.NR_ADVANCED_CALLING_ENABLED:
+            case SubscriptionManager.USER_HANDLE:
                 values.put(propKey, cursor.getInt(columnIndex));
                 break;
             case SubscriptionManager.DISPLAY_NAME:
@@ -3327,6 +3355,7 @@ public class SubscriptionController extends ISub.Stub {
             case SubscriptionManager.VOIMS_OPT_IN_STATUS:
             case SubscriptionManager.NR_ADVANCED_CALLING_ENABLED:
             case SubscriptionManager.USAGE_SETTING:
+            case SubscriptionManager.USER_HANDLE:
                 value.put(propKey, Integer.parseInt(propValue));
                 break;
             case SubscriptionManager.ALLOWED_NETWORK_TYPES:
@@ -3423,6 +3452,7 @@ public class SubscriptionController extends ISub.Stub {
                         case SimInfo.COLUMN_PHONE_NUMBER_SOURCE_CARRIER:
                         case SimInfo.COLUMN_PHONE_NUMBER_SOURCE_IMS:
                         case SubscriptionManager.USAGE_SETTING:
+                        case SubscriptionManager.USER_HANDLE:
                             resultValue = cursor.getString(0);
                             break;
                         default:
@@ -4887,6 +4917,73 @@ public class SubscriptionController extends ISub.Stub {
             }
         } finally {
             if (DBG) logd("TP - Message reference updated to DB Successfully :" + messageRef);
+        }
+    }
+
+    /**
+     * Set UserHandle for this subscription
+     *
+     * @param userHandle the userHandle associated with the subscription
+     * Pass {@code null} user handle to clear the association
+     * @param subId the unique SubscriptionInfo index in database
+     * @return the number of records updated.
+     *
+     * @throws SecurityException if doesn't have required permission.
+     * @throws IllegalArgumentException if subId is invalid.
+     */
+    @Override
+    public int setSubscriptionUserHandle(@Nullable UserHandle userHandle, int subId) {
+        enforceManageSubscriptionUserAssociation("setSubscriptionUserHandle");
+
+        if (userHandle == null) {
+            userHandle = UserHandle.of(UserHandle.USER_NULL);
+        }
+
+        long token = Binder.clearCallingIdentity();
+        try {
+            int ret = setSubscriptionProperty(subId, SubscriptionManager.USER_HANDLE,
+                    String.valueOf(userHandle.getIdentifier()));
+            // ret is the number of records updated in the DB
+            if (ret != 0) {
+                notifySubscriptionInfoChanged();
+            } else {
+                throw new IllegalArgumentException("[setSubscriptionUserHandle]: Invalid subId: "
+                        + subId);
+            }
+            return ret;
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    /**
+     * Get UserHandle of this subscription.
+     *
+     * @param subId the unique SubscriptionInfo index in database
+     * @return userHandle associated with this subscription
+     * or {@code null} if subscription is not associated with any user.
+     *
+     * @throws SecurityException if doesn't have required permission.
+     * @throws IllegalArgumentException if subId is invalid.
+     */
+    @Override
+    public UserHandle getSubscriptionUserHandle(int subId) {
+        enforceManageSubscriptionUserAssociation("getSubscriptionUserHandle");
+
+        long token = Binder.clearCallingIdentity();
+        try {
+            String userHandleStr = getSubscriptionProperty(subId, SubscriptionManager.USER_HANDLE);
+            if (userHandleStr == null) {
+                throw new IllegalArgumentException("[getSubscriptionUserHandle]: Invalid subId: "
+                        + subId);
+            }
+            UserHandle userHandle = UserHandle.of(Integer.parseInt(userHandleStr));
+            if (userHandle.getIdentifier() == UserHandle.USER_NULL) {
+                return null;
+            }
+            return userHandle;
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
     }
 
