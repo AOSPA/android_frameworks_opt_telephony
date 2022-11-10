@@ -1677,7 +1677,7 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
-    public void notifySrvccState(Call.SrvccState state) {
+    public void notifySrvccState(int state) {
         mCT.notifySrvccState(state);
     }
 
@@ -2669,6 +2669,11 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public void setTerminalBasedCallWaitingStatus(int state) {
         mCT.setTerminalBasedCallWaitingStatus(state);
+    }
+
+    @Override
+    public void triggerEpsFallback(int reason, Message response) {
+        mDefaultPhone.triggerEpsFallback(reason, response);
     }
 
     @Override

@@ -48,11 +48,13 @@ import android.preference.PreferenceManager;
 import android.sysprop.TelephonyProperties;
 import android.telecom.VideoProfile;
 import android.telephony.AccessNetworkConstants;
+import android.telephony.Annotation.SrvccState;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CarrierRestrictionRules;
 import android.telephony.CellIdentity;
 import android.telephony.CellInfo;
 import android.telephony.ClientRequestStats;
+import android.telephony.DomainSelectionService;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.LinkCapacityEstimate;
 import android.telephony.NetworkRegistrationInfo;
@@ -88,6 +90,7 @@ import com.android.internal.telephony.data.DataSettingsManager;
 import com.android.internal.telephony.data.LinkBandwidthEstimator;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.EcbmHandler;
+import com.android.internal.telephony.emergency.EmergencyConstants;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
@@ -871,7 +874,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return null;
     }
 
-    public void notifySrvccState(Call.SrvccState state) {
+    /**
+     * Notifies the change of the SRVCC state.
+     * @param state the new SRVCC state.
+     */
+    public void notifySrvccState(@SrvccState int state) {
     }
 
     public void registerForSilentRedial(Handler h, int what, Object obj) {
@@ -894,6 +901,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         Call.SrvccState srvccState = Call.SrvccState.NONE;
         if (ret != null && ret.length != 0) {
             int state = ret[0];
+            if (imsPhone != null) {
+                imsPhone.notifySrvccState(state);
+            }
             switch(state) {
                 case TelephonyManager.SRVCC_STATE_HANDOVER_STARTED:
                     srvccState = Call.SrvccState.STARTED;
@@ -906,11 +916,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                     break;
                 case TelephonyManager.SRVCC_STATE_HANDOVER_COMPLETED:
                     srvccState = Call.SrvccState.COMPLETED;
-                    if (imsPhone != null) {
-                        imsPhone.notifySrvccState(srvccState);
-                    } else {
-                        Rlog.d(LOG_TAG, "HANDOVER_COMPLETED: mImsPhone null");
-                    }
                     break;
                 case TelephonyManager.SRVCC_STATE_HANDOVER_FAILED:
                 case TelephonyManager.SRVCC_STATE_HANDOVER_CANCELED:
@@ -5000,6 +5005,82 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * Notifies that the IMS service connected supports the terminal-based call waiting service
      */
     public void setTerminalBasedCallWaitingSupported(boolean supported) {
+    }
+
+    /**
+     * Triggers the UE initiated EPS fallback procedure.
+     *
+     * @param reason specifies the reason for EPS fallback.
+     * @param response is callback message.
+     */
+    public void triggerEpsFallback(int reason, Message response) {
+        mCi.triggerEpsFallback(reason, response);
+    }
+
+    /**
+     * Sets the emergency mode
+     *
+     * @param emcMode The radio emergency mode type.
+     * @param result Callback message.
+     */
+    public void setEmergencyMode(@EmergencyConstants.EmergencyMode int emcMode,
+            @Nullable Message result) {
+        mCi.setEmergencyMode(emcMode, result);
+    }
+
+    /**
+     * Triggers an emergency network scan.
+     *
+     * @param accessNetwork Contains the list of access network types to be prioritized
+     *        during emergency scan. The 1st entry has the highest priority.
+     * @param scanType Indicates the type of scans to be performed i.e. limited scan,
+     *        full service scan or any scan.
+     * @param result Callback message.
+     */
+    public void triggerEmergencyNetworkScan(
+            @NonNull @AccessNetworkConstants.RadioAccessNetworkType int[] accessNetwork,
+            @DomainSelectionService.EmergencyScanType int scanType, @Nullable Message result) {
+        mCi.triggerEmergencyNetworkScan(accessNetwork, scanType, result);
+    }
+
+    /**
+     * Cancels ongoing emergency network scan
+     * @param resetScan Indicates how the next {@link #triggerEmergencyNetworkScan} should work.
+     *        If {@code true}, then the modem shall start the new scan from the beginning,
+     *        otherwise the modem shall resume from the last search.
+     * @param result Callback message.
+     */
+    public void cancelEmergencyNetworkScan(boolean resetScan, @Nullable Message result) {
+        mCi.cancelEmergencyNetworkScan(resetScan, result);
+    }
+
+    /**
+     * Exits ongoing emergency mode
+     * @param result Callback message.
+     */
+    public void exitEmergencyMode(@Nullable Message result) {
+        mCi.exitEmergencyMode(result);
+    }
+
+    /**
+     * Registers for emergency network scan result.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    public void registerForEmergencyNetworkScan(@NonNull Handler h,
+            int what, @Nullable Object obj) {
+        mCi.registerForEmergencyNetworkScan(h, what, obj);
+    }
+
+    /**
+     * Unregisters for emergency network scan result.
+     *
+     * @param h Handler to be removed from the registrant list.
+     */
+    public void unregisterForEmergencyNetworkScan(@NonNull Handler h) {
+        mCi.unregisterForEmergencyNetworkScan(h);
     }
 
     /**

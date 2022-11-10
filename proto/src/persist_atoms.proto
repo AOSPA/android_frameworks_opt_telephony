@@ -186,6 +186,9 @@ message PersistAtoms {
 
     /* Timestamp of last outgoing_short_code_sms pull. */
     optional int64 outgoing_short_code_sms_pull_timestamp_millis = 54;
+
+    /* Number of time the user toggled the data switch feature since the last collection. */
+    optional int32 auto_data_switch_toggle_count = 55;
 }
 
 // The canonical versions of the following enums live in:
@@ -277,6 +280,8 @@ message OutgoingSms {
     optional int32 retry_id = 13;
     optional int64 interval_millis = 14;
     optional int32 count = 15;
+    optional int32 send_error_code = 16;
+    optional int32 network_error_code = 17;
 
     // Internal use only
     optional int32 hashCode = 10001;
@@ -311,6 +316,7 @@ message DataCallSession {
     optional int32 band_at_end = 19;
     repeated int32 handover_failure_causes = 20;
     repeated int32 handover_failure_rat = 21;
+    optional bool is_non_dds = 22;
 }
 
 message CellularServiceState {
