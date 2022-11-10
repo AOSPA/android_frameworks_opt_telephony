@@ -1101,25 +1101,8 @@ public class DataNetwork extends StateMachine {
                     break;
                 }
                 case EVENT_DETACH_NETWORK_REQUEST: {
-                    TelephonyNetworkRequest networkRequest = (TelephonyNetworkRequest) msg.obj;
-                    onDetachNetworkRequest(networkRequest);
+                    onDetachNetworkRequest((TelephonyNetworkRequest) msg.obj);
                     updateNetworkScore();
-                    boolean allNetworkRequestsDetached = true;
-                    for (TelephonyNetworkRequest telephonyNetworkRequest
-                            : mAttachedNetworkRequestList) {
-                        if (telephonyNetworkRequest.getApnTypeNetworkCapability()
-                                != NetworkCapabilities.NET_CAPABILITY_INTERNET) {
-                            allNetworkRequestsDetached = false;
-                        }
-                    }
-                    // If DataNetwork does not have any attached NetworkRequests with capabilities
-                    // other than INTERNET, unregister the networkagent to reduce the
-                    // overall disconnect time for internet PDN on non DDS sub after DDS switch.
-                    if (allNetworkRequestsDetached && networkRequest
-                            .hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                        log("Unregistering TNA-" + mNetworkAgent.getId());
-                        mNetworkAgent.unregister();
-                    }
                     break;
                 }
                 case EVENT_DETACH_ALL_NETWORK_REQUESTS: {
