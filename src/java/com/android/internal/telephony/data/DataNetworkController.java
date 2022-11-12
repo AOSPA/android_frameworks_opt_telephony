@@ -296,7 +296,7 @@ public class DataNetworkController extends Handler {
     private final @NonNull Set<DataNetworkControllerCallback> mDataNetworkControllerCallbacks =
             new ArraySet<>();
 
-    /** Indicates if packet switch data is restricted by the network. */
+    /** Indicates if packet switch data is restricted by the cellular network. */
     private boolean mPsRestricted = false;
 
     /** Indicates if NR advanced is allowed by PCO. */
@@ -460,6 +460,7 @@ public class DataNetworkController extends Handler {
             }
             return true;
         }
+
         /**
          * Get the first network request that contains all the provided network capabilities.
          *
@@ -710,9 +711,9 @@ public class DataNetworkController extends Handler {
                         + "\"" + ruleString + "\"");
             }
 
-            if (source.contains(AccessNetworkType.UNKNOWN)) {
-                throw new IllegalArgumentException("Source access networks contains unknown. "
-                        + "\"" + ruleString + "\"");
+            if (source.contains(AccessNetworkType.UNKNOWN) && type != RULE_TYPE_DISALLOWED) {
+                throw new IllegalArgumentException("Unknown access network can be only specified in"
+                        + " the disallowed rule. \"" + ruleString + "\"");
             }
 
             if (target.contains(AccessNetworkType.UNKNOWN)) {
@@ -1492,8 +1493,8 @@ public class DataNetworkController extends Handler {
             evaluation.addDataDisallowedReason(DataDisallowedReason.ROAMING_DISABLED);
         }
 
-        // Check if data is restricted by the network.
-        if (mPsRestricted) {
+        // Check if data is restricted by the cellular network.
+        if (mPsRestricted && transport == AccessNetworkConstants.TRANSPORT_TYPE_WWAN) {
             evaluation.addDataDisallowedReason(DataDisallowedReason.DATA_RESTRICTED_BY_NETWORK);
         }
 
@@ -1566,8 +1567,10 @@ public class DataNetworkController extends Handler {
                 // Check if it's SUPL during emergency call.
                 evaluation.addDataAllowedReason(DataAllowedReason.EMERGENCY_SUPL);
             } else if (!networkRequest.hasCapability(
-                    NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)) {
-                // Check if request is restricted.
+                    NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED) && !networkRequest
+                    .hasCapability(NetworkCapabilities.NET_CAPABILITY_DUN)) {
+                // Check if request is restricted and not for tethering, which always comes with
+                // a restricted network request.
                 evaluation.addDataAllowedReason(DataAllowedReason.RESTRICTED_REQUEST);
             } else if (transport == AccessNetworkConstants.TRANSPORT_TYPE_WLAN) {
                 // Check if request is unmetered (WiFi or unmetered APN).
@@ -1851,8 +1854,11 @@ public class DataNetworkController extends Handler {
                 // Check if it's SUPL during emergency call.
                 evaluation.addDataAllowedReason(DataAllowedReason.EMERGENCY_SUPL);
             } else if (!dataNetwork.getNetworkCapabilities().hasCapability(
-                    NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)) {
-                // Check if request is restricted
+                    NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                    && !dataNetwork.hasNetworkCapabilityInNetworkRequests(
+                            NetworkCapabilities.NET_CAPABILITY_DUN)) {
+                // Check if request is restricted and there are no DUN network requests attached to
+                // the network.
                 evaluation.addDataAllowedReason(DataAllowedReason.RESTRICTED_REQUEST);
             } else if (dataNetwork.getTransport() == AccessNetworkConstants.TRANSPORT_TYPE_WLAN) {
                 // Check if request is unmetered (WiFi or unmetered APN)
@@ -1948,8 +1954,18 @@ public class DataNetworkController extends Handler {
         if (mDataConfigManager.isIwlanHandoverPolicyEnabled()) {
             List<HandoverRule> handoverRules = mDataConfigManager.getHandoverRules();
 
+            int sourceNetworkType = getDataNetworkType(dataNetwork.getTransport());
+            if (sourceNetworkType == TelephonyManager.NETWORK_TYPE_UNKNOWN) {
+                // Using the data network type stored in the data network. We
+                // cache the last known network type in data network controller
+                // because data network has much shorter life cycle. It can prevent
+                // the obsolete last known network type cached in data network
+                // type controller.
+                sourceNetworkType = dataNetwork.getLastKnownDataNetworkType();
+            }
             int sourceAccessNetwork = DataUtils.networkTypeToAccessNetworkType(
-                    getDataNetworkType(dataNetwork.getTransport()));
+                    sourceNetworkType);
+
             int targetAccessNetwork = DataUtils.networkTypeToAccessNetworkType(
                     getDataNetworkType(DataUtils.getTargetTransport(dataNetwork.getTransport())));
             NetworkCapabilities capabilities = dataNetwork.getNetworkCapabilities();
@@ -2152,6 +2168,18 @@ public class DataNetworkController extends Handler {
      */
     public boolean isNetworkRequestExisting(@NonNull TelephonyNetworkRequest networkRequest) {
         return mAllNetworkRequestList.contains(networkRequest);
+    }
+
+    /**
+     * Check if a request for the capability currently exists. Note this method id not thread safe
+     * so can be only called within the modules in {@link com.android.internal.telephony.data}.
+     *
+     * @param capability Network capability to check
+     * @return {@code true} if the request for the capability exists.
+     */
+    public boolean isCapabilityRequestExisting(@NetCapability int capability) {
+        return mAllNetworkRequestList.stream()
+                .anyMatch(request -> request.hasCapability(capability));
     }
 
     /**
@@ -3098,7 +3126,7 @@ public class DataNetworkController extends Handler {
             }
 
             if (nrAdvancedCapableByPco != mNrAdvancedCapableByPco) {
-                log("onPcoDataChanged: mNrAdvancedCapableByPco = " + mNrAdvancedCapableByPco);
+                log("onPcoDataChanged: mNrAdvancedCapableByPco = " + nrAdvancedCapableByPco);
                 mNrAdvancedCapableByPco = nrAdvancedCapableByPco;
                 mDataNetworkControllerCallbacks.forEach(callback -> callback.invokeFromExecutor(
                         () -> callback.onNrAdvancedCapableByPcoChanged(mNrAdvancedCapableByPco)));

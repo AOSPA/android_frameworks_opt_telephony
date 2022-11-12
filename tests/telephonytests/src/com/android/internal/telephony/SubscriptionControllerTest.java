@@ -32,7 +32,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
@@ -162,7 +161,6 @@ public class SubscriptionControllerTest extends TelephonyTest {
          * between each test case. */
         if (mSubscriptionControllerUT != null) {
             mSubscriptionControllerUT.clearSubInfo();
-            mSubscriptionControllerUT.resetStaticMembers();
             mSubscriptionControllerUT = null;
         }
 
@@ -1375,7 +1373,8 @@ public class SubscriptionControllerTest extends TelephonyTest {
 
         int[] subIds = mSubscriptionControllerUT.getActiveSubIdList(/*visibleOnly*/false);
         // Make sure the return sub ids are sorted by slot index
-        assertTrue("active sub ids = " + subIds, Arrays.equals(subIds, new int[]{2, 1}));
+        assertTrue("active sub ids = " + Arrays.toString(subIds),
+                Arrays.equals(subIds, new int[]{2, 1}));
     }
 
     @Test
