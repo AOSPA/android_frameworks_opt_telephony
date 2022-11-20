@@ -118,14 +118,9 @@ public class CellularNetworkService extends NetworkService {
         private final Phone mPhone;
 
         protected CellularNetworkServiceProvider() {
-            this(SubscriptionManager.DEFAULT_SIM_SLOT_INDEX, false);
-        }
-
-        protected CellularNetworkServiceProvider(int slotId, boolean unsolAware) {
-            this(slotId);
-            if (!unsolAware) {
-                mPhone.mCi.unregisterForNetworkStateChanged(mHandler);
-            }
+            super(SubscriptionManager.DEFAULT_SIM_SLOT_INDEX);
+            mHandler = null;
+            mPhone = null;
         }
 
         CellularNetworkServiceProvider(int slotId) {
