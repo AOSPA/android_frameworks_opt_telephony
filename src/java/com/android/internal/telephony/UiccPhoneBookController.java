@@ -129,13 +129,6 @@ public class UiccPhoneBookController extends IIccPhoneBook.Stub {
         }
     }
 
-    public boolean
-    updateAdnRecordsWithContentValuesInEfBySearch(int efid, ContentValues values,
-        String pin2) throws android.os.RemoteException {
-            return updateAdnRecordsInEfBySearchForSubscriber(
-                getDefaultSubscription(), efid, values, pin2);
-    }
-
     @Override
     public boolean
     updateAdnRecordsInEfBySearchForSubscriber(int subId, int efid,
