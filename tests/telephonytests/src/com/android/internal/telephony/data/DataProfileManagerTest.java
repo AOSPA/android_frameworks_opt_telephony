@@ -50,6 +50,7 @@ import android.testing.AndroidTestingRunner;
 import android.testing.TestableLooper;
 
 import com.android.internal.telephony.TelephonyTest;
+import com.android.internal.telephony.data.DataConfigManager.DataConfigManagerCallback;
 import com.android.internal.telephony.data.DataNetworkController.DataNetworkControllerCallback;
 import com.android.internal.telephony.data.DataProfileManager.DataProfileManagerCallback;
 
@@ -64,8 +65,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RunWith(AndroidTestingRunner.class)
@@ -88,6 +91,8 @@ public class DataProfileManagerTest extends TelephonyTest {
     private int mPreferredApnId = 0;
 
     private DataNetworkControllerCallback mDataNetworkControllerCallback;
+
+    private DataConfigManagerCallback mDataConfigManagerCallback;
 
     private boolean mSimInserted = true;
 
@@ -300,6 +305,8 @@ public class DataProfileManagerTest extends TelephonyTest {
                 }
         );
 
+        private Set<Object> mDeletedApns = new HashSet<>();
+
         @Override
         public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
                 String sortOrder) {
@@ -321,7 +328,9 @@ public class DataProfileManagerTest extends TelephonyTest {
                     MatrixCursor mc = new MatrixCursor(APN_COLUMNS);
                     if (mSimInserted) {
                         for (Object apnSetting : mAllApnSettings) {
-                            mc.addRow((Object[]) apnSetting);
+                            if (!mDeletedApns.contains(apnSetting)) {
+                                mc.addRow((Object[]) apnSetting);
+                            }
                         }
                     }
                     return mc;
@@ -336,11 +345,13 @@ public class DataProfileManagerTest extends TelephonyTest {
                 return mc;
             } else if (uri.isPathPrefixMatch(Telephony.Carriers.PREFERRED_APN_URI)) {
                 for (Object apnSetting : mAllApnSettings) {
-                    int id = (int) ((Object[]) apnSetting)[0];
-                    if (id == mPreferredApnId) {
-                        MatrixCursor mc = new MatrixCursor(APN_COLUMNS);
-                        mc.addRow((Object[]) apnSetting);
-                        return mc;
+                    if (!mDeletedApns.contains(apnSetting)) {
+                        int id = (int) ((Object[]) apnSetting)[0];
+                        if (id == mPreferredApnId) {
+                            MatrixCursor mc = new MatrixCursor(APN_COLUMNS);
+                            mc.addRow((Object[]) apnSetting);
+                            return mc;
+                        }
                     }
                 }
             }
@@ -377,6 +388,21 @@ public class DataProfileManagerTest extends TelephonyTest {
                 logd("mPreferredApnId=" + mPreferredApnId);
             }
             return null;
+        }
+
+        public boolean removeApnByApnId(int apnId) {
+            for (Object apnSetting : mAllApnSettings) {
+                int id = (int) ((Object[]) apnSetting)[0];
+                if (apnId == id) {
+                    mDeletedApns.add(apnSetting);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public void restoreApnSettings() {
+            mDeletedApns.clear();
         }
     }
 
@@ -441,7 +467,11 @@ public class DataProfileManagerTest extends TelephonyTest {
         verify(mDataNetworkController).registerDataNetworkControllerCallback(
                         dataNetworkControllerCallbackCaptor.capture());
         mDataNetworkControllerCallback = dataNetworkControllerCallbackCaptor.getValue();
-        mDataProfileManagerUT.obtainMessage(1 /*EVENT_DATA_CONFIG_UPDATED*/).sendToTarget();
+        ArgumentCaptor<DataConfigManagerCallback> dataConfigManagerCallbackCaptor =
+                ArgumentCaptor.forClass(DataConfigManagerCallback.class);
+        verify(mDataConfigManager).registerCallback(dataConfigManagerCallbackCaptor.capture());
+        mDataConfigManagerCallback = dataConfigManagerCallbackCaptor.getValue();
+        mDataConfigManagerCallback.onCarrierConfigChanged();
         processAllMessages();
 
         logd("DataProfileManagerTest -Setup!");
@@ -451,6 +481,7 @@ public class DataProfileManagerTest extends TelephonyTest {
     public void tearDown() throws Exception {
         mDataProfileManagerUT = null;
         mDataNetworkControllerCallback = null;
+        mDataConfigManagerCallback = null;
         super.tearDown();
     }
 
@@ -630,6 +661,44 @@ public class DataProfileManagerTest extends TelephonyTest {
                 eq(false), eq(null));
         assertThat(dataProfileCaptor.getValue().getApnSetting().getApnName())
                 .isEqualTo(GENERAL_PURPOSE_APN);
+    }
+
+    @Test
+    public void testSetInitialAttachDataProfileMultipleRequests() throws Exception {
+        // Test: Modem Cleared IA, should always send IA to modem
+        // TODO(b/237444788): this case should be removed from U
+        mDataProfileManagerUT.obtainMessage(3 /* EVENT_SIM_REFRESH */).sendToTarget();
+        processAllMessages();
+
+        Field IADPField = DataProfileManager.class.getDeclaredField("mInitialAttachDataProfile");
+        IADPField.setAccessible(true);
+        DataProfile dp = (DataProfile) IADPField.get(mDataProfileManagerUT);
+
+        Mockito.clearInvocations(mMockedWwanDataServiceManager);
+        mDataProfileManagerUT.obtainMessage(3 /* EVENT_SIM_REFRESH */).sendToTarget();
+        processAllMessages();
+        DataProfile dp2 = (DataProfile) IADPField.get(mDataProfileManagerUT);
+
+        assertThat(Objects.equals(dp, dp2)).isTrue();
+        verify(mMockedWwanDataServiceManager)
+                .setInitialAttachApn(any(DataProfile.class), eq(false), eq(null));
+
+        // Test: Modem did NOT clear IA, should not send IA to modem even if IA stays the same
+        mDataProfileManagerUT.obtainMessage(2 /* EVENT_APN_DATABASE_CHANGED */).sendToTarget();
+        processAllMessages();
+
+        IADPField = DataProfileManager.class.getDeclaredField("mInitialAttachDataProfile");
+        IADPField.setAccessible(true);
+        dp = (DataProfile) IADPField.get(mDataProfileManagerUT);
+        Mockito.clearInvocations(mMockedWwanDataServiceManager);
+
+        mDataProfileManagerUT.obtainMessage(2 /* EVENT_APN_DATABASE_CHANGED */).sendToTarget();
+        processAllMessages();
+        dp2 = (DataProfile) IADPField.get(mDataProfileManagerUT);
+
+        assertThat(Objects.equals(dp, dp2)).isTrue();
+        verify(mMockedWwanDataServiceManager, Mockito.never())
+                .setInitialAttachApn(any(DataProfile.class), eq(false), eq(null));
     }
 
     @Test
@@ -869,9 +938,22 @@ public class DataProfileManagerTest extends TelephonyTest {
         mDataProfileManagerUT.obtainMessage(2 /*EVENT_APN_DATABASE_CHANGED*/).sendToTarget();
         processAllMessages();
 
+        // preferred APN should set to be the prev preferred
+        assertThat(mDataProfileManagerUT.isAnyPreferredDataProfileExisting()).isTrue();
+        assertThat(mDataProfileManagerUT.isDataProfilePreferred(dataProfile)).isTrue();
+
+        //APN reset and removed GENERAL_PURPOSE_APN(as if user created) from APN DB
+        mPreferredApnId = -1;
+        mApnSettingContentProvider.removeApnByApnId(1);
+        mDataProfileManagerUT.obtainMessage(2 /*EVENT_APN_DATABASE_CHANGED*/).sendToTarget();
+        processAllMessages();
+
         // There should be no preferred APN after APN reset
         assertThat(mDataProfileManagerUT.isAnyPreferredDataProfileExisting()).isFalse();
         assertThat(mDataProfileManagerUT.isDataProfilePreferred(dataProfile)).isFalse();
+
+        // restore mApnSettingContentProvider
+        mApnSettingContentProvider.restoreApnSettings();
     }
 
     @Test

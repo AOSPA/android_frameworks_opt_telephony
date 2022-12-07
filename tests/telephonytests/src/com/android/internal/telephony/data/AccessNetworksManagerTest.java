@@ -61,6 +61,7 @@ public class AccessNetworksManagerTest extends TelephonyTest {
     private IQualifiedNetworksService mMockedQns;
     private IBinder mMockedIBinder;
     private AccessNetworksManagerCallback mMockedCallback;
+    private DataConfigManager mMockedDataConfigManager;
 
     // The real callback passed created by AccessNetworksManager.
     private IQualifiedNetworksServiceCallback.Stub mQnsCallback;
@@ -106,8 +107,12 @@ public class AccessNetworksManagerTest extends TelephonyTest {
             return null;
         }).when(mMockedCallback).invokeFromExecutor(any(Runnable.class));
 
+        mMockedDataConfigManager = Mockito.mock(DataConfigManager.class);
         mAccessNetworksManager = new AccessNetworksManager(mPhone, Looper.myLooper());
+
         processAllMessages();
+        replaceInstance(AccessNetworksManager.class, "mDataConfigManager",
+                mAccessNetworksManager, mMockedDataConfigManager);
         assumeFalse(mAccessNetworksManager.isInLegacyMode());
         logd("-setUp");
     }
