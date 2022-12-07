@@ -92,7 +92,7 @@ public class SmsDispatchersController extends Handler {
 
     private SMSDispatcher mCdmaDispatcher;
     private SMSDispatcher mGsmDispatcher;
-    private ImsSmsDispatcher mImsSmsDispatcher;
+    protected ImsSmsDispatcher mImsSmsDispatcher;
 
     private GsmInboundSmsHandler mGsmInboundSmsHandler;
     private CdmaInboundSmsHandler mCdmaInboundSmsHandler;

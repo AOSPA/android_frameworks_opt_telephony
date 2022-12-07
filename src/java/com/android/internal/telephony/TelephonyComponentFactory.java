@@ -358,6 +358,12 @@ public class TelephonyComponentFactory {
         return new IccSmsInterfaceManager(phone);
     }
 
+    public SmsDispatchersController makeSmsDispatchersController(Phone phone) {
+        Rlog.d(LOG_TAG, "makeSmsDispatchersController");
+        return new SmsDispatchersController(phone, phone.mSmsStorageMonitor,
+                phone.mSmsUsageMonitor);
+    }
+
     /**
      * Create a new UiccProfile object.
      */
