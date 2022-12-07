@@ -375,7 +375,8 @@ public class GsmCdmaPhone extends Phone {
         public void onReceive(Context context, Intent intent) {
             Rlog.d(LOG_TAG, "mBroadcastReceiver: action " + intent.getAction());
             String action = intent.getAction();
-            if (CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED.equals(action) &&
+            if ((CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED.equals(action) ||
+                    CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED.equals(action)) &&
                     intent.getExtras() != null &&
                     intent.getExtras().getInt(CarrierConfigManager.EXTRA_SLOT_INDEX,
                     SubscriptionManager.INVALID_SIM_SLOT_INDEX) == mPhoneId) {
@@ -447,6 +448,7 @@ public class GsmCdmaPhone extends Phone {
                 EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION, null);
         IntentFilter filter = new IntentFilter(
                 CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+        filter.addAction(CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED);
         filter.addAction(TelecomManager.ACTION_CURRENT_TTY_MODE_CHANGED);
         filter.addAction(TelecomManager.ACTION_TTY_PREFERRED_MODE_CHANGED);
         mContext.registerReceiver(mBroadcastReceiver, filter,

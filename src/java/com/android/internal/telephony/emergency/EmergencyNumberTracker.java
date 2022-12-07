@@ -160,7 +160,9 @@ public class EmergencyNumberTracker extends Handler {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent.getAction().equals(
-                    CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
+                    CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED) ||
+                    intent.getAction().equals(
+                    CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED)) {
                 onCarrierConfigChanged();
                 return;
             } else if (intent.getAction().equals(
@@ -202,6 +204,7 @@ public class EmergencyNumberTracker extends Handler {
             // Receive Carrier Config Changes
             IntentFilter filter = new IntentFilter(
                     CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+            filter.addAction(CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED);
             // Receive Telephony Network Country Changes
             filter.addAction(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED);
 
