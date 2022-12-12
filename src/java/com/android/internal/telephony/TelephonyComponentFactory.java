@@ -30,6 +30,7 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStatVfs;
+import android.telephony.AccessNetworkConstants.TransportType;
 import android.text.TextUtils;
 import android.util.SparseArray;
 
