@@ -1354,19 +1354,6 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     /**
-     * Add a new SubInfoRecord to subinfo database if needed
-     * @param iccId the IccId of the SIM card
-     * @param slotIndex the slot which the SIM is inserted
-     * @return 0 if success, < 0 on error.
-     */
-    @Override
-    public int addSubInfoRecord(String iccId, int slotIndex) {
-        if (DBG) logdl("[addSubInfoRecord]+ iccId:" + SubscriptionInfo.givePrintableIccid(iccId) +
-                " slotIndex:" + slotIndex);
-        return addSubInfo(iccId, null, slotIndex, SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM);
-    }
-
-    /**
      * Add a new subscription info record, if needed.
      * @param uniqueId This is the unique identifier for the subscription within the specific
      *                 subscription type.
@@ -1586,7 +1573,7 @@ public class SubscriptionController extends ISub.Stub {
                 notifySubscriptionInfoChanged();
             } else {  // Handle Local SIM devices
                 // Set Display name after sub id is set above so as to get valid simCarrierName
-                int subId = getSubIdUsingPhoneId(slotIndex);
+                int subId = getSubId(slotIndex);
                 if (!SubscriptionManager.isValidSubscriptionId(subId)) {
                     if (DBG) {
                         logdl("[addSubInfoRecord]- getSubId failed invalid subId = " + subId);
@@ -1858,7 +1845,7 @@ public class SubscriptionController extends ISub.Stub {
     public boolean setPlmnSpn(int slotIndex, boolean showPlmn, String plmn, boolean showSpn,
                               String spn) {
         synchronized (mLock) {
-            int subId = getSubIdUsingPhoneId(slotIndex);
+            int subId = getSubId(slotIndex);
             if (mContext.getPackageManager().resolveContentProvider(
                     SubscriptionManager.CONTENT_URI.getAuthority(), 0) == null ||
                     !SubscriptionManager.isValidSubscriptionId(subId)) {
@@ -2690,13 +2677,13 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     /**
-     * Return the subId for specified slot Id.
+     * Return the subIds for specified slot Id.
      * @deprecated
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     @Deprecated
-    public int[] getSubId(int slotIndex) {
+    public int[] getSubIds(int slotIndex) {
         if (VDBG) printStackTrace("[getSubId]+ slotIndex=" + slotIndex);
 
         // Map default slotIndex to the current default subId.
@@ -3113,9 +3100,8 @@ public class SubscriptionController extends ISub.Stub {
 
     // FIXME: We need we should not be assuming phoneId == slotIndex as it will not be true
     // when there are multiple subscriptions per sim and probably for other reasons.
-    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    public int getSubIdUsingPhoneId(int phoneId) {
-        int[] subIds = getSubId(phoneId);
+    public int getSubId(int phoneId) {
+        int[] subIds = getSubIds(phoneId);
         if (subIds == null || subIds.length == 0) {
             return SubscriptionManager.INVALID_SUBSCRIPTION_ID;
         }
@@ -3675,7 +3661,7 @@ public class SubscriptionController extends ISub.Stub {
             if (phoneSwitcher == null) {
                 logd("Set preferred data sub: phoneSwitcher is null.");
                 AnomalyReporter.reportAnomaly(
-                        UUID.fromString("a3ab0b9d-f2aa-4baf-911d-7096c0d4645a"),
+                        UUID.fromString("a73fe57f-4178-4bc3-a7ae-9d7354939274"),
                         "Set preferred data sub: phoneSwitcher is null.");
                 if (callback != null) {
                     try {
@@ -3702,7 +3688,7 @@ public class SubscriptionController extends ISub.Stub {
             PhoneSwitcher phoneSwitcher = PhoneSwitcher.getInstance();
             if (phoneSwitcher == null) {
                 AnomalyReporter.reportAnomaly(
-                        UUID.fromString("a3ab0b9d-f2aa-4baf-911d-7096c0d4645a"),
+                        UUID.fromString("e72747ab-d0aa-4b0e-9dd5-cb99365c6d58"),
                         "Get preferred data sub: phoneSwitcher is null.");
                 return SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
             }
@@ -4140,7 +4126,7 @@ public class SubscriptionController extends ISub.Stub {
      * @return true if sub/group is the same, false otherwise
      */
     public boolean checkPhoneIdAndIccIdMatch(int phoneId, String iccid) {
-        int subId = getSubIdUsingPhoneId(phoneId);
+        int subId = getSubId(phoneId);
         if (!SubscriptionManager.isUsableSubIdValue(subId)) return false;
         ParcelUuid groupUuid = getGroupUuid(subId);
         List<SubscriptionInfo> subInfoList;
@@ -4410,7 +4396,7 @@ public class SubscriptionController extends ISub.Stub {
                         Settings.Global.ENABLED_SUBSCRIPTION_FOR_SLOT + physicalSlotIndex);
             } catch (Settings.SettingNotFoundException e) {
                 // Value never set. Return whether it's currently active.
-                subId = getSubIdUsingPhoneId(logicalSlotIndex);
+                subId = getSubId(logicalSlotIndex);
             }
 
             return subId;

@@ -1068,14 +1068,14 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         // invalid subId
         doReturn(SubscriptionManager.INVALID_SUBSCRIPTION_ID).when(mSubscriptionController).
-                getSubIdUsingPhoneId(anyInt());
+                getSubId(anyInt());
         assertEquals(false, mPhoneUT.getCallForwardingIndicator());
 
         doReturn(true).when(mSubscriptionController).isActiveSubId(anyInt());
         // valid subId, sharedPreference not present
         int subId1 = 0;
         int subId2 = 1;
-        doReturn(subId1).when(mSubscriptionController).getSubIdUsingPhoneId(anyInt());
+        doReturn(subId1).when(mSubscriptionController).getSubId(anyInt());
         assertEquals(false, mPhoneUT.getCallForwardingIndicator());
 
         // old sharedPreference present
@@ -1097,7 +1097,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         assertEquals(true, mPhoneUT.getCallForwardingIndicator());
 
         // check for another subId
-        doReturn(subId2).when(mSubscriptionController).getSubIdUsingPhoneId(anyInt());
+        doReturn(subId2).when(mSubscriptionController).getSubId(anyInt());
         assertEquals(false, mPhoneUT.getCallForwardingIndicator());
 
         // set value for the new subId in sharedPreference
@@ -1106,7 +1106,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         assertEquals(true, mPhoneUT.getCallForwardingIndicator());
 
         // switching back to previous subId, stored value should still be available
-        doReturn(subId1).when(mSubscriptionController).getSubIdUsingPhoneId(anyInt());
+        doReturn(subId1).when(mSubscriptionController).getSubId(anyInt());
         assertEquals(true, mPhoneUT.getCallForwardingIndicator());
 
         // cleanup
@@ -1515,7 +1515,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     @SmallTest
     public void testLoadAllowedNetworksFromSubscriptionDatabase_loadTheNullValue_isLoadedTrue() {
         int subId = 1;
-        doReturn(subId).when(mSubscriptionController).getSubIdUsingPhoneId(anyInt());
+        doReturn(subId).when(mSubscriptionController).getSubId(anyInt());
 
         doReturn(null).when(mSubscriptionController).getSubscriptionProperty(anyInt(),
                 eq(SubscriptionManager.ALLOWED_NETWORK_TYPES));
@@ -1529,7 +1529,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     @SmallTest
     public void testLoadAllowedNetworksFromSubscriptionDatabase_subIdNotValid_isLoadedFalse() {
         int subId = -1;
-        doReturn(subId).when(mSubscriptionController).getSubIdUsingPhoneId(anyInt());
+        doReturn(subId).when(mSubscriptionController).getSubId(anyInt());
 
         when(mSubscriptionController.getSubscriptionProperty(anyInt(),
                 eq(SubscriptionManager.ALLOWED_NETWORK_TYPES))).thenReturn(null);
