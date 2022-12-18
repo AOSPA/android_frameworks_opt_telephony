@@ -646,8 +646,11 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
         appChangedFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
         appChangedFilter.addDataScheme("package");
         mReceiverContext.registerReceiver(mAppChangedReceiver, appChangedFilter);
-        mReceiverContext.registerReceiver(mConfigChangedReceiver, new IntentFilter(
-                CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED));
+
+        IntentFilter configFilter = new IntentFilter();
+        configFilter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+        configFilter.addAction(CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED);
+        mReceiverContext.registerReceiver(mConfigChangedReceiver, configFilter);
 
         UserManager userManager = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
         if (userManager.isUserUnlocked()) {
