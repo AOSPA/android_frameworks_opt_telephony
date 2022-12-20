@@ -87,6 +87,7 @@ import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
 import com.android.internal.telephony.SmsUsageMonitor.SmsAuthorizationCallback;
 import com.android.internal.telephony.cdma.sms.UserData;
 import com.android.internal.telephony.uicc.IccRecords;
+import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -2423,9 +2424,10 @@ public abstract class SMSDispatcher extends Handler {
         /** Return if the SMS was originated from the default SMS application. */
         public boolean isFromDefaultSmsApplication(Context context) {
             if (mIsFromDefaultSmsApplication == null) {
+                UserHandle userHandle = TelephonyUtils.getSubscriptionUserHandle(context, mSubId);
                 // Perform a lazy initialization, due to the cost of the operation.
-                mIsFromDefaultSmsApplication =
-                        SmsApplication.isDefaultSmsApplication(context, getAppPackageName());
+                mIsFromDefaultSmsApplication = SmsApplication.isDefaultSmsApplicationAsUser(context,
+                                    getAppPackageName(), userHandle);
             }
             return mIsFromDefaultSmsApplication;
         }
