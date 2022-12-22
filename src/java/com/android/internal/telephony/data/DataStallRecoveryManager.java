@@ -26,6 +26,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.telephony.Annotation.RadioPowerState;
 import android.telephony.Annotation.ValidationStatus;
 import android.telephony.CellSignalStrength;
@@ -38,6 +39,7 @@ import android.util.LocalLog;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
+import com.android.internal.telephony.data.DataConfigManager.DataConfigManagerCallback;
 import com.android.internal.telephony.data.DataNetworkController.DataNetworkControllerCallback;
 import com.android.internal.telephony.data.DataSettingsManager.DataSettingsManagerCallback;
 import com.android.internal.telephony.metrics.DataStallRecoveryStats;
@@ -124,9 +126,6 @@ public class DataStallRecoveryManager extends Handler {
     /** The data stall recovered by user (Mobile Data Power off/on). */
     private static final int RECOVERED_REASON_USER = 3;
 
-    /** Event for data config updated. */
-    private static final int EVENT_DATA_CONFIG_UPDATED = 1;
-
     /** Event for triggering recovery action. */
     private static final int EVENT_DO_RECOVERY = 2;
 
@@ -166,6 +165,8 @@ public class DataStallRecoveryManager extends Handler {
     private boolean mNetworkCheckTimerStarted = false;
     /** Whether radio state changed during data stall. */
     private boolean mRadioStateChangedDuringDataStall;
+    /** Whether airplane mode enabled during data stall. */
+    private boolean mIsAirPlaneModeEnableDuringDataStall;
     /** Whether mobile data change to Enabled during data stall. */
     private boolean mMobileDataChangedToEnabledDuringDataStall;
     /** Whether attempted all recovery steps. */
@@ -245,7 +246,12 @@ public class DataStallRecoveryManager extends Handler {
 
     /** Register for all events that data stall monitor is interested. */
     private void registerAllEvents() {
-        mDataConfigManager.registerForConfigUpdate(this, EVENT_DATA_CONFIG_UPDATED);
+        mDataConfigManager.registerCallback(new DataConfigManagerCallback(this::post) {
+            @Override
+            public void onCarrierConfigChanged() {
+                DataStallRecoveryManager.this.onCarrierConfigUpdated();
+            }
+        });
         mDataNetworkController.registerDataNetworkControllerCallback(
                 new DataNetworkControllerCallback(this::post) {
                     @Override
@@ -274,9 +280,6 @@ public class DataStallRecoveryManager extends Handler {
     public void handleMessage(Message msg) {
         logv("handleMessage = " + msg);
         switch (msg.what) {
-            case EVENT_DATA_CONFIG_UPDATED:
-                onDataConfigUpdated();
-                break;
             case EVENT_DO_RECOVERY:
                 doRecovery();
                 break;
@@ -285,6 +288,12 @@ public class DataStallRecoveryManager extends Handler {
                 if (mDataStalled) {
                     // Store the radio state changed flag only when data stall occurred.
                     mRadioStateChangedDuringDataStall = true;
+                    if (Settings.Global.getInt(
+                                    mPhone.getContext().getContentResolver(),
+                                    Settings.Global.AIRPLANE_MODE_ON,
+                                    0) != 0) {
+                        mIsAirPlaneModeEnableDuringDataStall = true;
+                    }
                 }
                 break;
             default:
@@ -319,8 +328,8 @@ public class DataStallRecoveryManager extends Handler {
         return mSkipRecoveryActionArray[recoveryAction];
     }
 
-    /** Called when data config was updated. */
-    private void onDataConfigUpdated() {
+    /** Called when carrier config was updated. */
+    private void onCarrierConfigUpdated() {
         updateDataStallRecoveryConfigs();
     }
 
@@ -345,6 +354,7 @@ public class DataStallRecoveryManager extends Handler {
         mIsValidNetwork = true;
         mIsAttemptedAllSteps = false;
         mRadioStateChangedDuringDataStall = false;
+        mIsAirPlaneModeEnableDuringDataStall = false;
         mMobileDataChangedToEnabledDuringDataStall = false;
         cancelNetworkCheckTimer();
         mTimeLastRecoveryStartMs = 0;
@@ -355,7 +365,7 @@ public class DataStallRecoveryManager extends Handler {
     /**
      * Called when internet validation status changed.
      *
-     * @param validationStatus Validation status.
+     * @param status Validation status.
      */
     private void onInternetValidationStatusChanged(@ValidationStatus int status) {
         logl("onInternetValidationStatusChanged: " + DataUtils.validationStatusToString(status));
@@ -380,6 +390,7 @@ public class DataStallRecoveryManager extends Handler {
         mTimeLastRecoveryStartMs = 0;
         mMobileDataChangedToEnabledDuringDataStall = false;
         mRadioStateChangedDuringDataStall = false;
+        mIsAirPlaneModeEnableDuringDataStall = false;
         setRecoveryAction(RECOVERY_ACTION_GET_DATA_CALL_LIST);
     }
 
@@ -628,6 +639,9 @@ public class DataStallRecoveryManager extends Handler {
             if (mLastAction > RECOVERY_ACTION_CLEANUP) {
                 ret = RECOVERED_REASON_DSRM;
             }
+            if (mIsAirPlaneModeEnableDuringDataStall) {
+                ret = RECOVERED_REASON_USER;
+            }
         } else if (mMobileDataChangedToEnabledDuringDataStall) {
             ret = RECOVERED_REASON_USER;
         }
@@ -799,6 +813,7 @@ public class DataStallRecoveryManager extends Handler {
 
         pw.println("mIsValidNetwork=" + mIsValidNetwork);
         pw.println("mIsInternetNetworkConnected=" + mIsInternetNetworkConnected);
+        pw.println("mIsAirPlaneModeEnableDuringDataStall=" + mIsAirPlaneModeEnableDuringDataStall);
         pw.println("mDataStalled=" + mDataStalled);
         pw.println("mLastAction=" + recoveryActionToString(mLastAction));
         pw.println("mIsAttemptedAllSteps=" + mIsAttemptedAllSteps);

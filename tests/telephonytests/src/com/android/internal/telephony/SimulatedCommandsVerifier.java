@@ -1552,4 +1552,12 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     @Override
     public void getEnhancedRadioCapability(Message result) {
     }
+
+    @Override
+    public void startHandover(Message result, int callId) {
+    }
+
+    @Override
+    public void cancelHandover(Message result, int callId) {
+    }
 }
