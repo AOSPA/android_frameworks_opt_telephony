@@ -16,17 +16,20 @@
 
 package com.android.internal.telephony.metrics;
 
+import android.telephony.AccessNetworkConstants;
 import android.telephony.Annotation.NetworkType;
+import android.telephony.CellSignalStrength;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
+import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.ServiceStateTracker;
 import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.TelephonyStatsLog;
 import com.android.internal.telephony.data.DataStallRecoveryManager;
-import com.android.internal.telephony.dataconnection.DcTracker;
 
 /** Generates metrics related to data stall recovery events per phone ID for the pushed atom. */
 public class DataStallRecoveryStats {
@@ -40,42 +43,6 @@ public class DataStallRecoveryStats {
     /* Since the Enum has been extended in Android T, we are mapping it to the correct number. */
     private static final int RECOVERY_ACTION_RADIO_RESTART_MAPPING = 3;
     private static final int RECOVERY_ACTION_RESET_MODEM_MAPPING = 4;
-
-
-    /** TODO: b/214044479 : Remove this function when new data design(Android T) start. */
-    public static void onDataStallEvent(
-            @DcTracker.RecoveryAction int recoveryAction,
-            Phone phone,
-            boolean isRecovered,
-            int durationMillis) {
-        if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
-            phone = phone.getDefaultPhone();
-        }
-
-        int carrierId = phone.getCarrierId();
-        int rat = getRat(phone);
-        int band =
-                (rat == TelephonyManager.NETWORK_TYPE_IWLAN) ? 0 : ServiceStateStats.getBand(phone);
-        // the number returned here matches the SignalStrength enum we have
-        int signalStrength = phone.getSignalStrength().getLevel();
-        boolean isOpportunistic = getIsOpportunistic(phone);
-        boolean isMultiSim = SimSlotState.getCurrentState().numActiveSims > 1;
-
-        // Not use this field in Android S, so we send RECOVERED_REASON_NONE for default value.
-        int recoveryReason = 0;
-        TelephonyStatsLog.write(
-                TelephonyStatsLog.DATA_STALL_RECOVERY_REPORTED,
-                carrierId,
-                rat,
-                signalStrength,
-                recoveryAction,
-                isOpportunistic,
-                isMultiSim,
-                band,
-                isRecovered,
-                durationMillis,
-                recoveryReason);
-    }
 
     /**
      * Called when data stall happened.
@@ -111,6 +78,25 @@ public class DataStallRecoveryStats {
             recoveryAction = RECOVERY_ACTION_RESET_MODEM_MAPPING;
         }
 
+        // collect info of the other device in case of DSDS
+        int otherSignalStrength = CellSignalStrength.SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
+        // the number returned here matches the NetworkRegistrationState enum we have
+        int otherNetworkRegState = NetworkRegistrationInfo
+                .REGISTRATION_STATE_NOT_REGISTERED_OR_SEARCHING;
+        for (Phone otherPhone : PhoneFactory.getPhones()) {
+            if (otherPhone.getPhoneId() == phone.getPhoneId()) continue;
+            if (!getIsOpportunistic(otherPhone)) {
+                otherSignalStrength = otherPhone.getSignalStrength().getLevel();
+                NetworkRegistrationInfo regInfo = otherPhone.getServiceState()
+                        .getNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
+                                AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+                if (regInfo != null) {
+                    otherNetworkRegState = regInfo.getRegistrationState();
+                }
+                break;
+            }
+        }
+
         TelephonyStatsLog.write(
                 TelephonyStatsLog.DATA_STALL_RECOVERY_REPORTED,
                 carrierId,
@@ -122,7 +108,9 @@ public class DataStallRecoveryStats {
                 band,
                 isRecovered,
                 durationMillis,
-                reason);
+                reason,
+                otherSignalStrength,
+                otherNetworkRegState);
     }
 
     /** Returns the RAT used for data (including IWLAN). */

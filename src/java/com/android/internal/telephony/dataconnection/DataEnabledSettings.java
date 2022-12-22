@@ -43,7 +43,6 @@ import com.android.internal.telephony.GlobalSettingsHelper;
 import com.android.internal.telephony.MultiSimSettingController;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.SubscriptionController;
-import com.android.internal.telephony.data.DataEnabledOverride;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -139,8 +138,6 @@ public class DataEnabledSettings {
 
     private final LocalLog mSettingChangeLocalLog = new LocalLog(32);
 
-    private DataEnabledOverride mDataEnabledOverride;
-
     private TelephonyManager mTelephonyManager;
 
     // for msim, user data enabled setting depends on subId.
@@ -154,7 +151,6 @@ public class DataEnabledSettings {
                             log("onSubscriptionsChanged subId: " + mSubId + " to: "
                                     + mPhone.getSubId());
                             mSubId = mPhone.getSubId();
-                            mDataEnabledOverride = getDataEnabledOverride();
                             updatePhoneStateListener();
                             updateDataEnabledAndNotify(REASON_USER_DATA_ENABLED);
                             mPhone.notifyUserMobileDataStateChanged(isUserDataEnabled());
@@ -187,7 +183,6 @@ public class DataEnabledSettings {
                 + ", mCarrierDataEnabled=" + mCarrierDataEnabled
                 + ", mIsDataEnabled=" + mIsDataEnabled
                 + ", mThermalDataEnabled=" + mThermalDataEnabled
-                + ", " + mDataEnabledOverride
                 + "]";
     }
 
@@ -199,13 +194,7 @@ public class DataEnabledSettings {
         subscriptionManager.addOnSubscriptionsChangedListener(mOnSubscriptionsChangeListener);
         mTelephonyManager = (TelephonyManager) mPhone.getContext()
                 .getSystemService(Context.TELEPHONY_SERVICE);
-        mDataEnabledOverride = getDataEnabledOverride();
         updateDataEnabled();
-    }
-
-    private DataEnabledOverride getDataEnabledOverride() {
-        return new DataEnabledOverride(SubscriptionController.getInstance()
-                .getDataEnabledOverrideRules(mPhone.getSubId()));
     }
 
     public synchronized void setInternalDataEnabled(boolean enabled) {
@@ -293,9 +282,11 @@ public class DataEnabledSettings {
      */
     public synchronized boolean setAlwaysAllowMmsData(boolean alwaysAllow) {
         localLog("setAlwaysAllowMmsData", alwaysAllow);
-        mDataEnabledOverride.setAlwaysAllowMms(alwaysAllow);
-        boolean changed = SubscriptionController.getInstance()
-                .setDataEnabledOverrideRules(mPhone.getSubId(), mDataEnabledOverride.getRules());
+        boolean before = isMmsAlwaysAllowed();
+        mPhone.getDataSettingsManager().setMobileDataPolicy(
+            TelephonyManager.MOBILE_DATA_POLICY_MMS_ALWAYS_ALLOWED, alwaysAllow);
+        boolean after = isMmsAlwaysAllowed();
+        boolean changed = before != after;
         if (changed) {
             updateDataEnabledAndNotify(REASON_OVERRIDE_RULE_CHANGED);
             notifyDataEnabledOverrideChanged();
@@ -320,16 +311,14 @@ public class DataEnabledSettings {
         if (allow == isDataAllowedInVoiceCall()) {
             return true;
         }
-        mDataEnabledOverride.setDataAllowedInVoiceCall(allow);
+        mPhone.getDataSettingsManager().setMobileDataPolicy(
+            TelephonyManager.MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL, allow);
 
-        boolean changed = SubscriptionController.getInstance()
-                .setDataEnabledOverrideRules(mPhone.getSubId(), mDataEnabledOverride.getRules());
-        if (changed) {
-            updateDataEnabledAndNotify(REASON_OVERRIDE_RULE_CHANGED);
-            notifyDataEnabledOverrideChanged();
-        }
+        // allow is always changed because we short circuit return true above if it's not changed
+        updateDataEnabledAndNotify(REASON_OVERRIDE_RULE_CHANGED);
+        notifyDataEnabledOverrideChanged();
 
-        return changed;
+        return true;
     }
 
     /**
@@ -338,11 +327,13 @@ public class DataEnabledSettings {
      * @return {@code true} if data is allowed during voice call.
      */
     public synchronized boolean isDataAllowedInVoiceCall() {
-        return mDataEnabledOverride.isDataAllowedInVoiceCall();
+        return mPhone.getDataSettingsManager().isMobileDataPolicyEnabled(TelephonyManager
+                          .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL);
     }
 
     public synchronized boolean isMmsAlwaysAllowed() {
-        return mDataEnabledOverride.isMmsAlwaysAllowed();
+        return mPhone.getDataSettingsManager()
+            .isMobileDataPolicyEnabled(TelephonyManager.MOBILE_DATA_POLICY_MMS_ALWAYS_ALLOWED);
     }
 
     private synchronized void setPolicyDataEnabled(boolean enabled) {
@@ -428,8 +419,7 @@ public class DataEnabledSettings {
         if (isProvisioning()) {
             mIsDataEnabled = isProvisioningDataEnabled();
         } else {
-            mIsDataEnabled = mInternalDataEnabled && (isUserDataEnabled() || mDataEnabledOverride
-                    .shouldOverrideDataEnabledSettings(mPhone, ApnSetting.TYPE_ALL))
+            mIsDataEnabled = mInternalDataEnabled && isUserDataEnabled()
                     && mPolicyDataEnabled && mCarrierDataEnabled && mThermalDataEnabled;
         }
     }
@@ -543,12 +533,9 @@ public class DataEnabledSettings {
             return isProvisioningDataEnabled();
         } else {
             boolean userDataEnabled = isUserDataEnabled();
-            // Check if we should temporarily enable data in certain conditions.
-            boolean isDataEnabledOverridden = mDataEnabledOverride
-                    .shouldOverrideDataEnabledSettings(mPhone, apnType);
 
             return (mInternalDataEnabled && mPolicyDataEnabled && mCarrierDataEnabled
-                    && mThermalDataEnabled && (userDataEnabled || isDataEnabledOverridden));
+                    && mThermalDataEnabled && userDataEnabled);
         }
     }
 

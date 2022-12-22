@@ -74,6 +74,7 @@ import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RILUtils;
 import com.android.internal.telephony.RadioCapability;
 import com.android.internal.telephony.SmsResponse;
+import com.android.internal.telephony.SrvccConnection;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
@@ -196,6 +197,7 @@ public class SimulatedCommands extends BaseCommands
     public boolean mSetRadioPowerAsSelectedPhoneForEmergencyCall;
 
     public boolean mCallWaitActivated = false;
+    private SrvccConnection[] mSrvccConnections;
 
     // mode for Icc Sim Authentication
     private int mAuthenticationMode;
@@ -2436,6 +2438,9 @@ public class SimulatedCommands extends BaseCommands
     @Override
     public void setSignalStrengthReportingCriteria(List<SignalThresholdInfo> signalThresholdInfos,
             Message result) {
+        SimulatedCommandsVerifier.getInstance().setSignalStrengthReportingCriteria(
+                signalThresholdInfos, result);
+        resultSuccess(result, null);
     }
 
     @Override
@@ -2584,5 +2589,14 @@ public class SimulatedCommands extends BaseCommands
     public void triggerPcoData(int cid, String bearerProto, int pcoId, byte[] contents) {
         PcoData response = new PcoData(cid, bearerProto, pcoId, contents);
         mPcoDataRegistrants.notifyRegistrants(new AsyncResult(null, response, null));
+    }
+
+    @Override
+    public void setSrvccCallInfo(SrvccConnection[] srvccConnections, Message result) {
+        mSrvccConnections = srvccConnections;
+    }
+
+    public SrvccConnection[] getSrvccConnections() {
+        return mSrvccConnections;
     }
 }

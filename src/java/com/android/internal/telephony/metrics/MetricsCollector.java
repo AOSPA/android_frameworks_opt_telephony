@@ -29,6 +29,7 @@ import static com.android.internal.telephony.TelephonyStatsLog.IMS_REGISTRATION_
 import static com.android.internal.telephony.TelephonyStatsLog.IMS_REGISTRATION_STATS;
 import static com.android.internal.telephony.TelephonyStatsLog.IMS_REGISTRATION_TERMINATION;
 import static com.android.internal.telephony.TelephonyStatsLog.INCOMING_SMS;
+import static com.android.internal.telephony.TelephonyStatsLog.OUTGOING_SHORT_CODE_SMS;
 import static com.android.internal.telephony.TelephonyStatsLog.OUTGOING_SMS;
 import static com.android.internal.telephony.TelephonyStatsLog.PER_SIM_STATUS;
 import static com.android.internal.telephony.TelephonyStatsLog.PRESENCE_NOTIFY_EVENT;
@@ -49,6 +50,8 @@ import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSIO
 import android.annotation.Nullable;
 import android.app.StatsManager;
 import android.content.Context;
+import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.util.StatsEvent;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -68,6 +71,7 @@ import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationStat
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationTermination;
 import com.android.internal.telephony.nano.PersistAtomsProto.IncomingSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.NetworkRequestsV2;
+import com.android.internal.telephony.nano.PersistAtomsProto.OutgoingShortCodeSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.OutgoingSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.PresenceNotifyEvent;
 import com.android.internal.telephony.nano.PersistAtomsProto.RcsAcsProvisioningStats;
@@ -176,6 +180,7 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
             registerAtom(PRESENCE_NOTIFY_EVENT, POLICY_PULL_DAILY);
             registerAtom(GBA_EVENT, POLICY_PULL_DAILY);
             registerAtom(PER_SIM_STATUS, null);
+            registerAtom(OUTGOING_SHORT_CODE_SMS, POLICY_PULL_DAILY);
 
             Rlog.d(TAG, "registered");
         } else {
@@ -251,6 +256,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 return pullGbaEvent(data);
             case PER_SIM_STATUS:
                 return pullPerSimStatus(data);
+            case OUTGOING_SHORT_CODE_SMS:
+                return pullOutgoingShortCodeSms(data);
             default:
                 Rlog.e(TAG, String.format("unexpected atom ID %d", atomTag));
                 return StatsManager.PULL_SKIP;
@@ -477,14 +484,22 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
         }
     }
 
-    private static int pullDeviceTelephonyProperties(List<StatsEvent> data) {
+    private int pullDeviceTelephonyProperties(List<StatsEvent> data) {
         Phone[] phones = getPhonesIfAny();
         if (phones.length == 0) {
             return StatsManager.PULL_SKIP;
         }
-
-        data.add(TelephonyStatsLog.buildStatsEvent(DEVICE_TELEPHONY_PROPERTIES,
-                phones[0].isUsingNewDataStack()));
+        boolean isAutoDataSwitchOn = false;
+        for (Phone phone : phones) {
+            // only applies to non-DDS
+            if (phone.getSubId() != SubscriptionManager.getDefaultDataSubscriptionId()) {
+                isAutoDataSwitchOn = phone.getDataSettingsManager().isMobileDataPolicyEnabled(
+                        TelephonyManager.MOBILE_DATA_POLICY_AUTO_DATA_SWITCH);
+                break;
+            }
+        }
+        data.add(TelephonyStatsLog.buildStatsEvent(DEVICE_TELEPHONY_PROPERTIES, true,
+                isAutoDataSwitchOn, mStorage.getAutoDataSwitchToggleCount()));
         return StatsManager.PULL_SUCCESS;
     }
 
@@ -693,6 +708,19 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
         return result;
     }
 
+    private int pullOutgoingShortCodeSms(List<StatsEvent> data) {
+        OutgoingShortCodeSms[] outgoingShortCodeSmsList = mStorage
+                .getOutgoingShortCodeSms(MIN_COOLDOWN_MILLIS);
+        if (outgoingShortCodeSmsList != null) {
+            // Outgoing short code SMS list is already shuffled when SMS were inserted
+            Arrays.stream(outgoingShortCodeSmsList).forEach(sms -> data.add(buildStatsEvent(sms)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "OUTGOING_SHORT_CODE_SMS pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
     /** Registers a pulled atom ID {@code atomId} with optional {@code policy} for pulling. */
     private void registerAtom(int atomId, @Nullable StatsManager.PullAtomMetadata policy) {
         mStatsManager.setPullAtomCallback(atomId, policy, ConcurrentUtils.DIRECT_EXECUTOR, this);
@@ -771,7 +799,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 session.videoEnabled,
                 session.ratAtConnected,
                 session.isMultiparty,
-                session.callDuration);
+                session.callDuration,
+                session.lastKnownRat);
     }
 
     private static StatsEvent buildStatsEvent(IncomingSms sms) {
@@ -811,7 +840,9 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 sms.messageId,
                 sms.retryId,
                 sms.intervalMillis,
-                sms.count);
+                sms.count,
+                sms.sendErrorCode,
+                sms.networkErrorCode);
     }
 
     private static StatsEvent buildStatsEvent(DataCallSession dataCallSession) {
@@ -838,7 +869,8 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 dataCallSession.ongoing,
                 dataCallSession.bandAtEnd,
                 dataCallSession.handoverFailureCauses,
-                dataCallSession.handoverFailureRat);
+                dataCallSession.handoverFailureRat,
+                dataCallSession.isNonDds);
     }
 
     private static StatsEvent buildStatsEvent(ImsRegistrationStats stats) {
@@ -1024,6 +1056,14 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 stats.successful,
                 stats.failedReason,
                 stats.count);
+    }
+
+    private static StatsEvent buildStatsEvent(OutgoingShortCodeSms shortCodeSms) {
+        return TelephonyStatsLog.buildStatsEvent(
+                OUTGOING_SHORT_CODE_SMS,
+                shortCodeSms.category,
+                shortCodeSms.xmlVersion,
+                shortCodeSms.shortCodeSmsCount);
     }
 
     /** Returns all phones in {@link PhoneFactory}, or an empty array if phones not made yet. */

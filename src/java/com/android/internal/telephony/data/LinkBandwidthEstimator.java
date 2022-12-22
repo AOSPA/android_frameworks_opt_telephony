@@ -32,8 +32,6 @@ import android.os.Handler;
 import android.os.HandlerExecutor;
 import android.os.Message;
 import android.os.OutcomeReceiver;
-import android.os.Registrant;
-import android.os.RegistrantList;
 import android.preference.PreferenceManager;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.Annotation.DataActivityType;
@@ -191,7 +189,6 @@ public class LinkBandwidthEstimator extends Handler {
     private String mBandwidthUpdatePlmn = UNKNOWN_PLMN;
     private BandwidthState mTxState = new BandwidthState(LINK_TX);
     private BandwidthState mRxState = new BandwidthState(LINK_RX);
-    private RegistrantList mBandwidthChangedRegistrants = new RegistrantList();
     private long mLastPlmnOrRatChangeTimeMs;
     private long mLastDrsOrRatChangeTimeMs;
 
@@ -351,33 +348,6 @@ public class LinkBandwidthEstimator extends Handler {
     }
 
     /**
-     * Registers for bandwidth estimation change. The bandwidth will be returned
-     *      * {@link AsyncResult#result} as a {@link Pair} Object.
-     *      * The {@link AsyncResult} will be in the notification {@link Message#obj}.
-     * @param h handler to notify
-     * @param what what code of message when delivered
-     * @param obj placed in Message.obj
-     *
-     * @deprecated Use {@link #registerCallback(LinkBandwidthEstimatorCallback)}.
-     */
-    @Deprecated //TODO: Remove once old data stack is removed.
-    public void registerForBandwidthChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant(h, what, obj);
-        mBandwidthChangedRegistrants.add(r);
-    }
-
-    /**
-     * Unregisters for bandwidth estimation change.
-     * @param h handler to notify
-     *
-     * @deprecated Use {@link #unregisterCallback(LinkBandwidthEstimatorCallback)}.
-     */
-    @Deprecated //TODO: Remove once old data stack is removed.
-    public void unregisterForBandwidthChanged(Handler h) {
-        mBandwidthChangedRegistrants.remove(h);
-    }
-
-    /**
      * Register the callback for receiving information from {@link LinkBandwidthEstimator}.
      *
      * @param callback The callback.
@@ -441,6 +411,7 @@ public class LinkBandwidthEstimator extends Handler {
             return;
         }
         mIsOnDefaultRoute = isOnDefaultRoute;
+        logd("mIsOnDefaultRoute " + mIsOnDefaultRoute);
         handleTrafficStatsPollConditionChanged();
     }
 
@@ -465,6 +436,13 @@ public class LinkBandwidthEstimator extends Handler {
         if (mScreenOn && mIsOnDefaultRoute && mIsOnActiveData) {
             updateDataRatCellIdentityBandwidth();
             handleTrafficStatsPoll();
+        } else {
+            logd("Traffic status poll stopped");
+            if (mDataActivity != TelephonyManager.DATA_ACTIVITY_NONE) {
+                mDataActivity = TelephonyManager.DATA_ACTIVITY_NONE;
+                mLinkBandwidthEstimatorCallbacks.forEach(callback -> callback.invokeFromExecutor(
+                        () -> callback.onDataActivityChanged(mDataActivity)));
+            }
         }
     }
 
@@ -930,9 +908,6 @@ public class LinkBandwidthEstimator extends Handler {
 
     private void sendLinkBandwidthToDataConnection(int linkBandwidthTxKps, int linkBandwidthRxKps) {
         logv("send to DC tx " + linkBandwidthTxKps + " rx " + linkBandwidthRxKps);
-        Pair<Integer, Integer> bandwidthInfo =
-                new Pair<Integer, Integer>(linkBandwidthTxKps, linkBandwidthRxKps);
-        mBandwidthChangedRegistrants.notifyRegistrants(new AsyncResult(null, bandwidthInfo, null));
         mLinkBandwidthEstimatorCallbacks.forEach(callback -> callback.invokeFromExecutor(
                 () -> callback.onBandwidthChanged(linkBandwidthTxKps, linkBandwidthRxKps)));
     }
@@ -1175,8 +1150,7 @@ public class LinkBandwidthEstimator extends Handler {
             StringBuilder sb = new StringBuilder();
             sb.append("Plmn").append(mPlmn)
                     .append("Rat").append(mDataRat)
-                    .append("Tac").append(mTac)
-                    .toString();
+                    .append("Tac").append(mTac);
             return sb.toString();
         }
     }

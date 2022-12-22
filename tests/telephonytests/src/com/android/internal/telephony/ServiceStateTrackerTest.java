@@ -235,7 +235,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         doReturn(mIwlanNetworkServiceStub).when(mIwlanNetworkServiceStub).asBinder();
         addNetworkService();
 
-        doReturn(true).when(mDcTracker).areAllDataDisconnected();
         doReturn(true).when(mDataNetworkController).areAllDataDisconnected();
 
         doReturn(new ServiceState()).when(mPhone).getServiceState();
@@ -261,7 +260,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
 
         int dds = SubscriptionManager.getDefaultDataSubscriptionId();
         doReturn(dds).when(mPhone).getSubId();
-        doReturn(true).when(mPhone).areAllDataDisconnected();
 
         doReturn(true).when(mPackageManager)
                 .hasSystemFeature(PackageManager.FEATURE_TELEPHONY_CDMA);
@@ -391,7 +389,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         replaceInstance(PhoneFactory.class, "sPhones", null, mPhones);
         doReturn(dataNetworkController_phone2).when(phone2).getDataNetworkController();
         doReturn(mSST).when(phone2).getServiceStateTracker();
-        doReturn(true).when(phone2).isUsingNewDataStack();
         doReturn(false).when(mDataNetworkController).areAllDataDisconnected();
         doReturn(false).when(dataNetworkController_phone2).areAllDataDisconnected();
         doReturn(1).when(mPhone).getSubId();
@@ -1828,29 +1825,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         assertEquals(TelephonyManager.RADIO_POWER_UNAVAILABLE, mSimulatedCommands.getRadioState());
     }
 
-    @Test
-    @SmallTest
-    public void testImsRegisteredDelayShutDown() throws Exception {
-        doReturn(false).when(mPhone).isUsingNewDataStack();
-        doReturn(true).when(mPhone).isPhoneTypeGsm();
-        mContextFixture.putIntResource(
-                com.android.internal.R.integer.config_delay_for_ims_dereg_millis, 1000 /*ms*/);
-        sst.setImsRegistrationState(true);
-        mSimulatedCommands.setRadioPowerFailResponse(false);
-        sst.setRadioPower(true);
-        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
-
-        // Turn off the radio and ensure radio power is still on
-        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
-        sst.setRadioPower(false);
-        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
-        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
-
-        // Now set IMS reg state to false and ensure we see the modem move to power off.
-        sst.setImsRegistrationState(false);
-        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
-        assertEquals(TelephonyManager.RADIO_POWER_OFF, mSimulatedCommands.getRadioState());
-    }
 
     @Test
     @SmallTest
@@ -1865,33 +1839,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         // Turn off the radio and ensure radio power is off
         assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
         sst.setRadioPower(false);
-        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
-        assertEquals(TelephonyManager.RADIO_POWER_OFF, mSimulatedCommands.getRadioState());
-    }
-
-    @Test
-    @SmallTest
-    public void testImsRegisteredDelayShutDownTimeout() throws Exception {
-        doReturn(false).when(mPhone).isUsingNewDataStack();
-        doReturn(true).when(mPhone).isPhoneTypeGsm();
-        mContextFixture.putIntResource(
-                com.android.internal.R.integer.config_delay_for_ims_dereg_millis, 1000 /*ms*/);
-        sst.setImsRegistrationState(true);
-        mSimulatedCommands.setRadioPowerFailResponse(false);
-        sst.setRadioPower(true);
-        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
-
-        // Turn off the radio and ensure radio power is still on
-        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
-        sst.setRadioPower(false);
-        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
-        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
-
-        // Ensure that if we never turn deregister for IMS, we still eventually see radio state
-        // move to off.
-        // Timeout for IMS reg + some extra time to remove race conditions
-        waitForDelayedHandlerAction(mSSTTestHandler.getThreadHandler(),
-                sst.getRadioPowerOffDelayTimeoutForImsRegistration() + 1000, 1000);
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
         assertEquals(TelephonyManager.RADIO_POWER_OFF, mSimulatedCommands.getRadioState());
     }
@@ -2390,6 +2337,73 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         verify(mTestHandler, times(2)).sendMessageAtTime(messageArgumentCaptor.capture(),
                 anyLong());
         assertEquals(ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN, sst.mSS.getRilDataRadioTechnology());
+    }
+
+    private void changeRegStateWithIwlanOperatorNumeric(int psState, int psRat, int wlanState,
+            String[] opNamesResult, boolean passCellId) {
+        LteVopsSupportInfo lteVopsSupportInfo =
+                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_AVAILABLE,
+                        LteVopsSupportInfo.LTE_STATUS_NOT_AVAILABLE);
+        CellIdentityLte cellIdentity =
+                new CellIdentityLte(1, 1, 5, 1, new int[] {1, 2}, 5000, "001", "01", "test",
+                        "tst", Collections.emptyList(), null);
+        if (!passCellId) {
+            cellIdentity = null;
+        }
+        sst.mPollingContext[0] = 3;
+        sst.sendMessage(sst.obtainMessage(
+                ServiceStateTracker.EVENT_POLL_STATE_OPERATOR,
+                new AsyncResult(sst.mPollingContext, opNamesResult, null)));
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+
+
+        // PS WWAN
+        NetworkRegistrationInfo dataResult = new NetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                psState, psRat, 0, false, null, cellIdentity,
+                getPlmnFromCellIdentity(cellIdentity),
+                1, false, false, false, lteVopsSupportInfo);
+        sst.sendMessage(sst.obtainMessage(
+                ServiceStateTracker.EVENT_POLL_STATE_PS_CELLULAR_REGISTRATION,
+                new AsyncResult(sst.mPollingContext, dataResult, null)));
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+
+        // PS WLAN
+        NetworkRegistrationInfo dataIwlanResult = new NetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
+                wlanState, TelephonyManager.NETWORK_TYPE_IWLAN, 0, false,
+                null, null, "", 1, false, false, false, lteVopsSupportInfo);
+        sst.sendMessage(sst.obtainMessage(
+                ServiceStateTracker.EVENT_POLL_STATE_PS_IWLAN_REGISTRATION,
+                new AsyncResult(sst.mPollingContext, dataIwlanResult, null)));
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        assertEquals(opNamesResult[0], sst.getServiceState().getOperatorAlpha());
+        assertEquals(opNamesResult[2], sst.getServiceState().getOperatorNumeric());
+        verify(mLocaleTracker).updateOperatorNumeric(eq(opNamesResult[2]));
+    }
+
+    /**
+     * Ensure that LocaleTracker is not updated with mcc when only IWLAN is in service
+     */
+    @Test
+    public void testLocaleTrackerUpdateWithIWLANInService() {
+        // Start state: Cell data only LTE + IWLAN
+        final String[] OpNamesResult = new String[] { "carrier long", "carrier", "310310" };
+        changeRegStateWithIwlanOperatorNumeric(NetworkRegistrationInfo.REGISTRATION_STATE_HOME,
+                TelephonyManager.NETWORK_TYPE_LTE,
+                NetworkRegistrationInfo.REGISTRATION_STATE_HOME, OpNamesResult, true);
+        verify(mLocaleTracker).updateOperatorNumeric(eq(OpNamesResult[2]));
+        changeRegStateWithIwlanOperatorNumeric(
+                NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_OR_SEARCHING,
+                TelephonyManager.NETWORK_TYPE_LTE,
+                NetworkRegistrationInfo.REGISTRATION_STATE_HOME, OpNamesResult, true);
+        /* cellId based mccmnc */
+        verify(mLocaleTracker).updateOperatorNumeric(eq("00101"));
+        changeRegStateWithIwlanOperatorNumeric(
+                NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_OR_SEARCHING,
+                TelephonyManager.NETWORK_TYPE_LTE,
+                NetworkRegistrationInfo.REGISTRATION_STATE_HOME, OpNamesResult, false);
+        verify(mLocaleTracker).updateOperatorNumeric(eq(""));
     }
 
     @Test

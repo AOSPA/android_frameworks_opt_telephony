@@ -180,6 +180,15 @@ message PersistAtoms {
 
     /* Unmetered networks information. */
     repeated UnmeteredNetworks unmetered_networks = 52;
+
+    /* Outgoing Short Code SMS statistics and information. */
+    repeated OutgoingShortCodeSms outgoing_short_code_sms = 53;
+
+    /* Timestamp of last outgoing_short_code_sms pull. */
+    optional int64 outgoing_short_code_sms_pull_timestamp_millis = 54;
+
+    /* Number of time the user toggled the data switch feature since the last collection. */
+    optional int32 auto_data_switch_toggle_count = 55;
 }
 
 // The canonical versions of the following enums live in:
@@ -222,6 +231,7 @@ message VoiceCallSession {
     optional int32 rat_at_connected = 30;
     optional bool is_multiparty = 31;
     optional int32 call_duration = 32;
+    optional int32 last_known_rat = 33;
     // Internal use only
     optional int64 setup_begin_millis = 10001;
 }
@@ -270,6 +280,8 @@ message OutgoingSms {
     optional int32 retry_id = 13;
     optional int64 interval_millis = 14;
     optional int32 count = 15;
+    optional int32 send_error_code = 16;
+    optional int32 network_error_code = 17;
 
     // Internal use only
     optional int32 hashCode = 10001;
@@ -304,6 +316,7 @@ message DataCallSession {
     optional int32 band_at_end = 19;
     repeated int32 handover_failure_causes = 20;
     repeated int32 handover_failure_rat = 21;
+    optional bool is_non_dds = 22;
 }
 
 message CellularServiceState {
@@ -515,4 +528,10 @@ message UnmeteredNetworks {
     optional int32 phone_id = 1;
     optional int32 carrier_id = 2;
     optional int64 unmetered_networks_bitmask = 3;
+}
+
+message OutgoingShortCodeSms {
+    optional int32 category = 1;
+    optional int32 xml_version = 2;
+    optional int32 short_code_sms_count = 3;
 }

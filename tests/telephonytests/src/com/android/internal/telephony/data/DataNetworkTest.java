@@ -989,12 +989,30 @@ public class DataNetworkTest extends TelephonyTest {
     public void testHandover() throws Exception {
         setupDataNetwork();
 
-        setSuccessfulSetupDataResponse(mMockedWlanDataServiceManager, 456);
         // Now handover to IWLAN
         mDataNetworkUT.startHandover(AccessNetworkConstants.TRANSPORT_TYPE_WLAN, null);
+        // the source transport might report PDN lost
+        mDataNetworkUT.sendMessage(8/*EVENT_DATA_STATE_CHANGED*/,
+                new AsyncResult(AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                        Collections.emptyList(), null));
         processAllMessages();
 
+        // make sure interface name of source PDN is cleared
+        assertThat(mDataNetworkUT.getLinkProperties().getInterfaceName()).isNotEqualTo("ifname");
+        // make sure the capability of source PDN is set to SUSPENDED
+        assertThat(mDataNetworkUT.getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)).isFalse();
         verify(mMockedWwanDataServiceManager).startHandover(eq(123), any(Message.class));
+
+        // continue the HO
+        setSuccessfulSetupDataResponse(mMockedWlanDataServiceManager, 456);
+        Message msg = new Message();
+        msg.what = 26/*EVENT_NOTIFY_HANDOVER_STARTED_RESPONSE*/;
+        msg.arg2 = AccessNetworkConstants.TRANSPORT_TYPE_WLAN;
+        msg.obj = null;
+        mDataNetworkUT.sendMessage(msg);
+        processAllMessages();
+
         verify(mLinkBandwidthEstimator).unregisterCallback(any(
                 LinkBandwidthEstimatorCallback.class));
         assertThat(mDataNetworkUT.getTransport())
@@ -1044,8 +1062,6 @@ public class DataNetworkTest extends TelephonyTest {
         verify(mDataNetworkCallback).onHandoverFailed(eq(mDataNetworkUT),
                 eq(DataFailCause.SERVICE_TEMPORARILY_UNAVAILABLE), eq(-1L),
                 eq(DataCallResponse.HANDOVER_FAILURE_MODE_UNKNOWN));
-        verify(mLinkBandwidthEstimator, never()).unregisterForBandwidthChanged(
-                eq(mDataNetworkUT.getHandler()));
         assertThat(mDataNetworkUT.getTransport())
                 .isEqualTo(AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
         assertThat(mDataNetworkUT.getId()).isEqualTo(123);
@@ -1133,7 +1149,7 @@ public class DataNetworkTest extends TelephonyTest {
         verify(mVcnManager).addVcnNetworkPolicyChangeListener(any(Executor.class),
                 any(VcnNetworkPolicyChangeListener.class));
         verify(mSST).registerForCssIndicatorChanged(any(Handler.class), anyInt(), eq(null));
-        verify(mSST).registerForServiceStateChanged(any(Handler.class), anyInt());
+        verify(mSST).registerForServiceStateChanged(any(Handler.class), anyInt(), any());
         verify(mCT).registerForVoiceCallStarted(any(Handler.class), anyInt(), eq(null));
         verify(mCT).registerForVoiceCallEnded(any(Handler.class), anyInt(), eq(null));
         verify(mImsCT).registerForVoiceCallStarted(any(Handler.class), anyInt(), eq(null));

@@ -41,6 +41,7 @@ import android.telephony.ims.feature.ImsFeature;
 import android.util.ArrayMap;
 
 import com.android.internal.telephony.data.DataNetworkController.NetworkRequestList;
+import com.android.telephony.Rlog;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -61,6 +62,7 @@ public class DataUtils {
     /** The time format for converting time to readable string. */
     private static final SimpleDateFormat TIME_FORMAT =
             new SimpleDateFormat("HH:mm:ss.SSS", Locale.US);
+    private static final String TAG = "DataUtils";
 
     /**
      * Get the network capability from the string.
@@ -164,6 +166,7 @@ public class DataUtils {
             case NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_BANDWIDTH:
                 return "PRIORITIZE_BANDWIDTH";
             default:
+                loge("Unknown network capability(" + netCap + ")");
                 return "Unknown(" + netCap + ")";
         }
     }
@@ -209,7 +212,9 @@ public class DataUtils {
         switch (status) {
             case NetworkAgent.VALIDATION_STATUS_VALID: return "VALID";
             case NetworkAgent.VALIDATION_STATUS_NOT_VALID: return "INVALID";
-            default: return "UNKNOWN(" + status + ")";
+            default:
+                loge("Unknown validation status(" + status + ")");
+                return "UNKNOWN(" + status + ")";
         }
     }
 
@@ -366,6 +371,7 @@ public class DataUtils {
             case ImsFeature.FEATURE_MMTEL: return "MMTEL";
             case ImsFeature.FEATURE_RCS: return "RCS";
             default:
+                loge("Unknown IMS feature(" + imsFeature + ")");
                 return "Unknown(" + imsFeature + ")";
         }
     }
@@ -468,7 +474,9 @@ public class DataUtils {
             case DataCallResponse.LINK_STATUS_INACTIVE: return "INACTIVE";
             case DataCallResponse.LINK_STATUS_ACTIVE: return "ACTIVE";
             case DataCallResponse.LINK_STATUS_DORMANT: return "DORMANT";
-            default: return "UNKNOWN(" + linkStatus + ")";
+            default:
+                loge("Unknown link status(" + linkStatus + ")");
+                return "UNKNOWN(" + linkStatus + ")";
         }
     }
 
@@ -505,7 +513,13 @@ public class DataUtils {
             case TelephonyManager.DATA_ACTIVITY_OUT: return "OUT";
             case TelephonyManager.DATA_ACTIVITY_INOUT: return "INOUT";
             case TelephonyManager.DATA_ACTIVITY_DORMANT: return "DORMANT";
-            default: return "UNKNOWN(" + dataActivity + ")";
+            default:
+                loge("Unknown data activity(" + dataActivity + ")");
+                return "UNKNOWN(" + dataActivity + ")";
         }
+    }
+
+    private static void loge(String msg) {
+        Rlog.e(TAG, msg);
     }
 }

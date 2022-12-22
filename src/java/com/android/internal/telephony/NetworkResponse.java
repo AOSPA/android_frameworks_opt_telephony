@@ -22,6 +22,7 @@ import android.hardware.radio.network.IRadioNetworkResponse;
 import android.os.AsyncResult;
 import android.telephony.BarringInfo;
 import android.telephony.CellInfo;
+import android.telephony.EmergencyRegResult;
 import android.telephony.LinkCapacityEstimate;
 import android.telephony.RadioAccessSpecifier;
 import android.telephony.SignalStrength;
@@ -434,6 +435,44 @@ public class NetworkResponse extends IRadioNetworkResponse.Stub {
     public void getUsageSettingResponse(RadioResponseInfo responseInfo,
             /* @TelephonyManager.UsageSetting */ int usageSetting) {
         RadioResponse.responseInts(RIL.NETWORK_SERVICE, mRil, responseInfo, usageSetting);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     * @param regState the current registration state of the modem.
+     */
+    public void setEmergencyModeResponse(RadioResponseInfo responseInfo,
+            android.hardware.radio.network.EmergencyRegResult regState) {
+        RILRequest rr = mRil.processResponse(RIL.NETWORK_SERVICE, responseInfo);
+
+        if (rr != null) {
+            EmergencyRegResult response = RILUtils.convertHalEmergencyRegResult(regState);
+            if (responseInfo.error == RadioError.NONE) {
+                RadioResponse.sendMessageResponse(rr.mResult, response);
+            }
+            mRil.processResponseDone(rr, responseInfo, response);
+        }
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void triggerEmergencyNetworkScanResponse(RadioResponseInfo responseInfo) {
+        RadioResponse.responseVoid(RIL.NETWORK_SERVICE, mRil, responseInfo);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void exitEmergencyModeResponse(RadioResponseInfo responseInfo) {
+        RadioResponse.responseVoid(RIL.NETWORK_SERVICE, mRil, responseInfo);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void cancelEmergencyNetworkScanResponse(RadioResponseInfo responseInfo) {
+        RadioResponse.responseVoid(RIL.NETWORK_SERVICE, mRil, responseInfo);
     }
 
     @Override

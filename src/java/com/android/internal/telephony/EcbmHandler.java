@@ -23,6 +23,7 @@ package com.android.internal.telephony;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
@@ -32,6 +33,7 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.preference.PreferenceManager;
 import android.sysprop.TelephonyProperties;
 import android.telephony.Rlog;
 import android.telephony.SubscriptionManager;
@@ -68,12 +70,20 @@ public class EcbmHandler extends Handler {
     // Keep track of whether or not the phone is in Emergency Callback Mode for Phone and
     // subclasses
     protected boolean mIsPhoneInEcmState = false;
+
+    // Keep track of the case where ECM was cancelled to place another outgoing emergency call.
+    // We will need to restart it after the emergency call ends.
+    private boolean mEcmCanceledForEmergency = false;
+
     // mEcmExitRespRegistrant is informed after the phone has been exited
     private Registrant mEcmExitRespRegistrant;
     // mEcmTimerResetRegistrants are informed after Ecm timer is canceled or re-started
     private final RegistrantList mEcmTimerResetRegistrants = new RegistrantList();
     private boolean mIsEcbmOnIms = false;
     private int mEcbmPhoneId = 0;
+
+    private static final String PREF_KEY_ECBM_PHONEID = "ecbm_phoneid";
+    private static final String PREF_KEY_IS_ECBM_ON_IMS = "is_ecbm_on_ims";
 
     protected static final int EVENT_EMERGENCY_CALLBACK_MODE_ENTER  = 1;
     protected static final int EVENT_EXIT_EMERGENCY_CALLBACK_RESPONSE = 2;
@@ -123,6 +133,11 @@ public class EcbmHandler extends Handler {
             mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, LOG_TAG);
             mWakeLock.setReferenceCounted(false);
 
+            if (mIsPhoneInEcmState) {
+                restoreCachedEcbmState();
+                logd("initialize: ecbmPhoneId = " + mEcbmPhoneId +
+                        " isEcbmOnIms = " + mIsEcbmOnIms);
+            }
         }
 
         mNumPhones = TelephonyManager.getDefault().getActiveModemCount();
@@ -261,6 +276,7 @@ public class EcbmHandler extends Handler {
         // if phone is not in Ecm mode, and it's changed to Ecm mode
         if (!isInEcm()) {
             setIsInEcm(true);
+            cacheEcbmState();
 
             // notify change
             sendEmergencyCallbackModeChange();
@@ -288,6 +304,7 @@ public class EcbmHandler extends Handler {
         }
 
         setIsInEcm(false);
+        removeEcbmCache();
 
         // release wakeLock
         if (mWakeLock.isHeld()) {
@@ -310,16 +327,14 @@ public class EcbmHandler extends Handler {
             case CANCEL_ECM_TIMER:
                 removeCallbacks(mExitEcmRunnable);
                 mEcmTimerResetRegistrants.notifyResult(Boolean.TRUE);
-                // TODO(b/152630901): mPhone not available in handleTimerInEmergencyCallbackMode
-                //setEcmCanceledForEmergency(true /*isCanceled*/);
+                setEcmCanceledForEmergency(true /*isCanceled*/);
                 break;
             case RESTART_ECM_TIMER:
                 long delayInMillis = TelephonyProperties.ecm_exit_timer()
                         .orElse(DEFAULT_ECM_EXIT_TIMER_VALUE);
                 postDelayed(mExitEcmRunnable, delayInMillis);
                 mEcmTimerResetRegistrants.notifyResult(Boolean.FALSE);
-                // TODO(b/152630901): mPhone not available in handleTimerInEmergencyCallbackMode
-                //setEcmCanceledForEmergency(false /*isCanceled*/);
+                setEcmCanceledForEmergency(false /*isCanceled*/);
                 break;
             default:
                 Rlog.e(LOG_TAG, "handleTimerInEmergencyCallbackMode, unsupported action " + action);
@@ -373,6 +388,61 @@ public class EcbmHandler extends Handler {
 
     public static boolean getInEcmMode() {
         return TelephonyProperties.in_ecm_mode().orElse(false);
+    }
+
+    /**
+     * Cache the phoneid and ecbm on ims state in shared preference.
+     * It is used when phone process restarts after a crash.
+     * This is invoked only when ecbm is entered.
+     */
+    private void cacheEcbmState() {
+        if (mContext == null) return;
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+        SharedPreferences.Editor editor = sp.edit();
+        editor.putInt(PREF_KEY_ECBM_PHONEID, mEcbmPhoneId);
+        editor.putBoolean(PREF_KEY_IS_ECBM_ON_IMS, mIsEcbmOnIms);
+        editor.apply();
+    }
+
+    /**
+     * Restore the phoneId and ecbm on ims state.
+     */
+    private void restoreCachedEcbmState() {
+        if (mContext == null) return;
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+        mEcbmPhoneId = sp.getInt(PREF_KEY_ECBM_PHONEID, 0);
+        if (mEcbmPhoneId < 0  || mEcbmPhoneId >=
+                TelephonyManager.getDefault().getActiveModemCount()) {
+            mEcbmPhoneId = 0;
+        }
+        mIsEcbmOnIms = sp.getBoolean(PREF_KEY_IS_ECBM_ON_IMS, false);
+    }
+
+    private void removeEcbmCache() {
+        if (mContext == null) return;
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+        SharedPreferences.Editor editor = sp.edit();
+        editor.remove(PREF_KEY_ECBM_PHONEID);
+        editor.remove(PREF_KEY_IS_ECBM_ON_IMS);
+        editor.apply();
+    }
+
+    /**
+     * @return true if this Phone is in an emergency call that caused emergency callback mode to be
+     * canceled, false if not.
+     */
+    public boolean isEcmCanceledForEmergency() {
+        return mEcmCanceledForEmergency;
+    }
+
+    /**
+     * Set whether or not this Phone has an active emergency call that was placed during emergency
+     * callback mode and caused it to be temporarily canceled.
+     * @param isCanceled true if an emergency call was placed that caused ECM to be canceled, false
+     *                   if it is not in this state.
+     */
+    public void setEcmCanceledForEmergency(boolean isCanceled) {
+        mEcmCanceledForEmergency = isCanceled;
     }
 
     private void logd(String s) {

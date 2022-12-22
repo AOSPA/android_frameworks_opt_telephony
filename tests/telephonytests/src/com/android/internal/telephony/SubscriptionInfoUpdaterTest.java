@@ -614,13 +614,16 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
 
         List<SubscriptionInfo> subInfoList = new ArrayList<>();
         // 1: not embedded, but has matching iccid with an embedded subscription.
-        subInfoList.add(new SubscriptionInfo(
-                        0, "1", 0, "", "", 0, 0, "", 0, null, "0", "0", "", false /* isEmbedded */,
-                        null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("1")
+                .build());
         // 2: embedded but no longer present.
-        subInfoList.add(new SubscriptionInfo(
-                0, "2", 0, "", "", 0, 0, "", 0, null, "0", "0", "", true /* isEmbedded */,
-                null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("2")
+                .setEmbedded(true)
+                .build());
 
         when(mSubscriptionController.getSubscriptionInfoListForEmbeddedSubscriptionUpdate(
                 new String[] { "1", "3"}, false /* removable */)).thenReturn(subInfoList);
@@ -668,13 +671,16 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
 
         List<SubscriptionInfo> subInfoList = new ArrayList<>();
         // 1: not embedded, but has matching iccid with an embedded subscription.
-        subInfoList.add(new SubscriptionInfo(
-                0, "1", 0, "", "", 0, 0, "", 0, null, "0", "0", "", false /* isEmbedded */,
-                null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("1")
+                .build());
         // 2: embedded.
-        subInfoList.add(new SubscriptionInfo(
-                0, "2", 0, "", "", 0, 0, "", 0, null, "0", "0", "", true /* isEmbedded */,
-                null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("2")
+                .setEmbedded(true)
+                .build());
 
         when(mSubscriptionController.getSubscriptionInfoListForEmbeddedSubscriptionUpdate(
                 new String[0], false /* removable */)).thenReturn(subInfoList);
@@ -702,9 +708,10 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
 
         List<SubscriptionInfo> subInfoList = new ArrayList<>();
         // 1: not embedded.
-        subInfoList.add(new SubscriptionInfo(
-                0, "1", 0, "", "", 0, 0, "", 0, null, "0", "0", "", false /* isEmbedded */,
-                null /* accessRules */, null));
+        subInfoList.add(new SubscriptionInfo.Builder()
+                .setSimSlotIndex(0)
+                .setIccId("1")
+                .build());
 
         when(mSubscriptionController.getSubscriptionInfoListForEmbeddedSubscriptionUpdate(
                 new String[0], false /* removable */)).thenReturn(subInfoList);
@@ -801,6 +808,38 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
                 SubscriptionManager.IS_OPPORTUNISTIC).intValue());
         // 2 updates: isOpportunistic, and carrier certs:
         assertEquals(2, cvCaptor.getValue().size());
+        verify(mSubscriptionController, times(1)).refreshCachedActiveSubscriptionInfoList();
+        verify(mSubscriptionController, times(1)).notifySubscriptionInfoChanged();
+    }
+
+    @Test
+    @SmallTest
+    public void testOpportunisticSubscriptionNotUnsetWithEmptyConfigKey() throws Exception {
+        final int phoneId = mPhone.getPhoneId();
+        PersistableBundle carrierConfig = new PersistableBundle();
+
+        String carrierPackageName = "FakeCarrierPackageName";
+
+        doReturn(FAKE_SUB_ID_1).when(mSubscriptionController).getSubIdUsingPhoneId(phoneId);
+        doReturn(mSubInfo).when(mSubscriptionController).getSubscriptionInfo(eq(FAKE_SUB_ID_1));
+        doReturn(true).when(mSubInfo).isOpportunistic();
+        doReturn(carrierPackageName).when(mTelephonyManager)
+                .getCarrierServicePackageNameForLogicalSlot(eq(phoneId));
+        ((MockContentResolver) mContext.getContentResolver()).addProvider(
+                SubscriptionManager.CONTENT_URI.getAuthority(),
+                new FakeSubscriptionContentProvider());
+
+        mUpdater.updateSubscriptionByCarrierConfig(mPhone.getPhoneId(),
+                carrierPackageName, carrierConfig);
+
+        ArgumentCaptor<ContentValues> cvCaptor = ArgumentCaptor.forClass(ContentValues.class);
+        verify(mContentProvider, times(1)).update(
+                eq(SubscriptionManager.getUriForSubscriptionId(FAKE_SUB_ID_1)),
+                cvCaptor.capture(), eq(null), eq(null));
+        // no key is added for the opportunistic bit
+        assertNull(cvCaptor.getValue().getAsInteger(SubscriptionManager.IS_OPPORTUNISTIC));
+        // only carrier certs updated
+        assertEquals(1, cvCaptor.getValue().size());
         verify(mSubscriptionController, times(1)).refreshCachedActiveSubscriptionInfoList();
         verify(mSubscriptionController, times(1)).notifySubscriptionInfoChanged();
     }

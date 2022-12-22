@@ -1027,7 +1027,7 @@ public class DataNetwork extends StateMachine {
             mPhone.getDisplayInfoController().registerForTelephonyDisplayInfoChanged(
                     getHandler(), EVENT_DISPLAY_INFO_CHANGED, null);
             mPhone.getServiceStateTracker().registerForServiceStateChanged(getHandler(),
-                    EVENT_SERVICE_STATE_CHANGED);
+                    EVENT_SERVICE_STATE_CHANGED, null);
             for (int transport : mAccessNetworksManager.getAvailableTransports()) {
                 mDataServiceManagers.get(transport)
                         .registerForDataCallListChanged(getHandler(), EVENT_DATA_STATE_CHANGED);
@@ -1101,25 +1101,8 @@ public class DataNetwork extends StateMachine {
                     break;
                 }
                 case EVENT_DETACH_NETWORK_REQUEST: {
-                    TelephonyNetworkRequest networkRequest = (TelephonyNetworkRequest) msg.obj;
-                    onDetachNetworkRequest(networkRequest);
+                    onDetachNetworkRequest((TelephonyNetworkRequest) msg.obj);
                     updateNetworkScore();
-                    boolean allNetworkRequestsDetached = true;
-                    for (TelephonyNetworkRequest telephonyNetworkRequest
-                            : mAttachedNetworkRequestList) {
-                        if (telephonyNetworkRequest.getApnTypeNetworkCapability()
-                                != NetworkCapabilities.NET_CAPABILITY_INTERNET) {
-                            allNetworkRequestsDetached = false;
-                        }
-                    }
-                    // If DataNetwork does not have any attached NetworkRequests with capabilities
-                    // other than INTERNET, unregister the networkagent to reduce the
-                    // overall disconnect time for internet PDN on non DDS sub after DDS switch.
-                    if (allNetworkRequestsDetached && networkRequest
-                            .hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                        log("Unregistering TNA-" + mNetworkAgent.getId());
-                        mNetworkAgent.unregister();
-                    }
                     break;
                 }
                 case EVENT_DETACH_ALL_NETWORK_REQUESTS: {
@@ -1437,6 +1420,13 @@ public class DataNetwork extends StateMachine {
                                 + AccessNetworkConstants.transportTypeToString(transport)
                                 + " data call list changed event. " + responseList);
                     } else {
+                        // If source PDN is reported lost, notify network agent that the PDN is
+                        // temporarily suspended and the old interface name is no longer usable.
+                        boolean currentPdnIsAlive = responseList.stream()
+                                .anyMatch(r -> mCid.get(mTransport) == r.getId());
+                        if (!currentPdnIsAlive) {
+                            notifyNetworkUnusable();
+                        }
                         log("Defer message " + eventToString(msg.what) + ":" + responseList);
                         deferMessage(msg);
                     }
@@ -1483,6 +1473,25 @@ public class DataNetwork extends StateMachine {
                     return NOT_HANDLED;
             }
             return HANDLED;
+        }
+
+        /**
+         * Notify network agent that the PDN is temporarily suspended and the old interface name is
+         * no longer usable. The state will be re-evaluated when the handover ends.
+         */
+        private void notifyNetworkUnusable() {
+            log(AccessNetworkConstants.transportTypeToString(mTransport)
+                    + " reports current PDN lost, update capability to SUSPENDED,"
+                    + " TNA interfaceName to \"\"");
+            mNetworkCapabilities = new NetworkCapabilities
+                    .Builder(mNetworkCapabilities)
+                    .removeCapability(
+                            NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+                    .build();
+            mNetworkAgent.sendNetworkCapabilities(mNetworkCapabilities);
+
+            mLinkProperties.setInterfaceName("");
+            mNetworkAgent.sendLinkProperties(mLinkProperties);
         }
     }
 
@@ -1709,7 +1718,9 @@ public class DataNetwork extends StateMachine {
             int preferredDataPhoneId = PhoneSwitcher.getInstance().getPreferredDataPhoneId();
             if (preferredDataPhoneId != SubscriptionManager.INVALID_PHONE_INDEX
                     && preferredDataPhoneId != mPhone.getPhoneId()) {
-                tearDown(TEAR_DOWN_REASON_PREFERRED_DATA_SWITCHED);
+                // Let Connectivity release this immediately after linger time expires.
+                log("Unregistering TNA-" + mNetworkAgent.getId());
+                mNetworkAgent.unregister();
             }
         }
     }
@@ -1916,7 +1927,8 @@ public class DataNetwork extends StateMachine {
                         DataSpecificRegistrationInfo dsri = nri.getDataSpecificInfo();
                         // Check if the network is non-VoPS.
                         if (dsri != null && dsri.getVopsSupportInfo() != null
-                                && !dsri.getVopsSupportInfo().isVopsSupported()) {
+                                && !dsri.getVopsSupportInfo().isVopsSupported()
+                                && !mDataConfigManager.shouldKeepNetworkUpInNonVops()) {
                             builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_MMTEL);
                         }
                         log("updateNetworkCapabilities: dsri=" + dsri);
@@ -2392,9 +2404,11 @@ public class DataNetwork extends StateMachine {
         mFailCause = getFailCauseFromDataCallResponse(resultCode, response);
         validateDataCallResponse(response);
         if (mFailCause == DataFailCause.NONE) {
-            if (mDataNetworkController.isNetworkInterfaceExisting(response.getInterfaceName())) {
-                logl("Interface " + response.getInterfaceName() + " already existing. Silently "
-                        + "tear down now.");
+            DataNetwork dataNetwork = mDataNetworkController.getDataNetworkByInterface(
+                    response.getInterfaceName());
+            if (dataNetwork != null) {
+                logl("Interface " + response.getInterfaceName() + " has been already used by "
+                        + dataNetwork + ". Silently tear down now.");
                 // If this is a pre-5G data setup, that means APN database has some problems. For
                 // example, different APN settings have the same APN name.
                 if (response.getTrafficDescriptors().isEmpty()) {
@@ -2480,6 +2494,34 @@ public class DataNetwork extends StateMachine {
                 loge("Invalid DataCallResponse:" + response);
                 reportAnomaly("Invalid DataCallResponse detected",
                         "1f273e9d-b09c-46eb-ad1c-421d01f61164");
+            }
+            NetworkRegistrationInfo nri = getNetworkRegistrationInfo();
+            if (mDataProfile.getApnSetting() != null && nri != null && nri.isInService()) {
+                boolean isRoaming = mPhone.getServiceState().getDataRoamingFromRegistration();
+                int protocol = isRoaming ? mDataProfile.getApnSetting().getRoamingProtocol()
+                        : mDataProfile.getApnSetting().getProtocol();
+                String underlyingDataService = mTransport
+                        == AccessNetworkConstants.TRANSPORT_TYPE_WWAN
+                        ? "RIL" : "IWLAN data service";
+                if (protocol == ApnSetting.PROTOCOL_IP) {
+                    if (response.getAddresses().stream().anyMatch(
+                            la -> la.getAddress() instanceof java.net.Inet6Address)) {
+                        loge("Invalid DataCallResponse. Requested IPv4 but got IPv6 address. "
+                                + response);
+                        reportAnomaly(underlyingDataService + " reported mismatched IP "
+                                + "type. Requested IPv4 but got IPv6 address.",
+                                "7744f920-fb64-4db0-ba47-de0eae485a80");
+                    }
+                } else if (protocol == ApnSetting.PROTOCOL_IPV6) {
+                    if (response.getAddresses().stream().anyMatch(
+                            la -> la.getAddress() instanceof java.net.Inet4Address)) {
+                        loge("Invalid DataCallResponse. Requested IPv6 but got IPv4 address. "
+                                + response);
+                        reportAnomaly(underlyingDataService + " reported mismatched IP "
+                                        + "type. Requested IPv6 but got IPv4 address.",
+                                "7744f920-fb64-4db0-ba47-de0eae485a80");
+                    }
+                }
             }
         } else if (!DataFailCause.isFailCauseExisting(failCause)) { // Setup data failed.
             loge("Invalid DataFailCause in " + response);
@@ -3153,14 +3195,8 @@ public class DataNetwork extends StateMachine {
                 && !mAttachedNetworkRequestList.isEmpty()) {
             TelephonyNetworkRequest networkRequest = mAttachedNetworkRequestList.get(0);
             DataProfile dataProfile = mDataNetworkController.getDataProfileManager()
-                    .getDataProfileForNetworkRequest(networkRequest, targetNetworkType);
-            // Some carriers have different profiles between cellular and IWLAN. We need to
-            // dynamically switch profile, but only when those profiles have same APN name.
-            if (dataProfile != null && dataProfile.getApnSetting() != null
-                    && mDataProfile.getApnSetting() != null
-                    && TextUtils.equals(dataProfile.getApnSetting().getApnName(),
-                    mDataProfile.getApnSetting().getApnName())
-                    && !dataProfile.equals(mDataProfile)) {
+                    .getDataProfileForNetworkRequest(networkRequest, targetNetworkType, true);
+            if (dataProfile != null) {
                 mHandoverDataProfile = dataProfile;
                 log("Used different data profile for handover. " + mDataProfile);
             }

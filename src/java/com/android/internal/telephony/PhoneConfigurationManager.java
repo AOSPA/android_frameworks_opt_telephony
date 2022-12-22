@@ -151,6 +151,21 @@ public class PhoneConfigurationManager {
         }
     }
 
+    // If virtual DSDA is enabled for this UE, then updates maxActiveVoiceSubscriptions to 2.
+    private PhoneCapability maybeUpdateMaxActiveVoiceSubscriptions(
+            final PhoneCapability staticCapability) {
+        boolean enableVirtualDsda = mContext.getResources().getBoolean(
+                com.android.internal.R.bool.config_enable_virtual_dsda);
+
+        if (staticCapability.getLogicalModemList().size() > 1 && enableVirtualDsda) {
+            return new PhoneCapability.Builder(staticCapability)
+                    .setMaxActiveVoiceSubscriptions(2)
+                    .build();
+        } else {
+            return staticCapability;
+        }
+    }
+
     /**
      * Static method to get instance.
      */
@@ -209,6 +224,8 @@ public class PhoneConfigurationManager {
                     ar = (AsyncResult) msg.obj;
                     if (ar != null && ar.exception == null) {
                         mStaticCapability = (PhoneCapability) ar.result;
+                        mStaticCapability =
+                                maybeUpdateMaxActiveVoiceSubscriptions(mStaticCapability);
                         notifyCapabilityChanged();
                     } else {
                         log(msg.what + " failure. Not getting phone capability." + ar.exception);
@@ -494,10 +511,6 @@ public class PhoneConfigurationManager {
      * @return true if the modem service is set successfully, false otherwise.
      */
     public boolean setModemService(String serviceName) {
-        if (mRadioConfig == null || mPhones[0] == null) {
-            return false;
-        }
-
         log("setModemService: " + serviceName);
         boolean statusRadioConfig = false;
         boolean statusRil = false;
@@ -507,23 +520,37 @@ public class PhoneConfigurationManager {
 
         // Check for ALLOW_MOCK_MODEM_PROPERTY and BOOT_ALLOW_MOCK_MODEM_PROPERTY on user builds
         if (isAllowed || isAllowedForBoot || DEBUG) {
-            if (serviceName != null) {
+            if (mRadioConfig != null) {
                 statusRadioConfig = mRadioConfig.setModemService(serviceName);
-
-                //TODO: consider multi-sim case (b/210073692)
-                statusRil = mPhones[0].mCi.setModemService(serviceName);
-            } else {
-                statusRadioConfig = mRadioConfig.setModemService(null);
-
-                //TODO: consider multi-sim case
-                statusRil = mPhones[0].mCi.setModemService(null);
             }
 
-            return statusRadioConfig && statusRil;
+            if (!statusRadioConfig) {
+                loge("setModemService: switching modem service for radioconfig fail");
+                return false;
+            }
+
+            for (int i = 0; i < getPhoneCount(); i++) {
+                if (mPhones[i] != null) {
+                    statusRil = mPhones[i].mCi.setModemService(serviceName);
+                }
+
+                if (!statusRil) {
+                    loge("setModemService: switch modem for radio " + i + " fail");
+
+                    // Disconnect the switched service
+                    mRadioConfig.setModemService(null);
+                    for (int t = 0; t < i; t++) {
+                        mPhones[t].mCi.setModemService(null);
+                    }
+                    return false;
+                }
+            }
         } else {
             loge("setModemService is not allowed");
             return false;
         }
+
+        return true;
     }
 
      /**
@@ -531,7 +558,6 @@ public class PhoneConfigurationManager {
      * @return the service name of the connected service.
      */
     public String getModemService() {
-        //TODO: consider multi-sim case
         if (mPhones[0] == null) {
             return "";
         }

@@ -26,6 +26,7 @@ import android.app.AppOpsManager;
 import android.app.PendingIntent;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.BaseBundle;
 import android.os.Binder;
@@ -154,6 +155,7 @@ public class SmsController extends ISmsImplBase {
         if (callingPackage == null) {
             callingPackage = getCallingPackage();
         }
+        Rlog.d(LOG_TAG, "sendDataForSubscriber caller=" + callingPackage);
 
         // Perform FDN check
         if (isNumberBlockedByFDN(subId, destAddr, callingPackage)) {
@@ -196,8 +198,47 @@ public class SmsController extends ISmsImplBase {
             String callingAttributionTag, String destAddr, String scAddr, String text,
             PendingIntent sentIntent, PendingIntent deliveryIntent,
             boolean persistMessageForNonDefaultSmsApp, long messageId) {
+        sendTextForSubscriber(subId, callingPackage, callingAttributionTag, destAddr, scAddr,
+                text, sentIntent, deliveryIntent, persistMessageForNonDefaultSmsApp, messageId,
+                false, false);
+
+    }
+
+    /**
+     * @param subId Subscription Id
+     * @param callingAttributionTag the attribution tag of the caller
+     * @param destAddr the address to send the message to
+     * @param scAddr is the service center address or null to use
+     *  the current default SMSC
+     * @param text the body of the message to send
+     * @param sentIntent if not NULL this <code>PendingIntent</code> is
+     *  broadcast when the message is successfully sent, or failed.
+     *  The result code will be <code>Activity.RESULT_OK</code> for success, or relevant errors
+     *  the sentIntent may include the extra "errorCode" containing a radio technology specific
+     *  value, generally only useful for troubleshooting.
+     * @param deliveryIntent if not NULL this <code>PendingIntent</code> is
+     *  broadcast when the message is delivered to the recipient.  The
+     *  raw pdu of the status report is in the extended data ("pdu").
+     * @param skipFdnCheck if set to true, FDN check must be skipped .This is set in case of STK sms
+     *
+     * @hide
+     */
+    public void sendTextForSubscriber(int subId, String callingPackage,
+            String callingAttributionTag, String destAddr, String scAddr, String text,
+            PendingIntent sentIntent, PendingIntent deliveryIntent,
+            boolean persistMessageForNonDefaultSmsApp, long messageId, boolean skipFdnCheck,
+            boolean skipShortCodeCheck) {
         if (callingPackage == null) {
             callingPackage = getCallingPackage();
+        }
+        Rlog.d(LOG_TAG, "sendTextForSubscriber caller=" + callingPackage);
+
+        if (skipFdnCheck || skipShortCodeCheck) {
+            if (mContext.checkCallingOrSelfPermission(
+                    android.Manifest.permission.MODIFY_PHONE_STATE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                throw new SecurityException("Requires MODIFY_PHONE_STATE permission.");
+            }
         }
         if (!getSmsPermissions(subId).checkCallingCanSendText(persistMessageForNonDefaultSmsApp,
                 callingPackage, callingAttributionTag, "Sending SMS message")) {
@@ -206,7 +247,7 @@ public class SmsController extends ISmsImplBase {
         }
 
         // Perform FDN check
-        if (isNumberBlockedByFDN(subId, destAddr, callingPackage)) {
+        if (!skipFdnCheck && isNumberBlockedByFDN(subId, destAddr, callingPackage)) {
             sendErrorInPendingIntent(sentIntent, SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE);
             return;
         }
@@ -223,7 +264,7 @@ public class SmsController extends ISmsImplBase {
             sendBluetoothText(info, destAddr, text, sentIntent, deliveryIntent);
         } else {
             sendIccText(subId, callingPackage, destAddr, scAddr, text, sentIntent, deliveryIntent,
-                    persistMessageForNonDefaultSmsApp, messageId);
+                    persistMessageForNonDefaultSmsApp, messageId, skipShortCodeCheck);
         }
     }
 
@@ -240,13 +281,14 @@ public class SmsController extends ISmsImplBase {
 
     private void sendIccText(int subId, String callingPackage, String destAddr,
             String scAddr, String text, PendingIntent sentIntent, PendingIntent deliveryIntent,
-            boolean persistMessageForNonDefaultSmsApp, long messageId) {
+            boolean persistMessageForNonDefaultSmsApp, long messageId, boolean skipShortCodeCheck) {
         Rlog.d(LOG_TAG, "sendTextForSubscriber iccSmsIntMgr"
                 + " Subscription: " + subId + " " + formatCrossStackMessageId(messageId));
         IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
         if (iccSmsIntMgr != null) {
             iccSmsIntMgr.sendText(callingPackage, destAddr, scAddr, text, sentIntent,
-                    deliveryIntent, persistMessageForNonDefaultSmsApp, messageId);
+                    deliveryIntent, persistMessageForNonDefaultSmsApp, messageId,
+                    skipShortCodeCheck);
         } else {
             Rlog.e(LOG_TAG, "sendTextForSubscriber iccSmsIntMgr is null for"
                     + " Subscription: " + subId + " " + formatCrossStackMessageId(messageId));
@@ -277,6 +319,7 @@ public class SmsController extends ISmsImplBase {
         if (callingPackage == null) {
             callingPackage = getCallingPackage();
         }
+        Rlog.d(LOG_TAG, "sendTextForSubscriberWithOptions caller=" + callingPackage);
 
         // Perform FDN check
         if (isNumberBlockedByFDN(subId, destAddr, callingPackage)) {
@@ -306,6 +349,7 @@ public class SmsController extends ISmsImplBase {
         if (getCallingPackage() != null) {
             callingPackage = getCallingPackage();
         }
+        Rlog.d(LOG_TAG, "sendMultipartTextForSubscriber caller=" + callingPackage);
 
         // Perform FDN check
         if (isNumberBlockedByFDN(subId, destAddr, callingPackage)) {
@@ -333,6 +377,7 @@ public class SmsController extends ISmsImplBase {
         if (callingPackage == null) {
             callingPackage = getCallingPackage();
         }
+        Rlog.d(LOG_TAG, "sendMultipartTextForSubscriberWithOptions caller=" + callingPackage);
 
         // Perform FDN check
         if (isNumberBlockedByFDN(subId, destAddr, callingPackage)) {
@@ -448,7 +493,7 @@ public class SmsController extends ISmsImplBase {
         // Don't show the SMS SIM Pick activity if it is not foreground.
         boolean isCallingProcessForeground = am != null
                 && am.getUidImportance(Binder.getCallingUid())
-                        == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
+                == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
         if (!isCallingProcessForeground) {
             Rlog.d(LOG_TAG, "isSmsSimPickActivityNeeded: calling process not foreground. "
                     + "Suppressing activity.");
@@ -558,6 +603,8 @@ public class SmsController extends ISmsImplBase {
             throw new SecurityException("sendStoredText: Package " + callingPkg
                     + "does not belong to " + Binder.getCallingUid());
         }
+        Rlog.d(LOG_TAG, "sendStoredText caller=" + callingPkg);
+
         if (iccSmsIntMgr != null) {
             iccSmsIntMgr.sendStoredText(callingPkg, callingAttributionTag, messageUri, scAddress,
                     sentIntent, deliveryIntent);
@@ -576,6 +623,8 @@ public class SmsController extends ISmsImplBase {
             throw new SecurityException("sendStoredMultipartText: Package " + callingPkg
                     + " does not belong to " + Binder.getCallingUid());
         }
+        Rlog.d(LOG_TAG, "sendStoredMultipartText caller=" + callingPkg);
+
         if (iccSmsIntMgr != null) {
             iccSmsIntMgr.sendStoredMultipartText(callingPkg, callingAttributionTag, messageUri,
                     scAddress, sentIntents, deliveryIntents);
@@ -753,10 +802,12 @@ public class SmsController extends ISmsImplBase {
     public void sendVisualVoicemailSmsForSubscriber(String callingPackage,
             String callingAttributionTag, int subId, String number, int port, String text,
             PendingIntent sentIntent) {
+        Rlog.d(LOG_TAG, "sendVisualVoicemailSmsForSubscriber caller=" + callingPackage);
+
         // Do not send non-emergency SMS in ECBM as it forces device to exit ECBM.
         if(getPhone(subId).isInEcm()) {
             Rlog.d(LOG_TAG, "sendVisualVoicemailSmsForSubscriber: Do not send non-emergency "
-                + "SMS in ECBM as it forces device to exit ECBM.");
+                    + "SMS in ECBM as it forces device to exit ECBM.");
             return;
         }
 
@@ -940,7 +991,7 @@ public class SmsController extends ISmsImplBase {
             }
         } else {
             Rlog.e(LOG_TAG, "getSmscAddressFromIccEfForSubscriber iccSmsIntMgr is null"
-                + " for Subscription: " + subId);
+                    + " for Subscription: " + subId);
             return true;
         }
 

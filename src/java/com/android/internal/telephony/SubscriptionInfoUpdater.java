@@ -1020,7 +1020,7 @@ public class SubscriptionInfoUpdater extends Handler {
                 mSubscriptionController.insertEmptySubInfoRecord(
                         embeddedProfile.getIccid(), SubscriptionManager.SIM_NOT_INSERTED);
             } else {
-                nameSource = existingSubscriptions.get(index).getNameSource();
+                nameSource = existingSubscriptions.get(index).getDisplayNameSource();
                 prevCarrierId = existingSubscriptions.get(index).getCarrierId();
                 existingSubscriptions.remove(index);
             }
@@ -1197,7 +1197,8 @@ public class SubscriptionInfoUpdater extends Handler {
             loge("Cannot manage subId=" + currentSubId + ", carrierPackage=" + configPackageName);
         } else {
             boolean isOpportunistic = config.getBoolean(
-                    CarrierConfigManager.KEY_IS_OPPORTUNISTIC_SUBSCRIPTION_BOOL, false);
+                    CarrierConfigManager.KEY_IS_OPPORTUNISTIC_SUBSCRIPTION_BOOL,
+                    currentSubInfo.isOpportunistic());
             if (currentSubInfo.isOpportunistic() != isOpportunistic) {
                 if (DBG) logd("Set SubId=" + currentSubId + " isOpportunistic=" + isOpportunistic);
                 cv.put(SubscriptionManager.IS_OPPORTUNISTIC, isOpportunistic ? "1" : "0");
@@ -1304,7 +1305,7 @@ public class SubscriptionInfoUpdater extends Handler {
             }
             logd("Broadcasting intent ACTION_SIM_CARD_STATE_CHANGED " + simStateString(state)
                     + " for phone: " + phoneId + " slot: " + slotId + " port: "
-                    + slot.getPortIndexFromPhoneId(phoneId));
+                    + (slot != null ? slot.getPortIndexFromPhoneId(phoneId) : null));
             sContext.sendBroadcast(i, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
             TelephonyMetrics.getInstance().updateSimState(phoneId, state);
         }
@@ -1336,7 +1337,7 @@ public class SubscriptionInfoUpdater extends Handler {
             }
             logd("Broadcasting intent ACTION_SIM_APPLICATION_STATE_CHANGED " + simStateString(state)
                     + " for phone: " + phoneId + " slot: " + slotId + "port: "
-                    + slot.getPortIndexFromPhoneId(phoneId));
+                    + (slot != null ? slot.getPortIndexFromPhoneId(phoneId) : null));
             sContext.sendBroadcast(i, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
             TelephonyMetrics.getInstance().updateSimState(phoneId, state);
         }
