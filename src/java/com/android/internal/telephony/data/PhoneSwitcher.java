@@ -96,6 +96,8 @@ import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.DataSwitch;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.OnDemandDataSwitch;
+import com.android.internal.telephony.subscription.SubscriptionInfoInternal;
+import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.util.NotificationChannelController;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.telephony.Rlog;
@@ -206,6 +208,7 @@ public class PhoneSwitcher extends Handler {
     private final @NonNull NetworkRequestList mNetworkRequestList = new NetworkRequestList();
     protected final RegistrantList mActivePhoneRegistrants;
     protected final SubscriptionController mSubscriptionController;
+    private final SubscriptionManagerService mSubscriptionManagerService;
     protected final Context mContext;
     private final LocalLog mLocalLog;
     protected PhoneState[] mPhoneStates;
@@ -563,6 +566,7 @@ public class PhoneSwitcher extends Handler {
         mLocalLog = new LocalLog(MAX_LOCAL_LOG_LINES);
 
         mSubscriptionController = SubscriptionController.getInstance();
+        mSubscriptionManagerService = SubscriptionManagerService.getInstance();
         mRadioConfig = RadioConfig.getInstance();
         mValidator = CellularNetworkValidator.getInstance();
 
@@ -703,9 +707,16 @@ public class PhoneSwitcher extends Handler {
             return false;
         }
 
-        SubscriptionInfo info = SubscriptionController.getInstance()
-                .getActiveSubscriptionInfoForSimSlotIndex(slotIndex,
-                mContext.getOpPackageName(), null);
+        SubscriptionInfo info;
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            info = mSubscriptionManagerService
+                    .getActiveSubscriptionInfoForSimSlotIndex(slotIndex,
+                            mContext.getOpPackageName(), mContext.getAttributionTag());
+        } else {
+            info = mSubscriptionController
+                    .getActiveSubscriptionInfoForSimSlotIndex(slotIndex,
+                            mContext.getOpPackageName(), null);
+        }
         boolean uiccAppsEnabled = info != null && info.areUiccApplicationsEnabled();
 
         IccCard iccCard = PhoneFactory.getPhone(slotIndex).getIccCard();
@@ -989,7 +1000,7 @@ public class PhoneSwitcher extends Handler {
      * Register for device config change on the primary data phone.
      */
     private void registerConfigChange() {
-        Phone phone = findPhoneById(mSubscriptionController.getPhoneId(mPrimaryDataSubId));
+        Phone phone = getPhoneBySubId(mPrimaryDataSubId);
         if (phone != null) {
             DataConfigManager dataConfig = phone.getDataNetworkController().getDataConfigManager();
             dataConfig.registerCallback(mDataConfigManagerCallback);
@@ -1002,7 +1013,7 @@ public class PhoneSwitcher extends Handler {
      * Update data config.
      */
     private void updateConfig() {
-        Phone phone = findPhoneById(mSubscriptionController.getPhoneId(mPrimaryDataSubId));
+        Phone phone = getPhoneBySubId(mPrimaryDataSubId);
         if (phone != null) {
             DataConfigManager dataConfig = phone.getDataNetworkController().getDataConfigManager();
             mAutoDataSwitchAvailabilityStabilityTimeThreshold =
@@ -1176,74 +1187,84 @@ public class PhoneSwitcher extends Handler {
         // auto data switch feature is disabled from server
         if (mAutoDataSwitchAvailabilityStabilityTimeThreshold < 0) return;
         // check is valid DSDS
-        if (!mSubscriptionController.isActiveSubId(mPrimaryDataSubId)
-                || mSubscriptionController.getActiveSubIdList(true).length <= 1) {
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            if (!isActiveSubId(mPrimaryDataSubId) || mSubscriptionManagerService
+                    .getActiveSubIdList(true).length <= 1) {
+                return;
+            }
+        } else {
+            if (!isActiveSubId(mPrimaryDataSubId)
+                    || mSubscriptionController.getActiveSubIdList(true).length <= 1) {
+                return;
+            }
+        }
+
+        Phone primaryDataPhone = getPhoneBySubId(mPrimaryDataSubId);
+        if (primaryDataPhone == null) {
+            loge("evaluateIfAutoSwitchIsNeeded: cannot find primary data phone. subId="
+                    + mPrimaryDataSubId);
             return;
         }
-        int primaryPhoneId = mSubscriptionController.getPhoneId(mPrimaryDataSubId);
 
+        int primaryPhoneId = primaryDataPhone.getPhoneId();
         log("evaluateIfAutoSwitchIsNeeded: primaryPhoneId: " + primaryPhoneId
                 + " preferredPhoneId: " + mPreferredDataPhoneId);
-        Phone primaryDataPhone = findPhoneById(primaryPhoneId);
         Phone secondaryDataPhone;
-        if (primaryDataPhone != null) {
 
-            if (mPreferredDataPhoneId == primaryPhoneId) {
-                // on primary data sub
+        if (mPreferredDataPhoneId == primaryPhoneId) {
+            // on primary data sub
 
-                if (isAnyVoiceCallActiveOnDevice()) {
-                    // if on voice call, switch immediately
-                    evaluateIfImmediateDataSwitchIsNeeded(
-                            "user updates data settings during voice call",
-                            DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
-                    return;
-                }
-
-                int candidateSubId = getAutoSwitchTargetSubIdIfExists();
-                if (candidateSubId != INVALID_SUBSCRIPTION_ID) {
-                    startAutoDataSwitchStabilityCheck(candidateSubId, true);
-                } else {
-                    cancelPendingAutoDataSwitch();
-                }
-            } else if ((secondaryDataPhone = findPhoneById(mPreferredDataPhoneId)) != null) {
-                // on secondary data sub
-
-                if (!primaryDataPhone.isUserDataEnabled()
-                        || !secondaryDataPhone.isDataAllowed()) {
-                    // immediately switch back if user setting changes
-                    mAutoSelectedDataSubId = DEFAULT_SUBSCRIPTION_ID;
-                    evaluateIfImmediateDataSwitchIsNeeded("User disabled data settings",
-                            DataSwitch.Reason.DATA_SWITCH_REASON_MANUAL);
-                    return;
-                }
-
-                NetworkCapabilities defaultNetworkCapabilities = mConnectivityManager
-                        .getNetworkCapabilities(mConnectivityManager.getActiveNetwork());
-                if (defaultNetworkCapabilities != null && !defaultNetworkCapabilities
-                        .hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
-                    log("evaluateIfAutoSwitchIsNeeded:"
-                            + "Default network is active on non-cellular transport");
-                    startAutoDataSwitchStabilityCheck(DEFAULT_SUBSCRIPTION_ID, false);
-                    return;
-                }
-
-                if (mPhoneStates[secondaryDataPhone.getPhoneId()].dataRegState
-                        != NetworkRegistrationInfo.REGISTRATION_STATE_HOME) {
-                    // secondary phone lost its HOME availability
-                    startAutoDataSwitchStabilityCheck(DEFAULT_SUBSCRIPTION_ID, false);
-                    return;
-                }
-
-                if (isInService(mPhoneStates[primaryPhoneId])) {
-                    // primary becomes available
-                    startAutoDataSwitchStabilityCheck(DEFAULT_SUBSCRIPTION_ID, true);
-                    return;
-                }
-
-                // cancel any previous attempts of switching back to primary
-                cancelPendingAutoDataSwitch();
+            if (isAnyVoiceCallActiveOnDevice()) {
+                // if on voice call, switch immediately
+                evaluateIfImmediateDataSwitchIsNeeded(
+                        "user updates data settings during voice call",
+                        DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
+                return;
             }
 
+            int candidateSubId = getAutoSwitchTargetSubIdIfExists();
+            if (candidateSubId != INVALID_SUBSCRIPTION_ID) {
+                startAutoDataSwitchStabilityCheck(candidateSubId, true);
+            } else {
+                cancelPendingAutoDataSwitch();
+            }
+        } else if ((secondaryDataPhone = findPhoneById(mPreferredDataPhoneId)) != null) {
+            // on secondary data sub
+
+            if (!primaryDataPhone.isUserDataEnabled()
+                    || !secondaryDataPhone.isDataAllowed()) {
+                // immediately switch back if user setting changes
+                mAutoSelectedDataSubId = DEFAULT_SUBSCRIPTION_ID;
+                evaluateIfImmediateDataSwitchIsNeeded("User disabled data settings",
+                        DataSwitch.Reason.DATA_SWITCH_REASON_MANUAL);
+                return;
+            }
+
+            NetworkCapabilities defaultNetworkCapabilities = mConnectivityManager
+                    .getNetworkCapabilities(mConnectivityManager.getActiveNetwork());
+            if (defaultNetworkCapabilities != null && !defaultNetworkCapabilities
+                    .hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+                log("evaluateIfAutoSwitchIsNeeded:"
+                        + "Default network is active on non-cellular transport");
+                startAutoDataSwitchStabilityCheck(DEFAULT_SUBSCRIPTION_ID, false);
+                return;
+            }
+
+            if (mPhoneStates[secondaryDataPhone.getPhoneId()].dataRegState
+                    != NetworkRegistrationInfo.REGISTRATION_STATE_HOME) {
+                // secondary phone lost its HOME availability
+                startAutoDataSwitchStabilityCheck(DEFAULT_SUBSCRIPTION_ID, false);
+                return;
+            }
+
+            if (isInService(mPhoneStates[primaryPhoneId])) {
+                // primary becomes available
+                startAutoDataSwitchStabilityCheck(DEFAULT_SUBSCRIPTION_ID, true);
+                return;
+            }
+
+            // cancel any previous attempts of switching back to primary
+            cancelPendingAutoDataSwitch();
         }
     }
 
@@ -1296,13 +1317,13 @@ public class PhoneSwitcher extends Handler {
      * {@link SubscriptionManager#INVALID_SUBSCRIPTION_ID}
      */
     private int getAutoSwitchTargetSubIdIfExists() {
-        int primaryPhoneId = mSubscriptionController.getPhoneId(mPrimaryDataSubId);
-        Phone primaryDataPhone = findPhoneById(primaryPhoneId);
-
+        Phone primaryDataPhone = getPhoneBySubId(mPrimaryDataSubId);
         if (primaryDataPhone == null) {
             log("getAutoSwitchTargetSubId: no sim loaded");
             return INVALID_SUBSCRIPTION_ID;
         }
+
+        int primaryPhoneId = primaryDataPhone.getPhoneId();
 
         if (!primaryDataPhone.isUserDataEnabled()) {
             log("getAutoSwitchTargetSubId: user disabled data");
@@ -1366,7 +1387,12 @@ public class PhoneSwitcher extends Handler {
         boolean diffDetected = mHalCommandToUse != HAL_COMMAND_PREFERRED_DATA && requestsChanged;
 
         // Check if user setting of default non-opportunistic data sub is changed.
-        final int primaryDataSubId = mSubscriptionController.getDefaultDataSubId();
+        int primaryDataSubId;
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            primaryDataSubId = mSubscriptionManagerService.getDefaultDataSubId();
+        } else {
+            primaryDataSubId = mSubscriptionController.getDefaultDataSubId();
+        }
         if (primaryDataSubId != mPrimaryDataSubId) {
             sb.append(" mPrimaryDataSubId ").append(mPrimaryDataSubId).append("->")
                 .append(primaryDataSubId);
@@ -1379,7 +1405,7 @@ public class PhoneSwitcher extends Handler {
 
         // Check if phoneId to subId mapping is changed.
         for (int i = 0; i < mActiveModemCount; i++) {
-            int sub = mSubscriptionController.getSubId(i);
+            int sub = SubscriptionManager.getSubscriptionId(i);
 
             if (SubscriptionManager.isValidSubscriptionId(sub)) hasAnyActiveSubscription = true;
 
@@ -1465,7 +1491,7 @@ public class PhoneSwitcher extends Handler {
                     }
 
                     if (newActivePhones.size() < mMaxDataAttachModemCount
-                            && newActivePhones.contains(mPreferredDataPhoneId)
+                            && !newActivePhones.contains(mPreferredDataPhoneId)
                             && SubscriptionManager.isUsableSubIdValue(mPreferredDataPhoneId)) {
                         newActivePhones.add(mPreferredDataPhoneId);
                     }
@@ -1657,8 +1683,18 @@ public class PhoneSwitcher extends Handler {
         return INVALID_SUBSCRIPTION_ID;
     }
 
+    private boolean isActiveSubId(int subId) {
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            SubscriptionInfoInternal subInfo = mSubscriptionManagerService
+                    .getSubscriptionInfoInternal(subId);
+            return subInfo != null && subInfo.isActive();
+        } else {
+            return mSubscriptionController.isActiveSubId(subId);
+        }
+    }
+
     private int getSubIdForDefaultNetworkRequests() {
-        if (mSubscriptionController.isActiveSubId(mAutoSelectedDataSubId)) {
+        if (isActiveSubId(mAutoSelectedDataSubId)) {
             return mAutoSelectedDataSubId;
         } else {
             return mPrimaryDataSubId;
@@ -1671,8 +1707,7 @@ public class PhoneSwitcher extends Handler {
         log("updatePreferredDataPhoneId+");
         Phone voicePhone = findPhoneById(mPhoneIdInVoiceCall);
         // check user enabled data on the default phone
-        int defaultDataPhoneId = SubscriptionController.getInstance().getPhoneId(mPrimaryDataSubId);
-        Phone defaultDataPhone = findPhoneById(defaultDataPhoneId);
+        Phone defaultDataPhone = getPhoneBySubId(mPrimaryDataSubId);
         boolean isDataAllowedOnVoiceCallSub = false;
         if (voicePhone != null && defaultDataPhone != null
                 && defaultDataPhone.isUserDataEnabled()) {
@@ -1744,8 +1779,7 @@ public class PhoneSwitcher extends Handler {
             mPreferredDataPhoneId = phoneId;
         }
 
-        mPreferredDataSubId.set(
-                mSubscriptionController.getSubId(mPreferredDataPhoneId));
+        mPreferredDataSubId.set(SubscriptionManager.getSubscriptionId(mPreferredDataPhoneId));
     }
 
     protected void transitionToEmergencyPhone() {
@@ -1765,6 +1799,14 @@ public class PhoneSwitcher extends Handler {
         }
     }
 
+    private Phone getPhoneBySubId(int subId) {
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            return findPhoneById(mSubscriptionManagerService.getPhoneId(subId));
+        } else {
+            return findPhoneById(mSubscriptionController.getPhoneId(subId));
+        }
+    }
+
     private Phone findPhoneById(final int phoneId) {
         if (!SubscriptionManager.isValidPhoneId(phoneId)) {
             return null;
@@ -1776,15 +1818,16 @@ public class PhoneSwitcher extends Handler {
             TelephonyNetworkRequest networkRequest, int phoneId) {
         if (!SubscriptionManager.isValidPhoneId(phoneId)) return false;
 
+        int subId = SubscriptionManager.getSubscriptionId(phoneId);
+
         // In any case, if phone state is inactive, don't apply the network request.
-        if (!isPhoneActive(phoneId) || (
-                mSubscriptionController.getSubId(phoneId) == INVALID_SUBSCRIPTION_ID
+        if (!isPhoneActive(phoneId) || (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID
                 && !isEmergencyNetworkRequest(networkRequest))) {
             return false;
         }
 
         NetworkRequest netRequest = networkRequest.getNativeNetworkRequest();
-        int subId = getSubIdFromNetworkSpecifier(netRequest.getNetworkSpecifier());
+        subId = getSubIdFromNetworkSpecifier(netRequest.getNetworkSpecifier());
 
         //if this phone is an emergency networkRequest
         //and subId is not specified that is invalid or default
@@ -1859,7 +1902,7 @@ public class PhoneSwitcher extends Handler {
                 + " needValidation=" + needValidation);
         int subIdToValidate = (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID)
                 ? mPrimaryDataSubId : subId;
-        if (!mSubscriptionController.isActiveSubId(subIdToValidate)) {
+        if (!isActiveSubId(subIdToValidate)) {
             logl("Can't switch data to inactive subId " + subIdToValidate);
             if (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID) {
                 // the default data sub is not selected yet, store the intent of switching to
@@ -1955,7 +1998,7 @@ public class PhoneSwitcher extends Handler {
     private void confirmSwitch(int subId, boolean confirm) {
         logl("confirmSwitch: subId " + subId + (confirm ? " confirmed." : " cancelled."));
         int resultForCallBack;
-        if (!mSubscriptionController.isActiveSubId(subId)) {
+        if (!isActiveSubId(subId)) {
             logl("confirmSwitch: subId " + subId + " is no longer active");
             resultForCallBack = SET_OPPORTUNISTIC_SUB_INACTIVE_SUBSCRIPTION;
             mAutoSwitchRetryFailedCount = 0;
@@ -2197,9 +2240,15 @@ public class PhoneSwitcher extends Handler {
         }
         pw.println("mPreferredDataPhoneId=" + mPreferredDataPhoneId);
         pw.println("mPreferredDataSubId=" + mPreferredDataSubId.get());
-        pw.println("DefaultDataSubId=" + mSubscriptionController.getDefaultDataSubId());
-        pw.println("DefaultDataPhoneId=" + mSubscriptionController.getPhoneId(
-                mSubscriptionController.getDefaultDataSubId()));
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            pw.println("DefaultDataSubId=" + mSubscriptionManagerService.getDefaultDataSubId());
+            pw.println("DefaultDataPhoneId=" + mSubscriptionManagerService.getPhoneId(
+                    mSubscriptionManagerService.getDefaultDataSubId()));
+        } else {
+            pw.println("DefaultDataSubId=" + mSubscriptionController.getDefaultDataSubId());
+            pw.println("DefaultDataPhoneId=" + mSubscriptionController.getPhoneId(
+                    mSubscriptionController.getDefaultDataSubId()));
+        }
         pw.println("mPrimaryDataSubId=" + mPrimaryDataSubId);
         pw.println("mAutoSelectedDataSubId=" + mAutoSelectedDataSubId);
         pw.println("mIsRegisteredForImsRadioTechChange=" + mIsRegisteredForImsRadioTechChange);
@@ -2285,8 +2334,12 @@ public class PhoneSwitcher extends Handler {
                     + switchReasonToString(mLastSwitchPreferredDataReason));
             return;
         }
-        SubscriptionInfo subInfo = mSubscriptionController.getSubscriptionInfo(
-                mAutoSelectedDataSubId);
+        SubscriptionInfo subInfo;
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            subInfo = mSubscriptionManagerService.getSubscriptionInfo(mAutoSelectedDataSubId);
+        } else {
+            subInfo = mSubscriptionController.getSubscriptionInfo(mAutoSelectedDataSubId);
+        }
         if (subInfo == null || subInfo.isOpportunistic()) {
             loge("displayAutoDataSwitchNotification:mAutoSelectedDataSubId="
                     + mAutoSelectedDataSubId + " unexpected subInfo " + subInfo);
@@ -2325,16 +2378,20 @@ public class PhoneSwitcher extends Handler {
     }
 
     private boolean isPhoneIdValidForRetry(int phoneId) {
-        int phoneIdForRequest = INVALID_PHONE_INDEX;
-        int ddsPhoneId = mSubscriptionController.getPhoneId(
-                mSubscriptionController.getDefaultDataSubId());
+        int ddsPhoneId;
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            ddsPhoneId = mSubscriptionManagerService.getPhoneId(
+                    mSubscriptionManagerService.getDefaultDataSubId());
+        } else {
+            ddsPhoneId = mSubscriptionController.getPhoneId(
+                    mSubscriptionController.getDefaultDataSubId());
+        }
         if (ddsPhoneId != INVALID_PHONE_INDEX && ddsPhoneId == phoneId) {
             return true;
         } else {
             if (mNetworkRequestList.isEmpty()) return false;
             for (TelephonyNetworkRequest networkRequest : mNetworkRequestList) {
-                phoneIdForRequest = phoneIdForRequest(networkRequest);
-                if (phoneIdForRequest == phoneId) {
+                if (phoneIdForRequest(networkRequest) == phoneId) {
                     return true;
                 }
             }
