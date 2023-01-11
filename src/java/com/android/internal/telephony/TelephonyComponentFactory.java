@@ -527,6 +527,19 @@ public class TelephonyComponentFactory {
     }
 
     /**
+     * Create data service manager.
+     *
+     * @param phone The phone object
+     * @param looper The looper for event handling
+     * @param transportType The transport type
+     * @return The data service manager instance
+     */
+    public DataServiceManager makeDataServiceManager(Phone phone, Looper looper,
+            @TransportType int transportType) {
+        return new DataServiceManager(phone, looper, transportType);
+    }
+
+    /**
      * Create data profile manager.
      *
      * @param phone The phone instance.
