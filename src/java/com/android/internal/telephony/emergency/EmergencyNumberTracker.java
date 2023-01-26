@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.emergency;
 
+import static android.telephony.TelephonyManager.HAL_SERVICE_VOICE;
+
 import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -158,7 +160,9 @@ public class EmergencyNumberTracker extends Handler {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent.getAction().equals(
-                    CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
+                    CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED) ||
+                    intent.getAction().equals(
+                    CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED)) {
                 onCarrierConfigChanged();
                 return;
             } else if (intent.getAction().equals(
@@ -200,12 +204,14 @@ public class EmergencyNumberTracker extends Handler {
             // Receive Carrier Config Changes
             IntentFilter filter = new IntentFilter(
                     CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+            filter.addAction(CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED);
             // Receive Telephony Network Country Changes
             filter.addAction(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED);
 
             mPhone.getContext().registerReceiver(mIntentReceiver, filter);
 
-            mIsHalVersionLessThan1Dot4 = mPhone.getHalVersion().lessOrEqual(new HalVersion(1, 3));
+            mIsHalVersionLessThan1Dot4 = mPhone.getHalVersion(HAL_SERVICE_VOICE)
+                                                 .lessOrEqual(new HalVersion(1, 3));
         } else {
             loge("mPhone is null.");
         }
@@ -478,14 +484,25 @@ public class EmergencyNumberTracker extends Handler {
      */
     private int getRoutingInfoFromDB(EccInfo eccInfo,
             Map<String, Set<String>> normalRoutedNumbers) {
-        int emergencyCallRouting = EmergencyNumber.EMERGENCY_CALL_ROUTING_EMERGENCY;
+        int emergencyCallRouting;
+        switch(eccInfo.routing)
+        {
+            case EccInfo.Routing.NORMAL :
+                emergencyCallRouting = EmergencyNumber.EMERGENCY_CALL_ROUTING_NORMAL;
+                break;
+            case EccInfo.Routing.EMERGENCY :
+                emergencyCallRouting = EmergencyNumber.EMERGENCY_CALL_ROUTING_EMERGENCY;
+                break;
+            default:
+                emergencyCallRouting = EmergencyNumber.EMERGENCY_CALL_ROUTING_UNKNOWN;
+        }
         String phoneNumber = eccInfo.phoneNumber.trim();
         if (phoneNumber.isEmpty()) {
             loge("EccInfo has empty phone number.");
             return emergencyCallRouting;
         }
 
-        if (eccInfo.isNormalRouted) {
+        if (eccInfo.routing == EccInfo.Routing.NORMAL) {
             emergencyCallRouting = EmergencyNumber.EMERGENCY_CALL_ROUTING_NORMAL;
 
             if (((eccInfo.normalRoutingMncs).length != 0)
@@ -1323,7 +1340,7 @@ public class EmergencyNumberTracker extends Handler {
      */
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         final IndentingPrintWriter ipw = new IndentingPrintWriter(pw, "  ");
-        ipw.println(" Hal Version:" + mPhone.getHalVersion());
+        ipw.println(" Hal Version:" + mPhone.getHalVersion(HAL_SERVICE_VOICE));
         ipw.println(" ========================================= ");
 
         ipw.println(" Country Iso:" + getEmergencyCountryIso());

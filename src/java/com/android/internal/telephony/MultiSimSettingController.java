@@ -56,6 +56,7 @@ import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.data.DataSettingsManager.DataSettingsManagerCallback;
+import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.util.ArrayUtils;
 
 import java.lang.annotation.Retention;
@@ -446,14 +447,12 @@ public class MultiSimSettingController extends Handler {
         // being specified in it. So here we do additional check to make sur we don't miss the
         // subId.
         if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-            int[] subIds = mSubController.getSubId(phoneId);
-            if (!ArrayUtils.isEmpty(subIds)) {
-                CarrierConfigManager cm = (CarrierConfigManager) mContext.getSystemService(
-                        mContext.CARRIER_CONFIG_SERVICE);
-                if (cm != null && cm.getConfigForSubId(subIds[0]) != null) {
-                    loge("onCarrierConfigChanged with invalid subId while subd "
-                            + subIds[0] + " is active and its config is loaded");
-                    subId = subIds[0];
+            subId = mSubController.getSubId(phoneId);
+            if (SubscriptionManager.isValidSubscriptionId(subId)) {
+                CarrierConfigManager cm = mContext.getSystemService(CarrierConfigManager.class);
+                if (cm != null && cm.getConfigForSubId(subId) != null) {
+                    loge("onCarrierConfigChanged with invalid subId while subId "
+                            + subId + " is active and its config is loaded");
                 }
             }
         }
@@ -913,11 +912,16 @@ public class MultiSimSettingController extends Handler {
      * are synced.
      */
     private void setRoamingDataEnabledForGroup(int subId, boolean enable) {
-        SubscriptionController subController = SubscriptionController.getInstance();
-        List<SubscriptionInfo> infoList = subController.getSubscriptionsInGroup(
-                mSubController.getGroupUuid(subId), mContext.getOpPackageName(),
-                mContext.getAttributionTag());
-
+        List<SubscriptionInfo> infoList;
+        if (PhoneFactory.getDefaultPhone().isSubscriptionManagerServiceEnabled()) {
+            infoList = SubscriptionManagerService.getInstance().getSubscriptionsInGroup(
+                    mSubController.getGroupUuid(subId), mContext.getOpPackageName(),
+                    mContext.getAttributionTag());
+        } else {
+            infoList = SubscriptionController.getInstance().getSubscriptionsInGroup(
+                    mSubController.getGroupUuid(subId), mContext.getOpPackageName(),
+                    mContext.getAttributionTag());
+        }
         if (infoList == null) return;
 
         for (SubscriptionInfo info : infoList) {

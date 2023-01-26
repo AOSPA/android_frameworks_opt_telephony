@@ -166,6 +166,7 @@ import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_LOGICA
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_MUTE;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_NETWORK_SELECTION_AUTOMATIC;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_NETWORK_SELECTION_MANUAL;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_NULL_CIPHER_AND_INTEGRITY_ENABLED;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_PREFERRED_DATA_MODEM;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_PREFERRED_NETWORK_TYPE;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_RADIO_CAPABILITY;
@@ -1683,11 +1684,9 @@ public class RILUtils {
         if ((networkTypeBitmask & TelephonyManager.NETWORK_TYPE_BITMASK_IWLAN) != 0) {
             raf |= android.hardware.radio.RadioAccessFamily.IWLAN;
         }
-        if ((networkTypeBitmask & TelephonyManager.NETWORK_TYPE_BITMASK_LTE) != 0) {
+        if ((networkTypeBitmask & TelephonyManager.NETWORK_TYPE_BITMASK_LTE) != 0
+                || (networkTypeBitmask & TelephonyManager.NETWORK_TYPE_BITMASK_LTE_CA) != 0) {
             raf |= android.hardware.radio.RadioAccessFamily.LTE;
-        }
-        if ((networkTypeBitmask & TelephonyManager.NETWORK_TYPE_BITMASK_LTE_CA) != 0) {
-            raf |= android.hardware.radio.RadioAccessFamily.LTE_CA;
         }
         if ((networkTypeBitmask & TelephonyManager.NETWORK_TYPE_BITMASK_NR) != 0) {
             raf |= android.hardware.radio.RadioAccessFamily.NR;
@@ -3859,7 +3858,7 @@ public class RILUtils {
             case android.hardware.radio.data.Qos.nr:
                 android.hardware.radio.data.NrQos nr = qos.getNr();
                 return new NrQos(convertHalQosBandwidth(nr.downlink),
-                        convertHalQosBandwidth(nr.uplink), nr.qfi, nr.fiveQi,
+                        convertHalQosBandwidth(nr.uplink), nr.qosFlowIdentifier, nr.fiveQi,
                         nr.averagingWindowMs);
             default:
                 return null;
@@ -4609,6 +4608,7 @@ public class RILUtils {
                 logicalModemList.add(new ModemInfo(modemInfo.modemId));
             }
         }
+        maxActiveVoiceCalls = maxActiveData;
         return new PhoneCapability(maxActiveVoiceCalls, maxActiveData, logicalModemList,
                 validationBeforeSwitchSupported, deviceNrCapabilities);
     }
@@ -5182,6 +5182,8 @@ public class RILUtils {
                 return "SEND_ANBR_QUERY";
             case RIL_REQUEST_TRIGGER_EPS_FALLBACK:
                 return "TRIGGER_EPS_FALLBACK";
+            case RIL_REQUEST_SET_NULL_CIPHER_AND_INTEGRITY_ENABLED:
+                return "SET_NULL_CIPHER_AND_INTEGRITY_ENABLED";
             default:
                 return "<unknown request " + request + ">";
         }

@@ -16,29 +16,55 @@
 
 package com.android.internal.telephony.subscription;
 
+import android.Manifest;
+import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.compat.CompatChanges;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
 import android.content.Context;
+import android.os.Binder;
+import android.os.Build;
+import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Looper;
 import android.os.ParcelUuid;
 import android.os.TelephonyServiceManager;
 import android.os.UserHandle;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.SubscriptionManager.OnSubscriptionsChangedListener;
+import android.telephony.SubscriptionManager.PhoneNumberSource;
 import android.telephony.SubscriptionManager.SubscriptionType;
 import android.telephony.TelephonyFrameworkInitializer;
+import android.telephony.TelephonyManager;
+import android.telephony.TelephonyRegistryManager;
+import android.text.TextUtils;
+import android.util.ArraySet;
+import android.util.EventLog;
 import android.util.IndentingPrintWriter;
 import android.util.LocalLog;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.ISetOpportunisticDataCallback;
 import com.android.internal.telephony.ISub;
+import com.android.internal.telephony.MultiSimSettingController;
+import com.android.internal.telephony.TelephonyPermissions;
+import com.android.internal.telephony.subscription.SubscriptionDatabaseManager.SubscriptionDatabaseManagerCallback;
+import com.android.internal.telephony.uicc.IccUtils;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 /**
  * The subscription manager service is the backend service of {@link SubscriptionManager}.
@@ -50,61 +76,449 @@ public class SubscriptionManagerService extends ISub.Stub {
     /** Whether enabling verbose debugging message or not. */
     private static final boolean VDBG = false;
 
+    /**
+     * Apps targeting on Android T and beyond will get exception if there is no access to device
+     * identifiers nor has carrier privileges when calling
+     * {@link SubscriptionManager#getSubscriptionsInGroup}.
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.TIRAMISU)
+    public static final long REQUIRE_DEVICE_IDENTIFIERS_FOR_GROUP_UUID = 213902861L;
+
+    /** Instance of subscription manager service. */
+    @NonNull
+    private static SubscriptionManagerService sInstance;
+
     /** The context */
+    @NonNull
     private final Context mContext;
 
+    /** Telephony manager instance. */
+    private final TelephonyManager mTelephonyManager;
+
+    /** Subscription manager instance. */
+    private final SubscriptionManager mSubscriptionManager;
+
+    /** The main handler of subscription manager service. */
+    @NonNull
+    private final Handler mHandler;
+
     /** Local log for most important debug messages. */
+    @NonNull
     private final LocalLog mLocalLog = new LocalLog(128);
 
     /** The subscription database manager. */
+    @NonNull
     private final SubscriptionDatabaseManager mSubscriptionDatabaseManager;
+
+    @NonNull
+    private final WatchedSlotIndexToSubId mSlotIndexToSubId = new WatchedSlotIndexToSubId();
+
+    /** Subscription manager service callbacks. */
+    @NonNull
+    private final Set<SubscriptionManagerServiceCallback> mSubscriptionManagerServiceCallbacks =
+            new ArraySet<>();
+
+    /**
+     * Watched slot index to sub id map.
+     */
+    private static class WatchedSlotIndexToSubId {
+        private final Map<Integer, Integer> mSlotIndexToSubId =
+                new ConcurrentHashMap<>();
+
+        public void clear() {
+            mSlotIndexToSubId.clear();
+            SubscriptionManager.invalidateDefaultSubIdCaches();
+            SubscriptionManager.invalidateSlotIndexCaches();
+        }
+
+        public Set<Map.Entry<Integer, Integer>> entrySet() {
+            return mSlotIndexToSubId.entrySet();
+        }
+
+        // Force all updates to data structure through wrapper.
+        public int get(int slotIndex) {
+            return mSlotIndexToSubId.getOrDefault(slotIndex,
+                    SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+        }
+
+        public void put(int slotIndex, int value) {
+            mSlotIndexToSubId.put(slotIndex, value);
+            SubscriptionManager.invalidateDefaultSubIdCaches();
+            SubscriptionManager.invalidateSlotIndexCaches();
+        }
+
+        public void remove(int slotIndex) {
+            mSlotIndexToSubId.remove(slotIndex);
+            SubscriptionManager.invalidateDefaultSubIdCaches();
+            SubscriptionManager.invalidateSlotIndexCaches();
+        }
+
+        public int size() {
+            return mSlotIndexToSubId.size();
+        }
+    }
+
+    /**
+     * Watched integer.
+     */
+    public static class WatchedInt {
+        private int mValue;
+
+        /**
+         * Constructor.
+         *
+         * @param initialValue The initial value.
+         */
+        public WatchedInt(int initialValue) {
+            mValue = initialValue;
+        }
+
+        /**
+         * @return The value.
+         */
+        public int get() {
+            return mValue;
+        }
+
+        /**
+         * Set the value.
+         *
+         * @param newValue The new value.
+         */
+        public void set(int newValue) {
+            mValue = newValue;
+        }
+    }
+
+    /**
+     * This is the callback used for listening events from {@link SubscriptionManagerService}.
+     */
+    public static class SubscriptionManagerServiceCallback {
+        /** The executor of the callback. */
+        @NonNull
+        private final Executor mExecutor;
+
+        /**
+         * Constructor
+         *
+         * @param executor The executor of the callback.
+         */
+        public SubscriptionManagerServiceCallback(@NonNull @CallbackExecutor Executor executor) {
+            mExecutor = executor;
+        }
+
+        /**
+         * @return The executor of the callback.
+         */
+        @NonNull
+        @VisibleForTesting
+        public Executor getExecutor() {
+            return mExecutor;
+        }
+
+        /**
+         * Invoke the callback from executor.
+         *
+         * @param runnable The callback method to invoke.
+         */
+        public void invokeFromExecutor(@NonNull Runnable runnable) {
+            mExecutor.execute(runnable);
+        }
+
+        /**
+         * Called when subscription changed.
+         *
+         * @param subId The subscription id.
+         */
+        public void onSubscriptionChanged(int subId) {}
+
+        /**
+         * Called when {@link SubscriptionInfoInternal#areUiccApplicationsEnabled()} changed.
+         *
+         * @param subId The subscription id.
+         */
+        public void onUiccApplicationsEnabled(int subId) {}
+    }
 
     /**
      * The constructor
      *
      * @param context The context
+     * @param looper The looper for the handler.
      */
-    public SubscriptionManagerService(@NonNull Context context) {
+    public SubscriptionManagerService(@NonNull Context context, @NonNull Looper looper) {
+        sInstance = this;
         mContext = context;
+        mTelephonyManager = context.getSystemService(TelephonyManager.class);
+        mSubscriptionManager = context.getSystemService(SubscriptionManager.class);
+        mHandler = new Handler(looper);
         TelephonyServiceManager.ServiceRegisterer subscriptionServiceRegisterer =
                 TelephonyFrameworkInitializer
                         .getTelephonyServiceManager()
                         .getSubscriptionServiceRegisterer();
-        subscriptionServiceRegisterer.register(this);
+        if (subscriptionServiceRegisterer.get() == null) {
+            subscriptionServiceRegisterer.register(this);
+        }
 
         // Create a separate thread for subscription database manager. The database will be updated
         // from a different thread.
         HandlerThread handlerThread = new HandlerThread(LOG_TAG);
         handlerThread.start();
         mSubscriptionDatabaseManager = new SubscriptionDatabaseManager(context,
-                handlerThread.getLooper());
+                handlerThread.getLooper(), new SubscriptionDatabaseManagerCallback(mHandler::post) {
+                    /**
+                     * Called when database has been loaded into the cache.
+                     */
+                    @Override
+                    public void onDatabaseLoaded() {
+                        log("Subscription database has been loaded.");
+                    }
+
+                    /**
+                     * Called when subscription changed.
+                     *
+                     * @param subId The subscription id.
+                     */
+                    @Override
+                    public void onSubscriptionChanged(int subId) {
+                        mSubscriptionManagerServiceCallbacks.forEach(
+                                callback -> callback.invokeFromExecutor(
+                                        () -> callback.onSubscriptionChanged(subId)));
+
+                        MultiSimSettingController.getInstance().notifySubscriptionInfoChanged();
+
+                        TelephonyRegistryManager telephonyRegistryManager =
+                                mContext.getSystemService(TelephonyRegistryManager.class);
+                        if (telephonyRegistryManager != null) {
+                            telephonyRegistryManager.notifySubscriptionInfoChanged();
+                        }
+
+                        SubscriptionInfoInternal subInfo =
+                                mSubscriptionDatabaseManager.getSubscriptionInfoInternal(subId);
+                        if (subInfo != null && subInfo.isOpportunistic()
+                                && telephonyRegistryManager != null) {
+                            telephonyRegistryManager.notifyOpportunisticSubscriptionInfoChanged();
+                        }
+
+                        // TODO: Call TelephonyMetrics.updateActiveSubscriptionInfoList when active
+                        //  subscription changes.
+                    }
+
+                    /**
+                     * Called when {@link SubscriptionInfoInternal#areUiccApplicationsEnabled()}
+                     * changed.
+                     *
+                     * @param subId The subscription id.
+                     */
+                    @Override
+                    public void onUiccApplicationsEnabled(int subId) {
+                        log("onUiccApplicationsEnabled: subId=" + subId);
+                        mSubscriptionManagerServiceCallbacks.forEach(
+                                callback -> callback.invokeFromExecutor(
+                                        () -> callback.onUiccApplicationsEnabled(subId)));
+                    }
+                });
     }
 
     /**
+     * @return The singleton instance of {@link SubscriptionManagerService}.
+     */
+    @NonNull
+    public static SubscriptionManagerService getInstance() {
+        return sInstance;
+    }
+
+    /**
+     * Check whether the {@code callingPackage} has access to the phone number on the specified
+     * {@code subId} or not.
+     *
+     * @param subId The subscription id.
      * @param callingPackage The package making the call.
-     * @param callingFeatureId The feature in the package
-     * @return a list of all subscriptions in the database, this includes
-     * all subscriptions that have been seen.
+     * @param callingFeatureId The feature in the package.
+     * @param message Message to include in the exception or NoteOp.
+     *
+     * @return {@code true} if the caller has phone number access.
+     */
+    private boolean hasPhoneNumberAccess(int subId, @NonNull String callingPackage,
+            @Nullable String callingFeatureId, @Nullable String message) {
+        try {
+            return TelephonyPermissions.checkCallingOrSelfReadPhoneNumber(mContext, subId,
+                    callingPackage, callingFeatureId, message);
+        } catch (SecurityException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Check whether the {@code callingPackage} has access to subscriber identifiers on the
+     * specified {@code subId} or not.
+     *
+     * @param subId The subscription id.
+     * @param callingPackage The package making the call.
+     * @param callingFeatureId The feature in the package.
+     * @param message Message to include in the exception or NoteOp.
+     * @param reportFailure Indicates if failure should be reported.
+     *
+     * @return {@code true} if the caller has identifier access.
+     */
+    private boolean hasSubscriberIdentifierAccess(int subId, @NonNull String callingPackage,
+            @Nullable String callingFeatureId, @Nullable String message, boolean reportFailure) {
+        try {
+            return TelephonyPermissions.checkCallingOrSelfReadSubscriberIdentifiers(mContext, subId,
+                    callingPackage, callingFeatureId, message, reportFailure);
+        } catch (SecurityException e) {
+            // A SecurityException indicates that the calling package is targeting at least the
+            // minimum level that enforces identifier access restrictions and the new access
+            // requirements are not met.
+            return false;
+        }
+    }
+
+    /**
+     * Conditionally removes identifiers from the provided {@link SubscriptionInfo} if the {@code
+     * callingPackage} does not meet the access requirements for identifiers and returns the
+     * potentially modified object.
+     *
+     * <p>
+     * If the caller does not have {@link Manifest.permission#READ_PHONE_NUMBERS} permission,
+     * {@link SubscriptionInfo#getNumber()} will return empty string.
+     * If the caller does not have {@link Manifest.permission#USE_ICC_AUTH_WITH_DEVICE_IDENTIFIER},
+     * {@link SubscriptionInfo#getIccId()} and {@link SubscriptionInfo#getCardString()} will return
+     * empty string, and {@link SubscriptionInfo#getGroupUuid()} will return {@code null}.
+     *
+     * @param subInfo The subscription info.
+     * @param callingPackage The package making the call.
+     * @param callingFeatureId The feature in the package.
+     * @param message Message to include in the exception or NoteOp.
+     *
+     * @return The modified {@link SubscriptionInfo} depending on caller's permission.
+     */
+    @NonNull
+    private SubscriptionInfo conditionallyRemoveIdentifiers(@NonNull SubscriptionInfo subInfo,
+            @NonNull String callingPackage, @Nullable String callingFeatureId,
+            @Nullable String message) {
+        int subId = subInfo.getSubscriptionId();
+        boolean hasIdentifierAccess = hasSubscriberIdentifierAccess(subId, callingPackage,
+                callingFeatureId, message, true);
+        boolean hasPhoneNumberAccess = hasPhoneNumberAccess(subId, callingPackage,
+                callingFeatureId, message);
+
+        if (hasIdentifierAccess && hasPhoneNumberAccess) {
+            return subInfo;
+        }
+
+        SubscriptionInfo.Builder result = new SubscriptionInfo.Builder(subInfo);
+        if (!hasIdentifierAccess) {
+            result.setIccId(null);
+            result.setCardString(null);
+            result.setGroupUuid(null);
+        }
+
+        if (!hasPhoneNumberAccess) {
+            result.setNumber(null);
+        }
+        return result.build();
+    }
+
+    /**
+     * Set the subscription carrier id.
+     *
+     * @param subId Subscription id.
+     * @param carrierId The carrier id.
+     *
+     * @see TelephonyManager#getSimCarrierId()
+     */
+    public void setCarrierId(int subId, int carrierId) {
+        mSubscriptionDatabaseManager.setCarrierId(subId, carrierId);
+    }
+
+    /**
+     * Set MCC/MNC by subscription id.
+     *
+     * @param mccMnc MCC/MNC associated with the subscription.
+     * @param subId The subscription id.
+     */
+    public void setMccMnc(int subId, @NonNull String mccMnc) {
+        mSubscriptionDatabaseManager.setMcc(subId, mccMnc.substring(0, 3));
+        mSubscriptionDatabaseManager.setMnc(subId, mccMnc.substring(3));
+    }
+
+    /**
+     * Set ISO country code by subscription id.
+     *
+     * @param iso ISO country code associated with the subscription.
+     * @param subId The subscription id.
+     */
+    public void setCountryIso(int subId, @NonNull String iso) {
+        mSubscriptionDatabaseManager.setCountryIso(subId, iso);
+    }
+
+    /**
+     * Get all subscription info records from SIMs that are inserted now or were inserted before.
+     *
+     * <p>
+     * If the caller does not have {@link Manifest.permission#READ_PHONE_NUMBERS} permission,
+     * {@link SubscriptionInfo#getNumber()} will return empty string.
+     * If the caller does not have {@link Manifest.permission#USE_ICC_AUTH_WITH_DEVICE_IDENTIFIER},
+     * {@link SubscriptionInfo#getIccId()} and {@link SubscriptionInfo#getCardString()} will return
+     * empty string, and {@link SubscriptionInfo#getGroupUuid()} will return {@code null}.
+     *
+     * <p>
+     * The carrier app will always have full {@link SubscriptionInfo} for the subscriptions
+     * that it has carrier privilege.
+     *
+     * @return List of all {@link SubscriptionInfo} records from SIMs that are inserted or
+     * inserted before. Sorted by {@link SubscriptionInfo#getSimSlotIndex()}, then
+     * {@link SubscriptionInfo#getSubscriptionId()}.
+     *
+     * @param callingPackage The package making the call.
+     * @param callingFeatureId The feature in the package.
+     *
      */
     @Override
     public List<SubscriptionInfo> getAllSubInfoList(@NonNull String callingPackage,
-            @NonNull String callingFeatureId) {
-        return null;
+            @Nullable String callingFeatureId) {
+        // Check if the caller has READ_PHONE_STATE, READ_PRIVILEGED_PHONE_STATE, or carrier
+        // privilege on any active subscription. The carrier app will get full subscription infos
+        // on the subs it has carrier privilege.
+        if (!TelephonyPermissions.checkReadPhoneStateOnAnyActiveSub(mContext,
+                Binder.getCallingPid(), Binder.getCallingUid(), callingPackage, callingFeatureId,
+                "getAllSubInfoList")) {
+            throw new SecurityException("Need READ_PHONE_STATE, READ_PRIVILEGED_PHONE_STATE, or "
+                    + "carrier privilege to call getAllSubInfoList");
+        }
+
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
+                    // Remove the identifier if the caller does not have sufficient permission.
+                    // carrier apps will get full subscription info on the subscriptions associated
+                    // to them.
+                    .map(subInfo -> conditionallyRemoveIdentifiers(subInfo.toSubscriptionInfo(),
+                            callingPackage, callingFeatureId, "getAllSubInfoList"))
+                    .sorted(Comparator.comparing(SubscriptionInfo::getSimSlotIndex)
+                            .thenComparing(SubscriptionInfo::getSubscriptionId))
+                    .collect(Collectors.toList());
+
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
     }
 
     /**
      * Get the active {@link SubscriptionInfo} with the subscription id key.
      *
      * @param subId The unique {@link SubscriptionInfo} key in database
-     * @param callingPackage The package making the call
-     * @param callingFeatureId The feature in the package
+     * @param callingPackage The package making the call.
+     * @param callingFeatureId The feature in the package.
      *
      * @return The subscription info.
      */
     @Override
     @Nullable
     public SubscriptionInfo getActiveSubscriptionInfo(int subId, @NonNull String callingPackage,
-            @NonNull String callingFeatureId) {
+            @Nullable String callingFeatureId) {
         return null;
     }
 
@@ -120,7 +534,7 @@ public class SubscriptionManagerService extends ISub.Stub {
     @Override
     @Nullable
     public SubscriptionInfo getActiveSubscriptionInfoForIccId(@NonNull String iccId,
-            @NonNull String callingPackage, @NonNull String callingFeatureId) {
+            @NonNull String callingPackage, @Nullable String callingFeatureId) {
         return null;
     }
 
@@ -135,7 +549,7 @@ public class SubscriptionManagerService extends ISub.Stub {
      */
     @Override
     public SubscriptionInfo getActiveSubscriptionInfoForSimSlotIndex(int slotIndex,
-            @NonNull String callingPackage, @NonNull String callingFeatureId) {
+            @NonNull String callingPackage, @Nullable String callingFeatureId) {
         return null;
     }
 
@@ -165,7 +579,7 @@ public class SubscriptionManagerService extends ISub.Stub {
      */
     @Override
     public List<SubscriptionInfo> getActiveSubscriptionInfoList(@NonNull String callingPackage,
-            @NonNull String callingFeatureId) {
+            @Nullable String callingFeatureId) {
         return null;
     }
 
@@ -178,7 +592,7 @@ public class SubscriptionManagerService extends ISub.Stub {
      */
     @Override
     public int getActiveSubInfoCount(@NonNull String callingPackage,
-            @NonNull String callingFeatureId) {
+            @Nullable String callingFeatureId) {
         return 0;
     }
 
@@ -195,7 +609,7 @@ public class SubscriptionManagerService extends ISub.Stub {
      */
     @Override
     public List<SubscriptionInfo> getAvailableSubscriptionInfoList(@NonNull String callingPackage,
-            @NonNull String callingFeatureId) {
+            @Nullable String callingFeatureId) {
         return null;
     }
 
@@ -217,33 +631,56 @@ public class SubscriptionManagerService extends ISub.Stub {
     }
 
     /**
-     * Add a new subscription record to subscription database if needed.
+     * Add a new subscription info record, if needed. This should be only used for remote SIM.
      *
-     * @param iccId the IccId of the SIM card
-     * @param slotIndex the slot which the SIM is inserted
-     *
-     * @return 0 if success, negative if failed.
-     */
-    @Override
-    public int addSubInfoRecord(@NonNull String iccId, int slotIndex) {
-        return 0;
-    }
-
-    /**
-     * Add a new subscription info record, if needed.
-     *
-     * @param uniqueId This is the unique identifier for the subscription within the specific
-     * subscription type
-     * @param displayName human-readable name of the device the subscription corresponds to
-     * @param slotIndex the slot assigned to this device
+     * @param iccId ICCID of the SIM card.
+     * @param displayName human-readable name of the device the subscription corresponds to.
+     * @param slotIndex the logical SIM slot index assigned to this device.
      * @param subscriptionType the type of subscription to be added
      *
      * @return 0 if success, < 0 on error
      */
     @Override
-    public int addSubInfo(@NonNull String uniqueId, @NonNull String displayName, int slotIndex,
+    public int addSubInfo(@NonNull String iccId, @NonNull String displayName, int slotIndex,
             @SubscriptionType int subscriptionType) {
+        log("addSubInfo: iccId=" + SubscriptionInfo.givePrintableIccid(iccId) + ", slotIndex="
+                + slotIndex + ", displayName=" + displayName + ", type="
+                + SubscriptionManager.subscriptionTypeToString(subscriptionType));
+        enforceModifyPhoneState("addSubInfo");
+
+        // Now that all security checks passes, perform the operation as ourselves.
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            if (TextUtils.isEmpty(iccId)) {
+                loge("addSubInfo: null or empty iccId");
+                return -1;
+            }
+
+            iccId = IccUtils.stripTrailingFs(iccId);
+            SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
+                    .getSubscriptionInfoInternalByIccId(iccId);
+
+            // Check if the record exists or not.
+            if (subInfo == null) {
+                // Record does not exist.
+                mSubscriptionDatabaseManager.insertSubscriptionInfo(
+                        new SubscriptionInfoInternal.Builder()
+                                .setIccId(iccId)
+                                .setSimSlotIndex(slotIndex)
+                                .setDisplayName(displayName)
+                                .setType(subscriptionType)
+                                .build()
+                );
+            } else {
+                // Record already exists.
+                loge("Subscription record already existed.");
+                return -1;
+            }
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
         return 0;
+
     }
 
     /**
@@ -376,7 +813,7 @@ public class SubscriptionManagerService extends ISub.Stub {
     @Override
     @NonNull
     public List<SubscriptionInfo> getOpportunisticSubscriptions(@NonNull String callingPackage,
-            @NonNull String callingFeatureId) {
+            @Nullable String callingFeatureId) {
         return Collections.emptyList();
     }
 
@@ -390,10 +827,64 @@ public class SubscriptionManagerService extends ISub.Stub {
             @NonNull String callingPackage) {
     }
 
+    /**
+     * Get subscriptionInfo list of subscriptions that are in the same group of given subId.
+     * See {@link #createSubscriptionGroup(int[], String)} for more details.
+     *
+     * Caller must have {@link android.Manifest.permission#READ_PHONE_STATE}
+     * or carrier privilege permission on the subscription.
+     *
+     * <p>Starting with API level 33, the caller also needs permission to access device identifiers
+     * to get the list of subscriptions associated with a group UUID.
+     * This method can be invoked if one of the following requirements is met:
+     * <ul>
+     *     <li>If the app has carrier privilege permission.
+     *     {@link TelephonyManager#hasCarrierPrivileges()}
+     *     <li>If the app has {@link android.Manifest.permission#READ_PHONE_STATE} permission and
+     *     access to device identifiers.
+     * </ul>
+     *
+     * @param groupUuid of which list of subInfo will be returned.
+     * @param callingPackage The package making the call.
+     * @param callingFeatureId The feature in the package.
+     *
+     * @return List of {@link SubscriptionInfo} that belong to the same group, including the given
+     * subscription itself. It will return an empty list if no subscription belongs to the group.
+     *
+     * @throws SecurityException if the caller doesn't meet the requirements outlined above.
+     *
+     */
     @Override
+    @NonNull
     public List<SubscriptionInfo> getSubscriptionsInGroup(@NonNull ParcelUuid groupUuid,
-            @NonNull String callingPackage, @NonNull String callingFeatureId) {
-        return null;
+            @NonNull String callingPackage, @Nullable String callingFeatureId) {
+        // If the calling app neither has carrier privileges nor READ_PHONE_STATE and access to
+        // device identifiers, it will throw a SecurityException.
+        if (CompatChanges.isChangeEnabled(REQUIRE_DEVICE_IDENTIFIERS_FOR_GROUP_UUID,
+                Binder.getCallingUid())) {
+            try {
+                if (!TelephonyPermissions.checkCallingOrSelfReadDeviceIdentifiers(mContext,
+                        callingPackage, callingFeatureId, "getSubscriptionsInGroup")) {
+                    EventLog.writeEvent(0x534e4554, "213902861", Binder.getCallingUid());
+                    throw new SecurityException("Need to have carrier privileges or access to "
+                            + "device identifiers to call getSubscriptionsInGroup");
+                }
+            } catch (SecurityException e) {
+                EventLog.writeEvent(0x534e4554, "213902861", Binder.getCallingUid());
+                throw e;
+            }
+        }
+
+        return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
+                .map(SubscriptionInfoInternal::toSubscriptionInfo)
+                .filter(info -> groupUuid.equals(info.getGroupUuid())
+                        && (mSubscriptionManager.canManageSubscription(info, callingPackage)
+                        || TelephonyPermissions.checkCallingOrSelfReadPhoneState(
+                                mContext, info.getSubscriptionId(), callingPackage,
+                        callingFeatureId, "getSubscriptionsInGroup")))
+                .map(subscriptionInfo -> conditionallyRemoveIdentifiers(subscriptionInfo,
+                        callingPackage, callingFeatureId, "getSubscriptionsInGroup"))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -402,8 +893,24 @@ public class SubscriptionManagerService extends ISub.Stub {
     }
 
     @Override
-    public int[] getSubId(int slotIndex) {
-        return null;
+    public int getSubId(int slotIndex) {
+        if (slotIndex == SubscriptionManager.DEFAULT_SIM_SLOT_INDEX) {
+            slotIndex = getSlotIndex(getDefaultSubId());
+        }
+
+        // Check that we have a valid slotIndex or the slotIndex is for a remote SIM (remote SIM
+        // uses special slot index that may be invalid otherwise)
+        if (!SubscriptionManager.isValidSlotIndex(slotIndex)
+                && slotIndex != SubscriptionManager.SLOT_INDEX_FOR_REMOTE_SIM_SUB) {
+            return SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+        }
+
+        return mSlotIndexToSubId.get(slotIndex);
+    }
+
+    @Override
+    public int[] getSubIds(int slotIndex) {
+        return new int[]{getSubId(slotIndex)};
     }
 
     @Override
@@ -466,7 +973,7 @@ public class SubscriptionManagerService extends ISub.Stub {
 
     @Override
     public String getSubscriptionProperty(int subId, @NonNull String propKey,
-            @NonNull String callingPackage, @NonNull String callingFeatureId) {
+            @NonNull String callingPackage, @Nullable String callingFeatureId) {
         return null;
     }
 
@@ -492,7 +999,7 @@ public class SubscriptionManagerService extends ISub.Stub {
 
     @Override
     public boolean isActiveSubId(int subId, @NonNull String callingPackage,
-            @NonNull String callingFeatureId) {
+            @Nullable String callingFeatureId) {
         return true;
     }
 
@@ -524,19 +1031,36 @@ public class SubscriptionManagerService extends ISub.Stub {
 
     @Override
     public String getPhoneNumber(int subId, int source,
-            @NonNull String callingPackage, @NonNull String callingFeatureId) {
+            @NonNull String callingPackage, @Nullable String callingFeatureId) {
         return null;
     }
 
     @Override
     public String getPhoneNumberFromFirstAvailableSource(int subId,
-            @NonNull String callingPackage, @NonNull String callingFeatureId) {
+            @NonNull String callingPackage, @Nullable String callingFeatureId) {
         return null;
     }
 
     @Override
-    public void setPhoneNumber(int subId, int source, @NonNull String number,
-            @NonNull String callingPackage, @NonNull String callingFeatureId) {
+    public void setPhoneNumber(int subId, @PhoneNumberSource int source, @NonNull String number,
+            @NonNull String callingPackage, @Nullable String callingFeatureId) {
+        if (source != SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER) {
+            throw new IllegalArgumentException("setPhoneNumber doesn't accept source "
+                    + SubscriptionManager.phoneNumberSourceToString(source));
+        }
+        if (!TelephonyPermissions.checkCarrierPrivilegeForSubId(mContext, subId)) {
+            throw new SecurityException("setPhoneNumber for CARRIER needs carrier privilege.");
+        }
+        if (number == null) {
+            throw new NullPointerException("invalid number null");
+        }
+
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            mSubscriptionDatabaseManager.setNumberFromCarrier(subId, number);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
     }
 
     /**
@@ -582,6 +1106,66 @@ public class SubscriptionManagerService extends ISub.Stub {
     @Override
     public UserHandle getSubscriptionUserHandle(int subId) {
         return null;
+    }
+
+    /**
+     * Register the callback for receiving information from {@link SubscriptionManagerService}.
+     *
+     * @param callback The callback.
+     */
+    public void registerCallback(@NonNull SubscriptionManagerServiceCallback callback) {
+        mSubscriptionManagerServiceCallbacks.add(callback);
+    }
+
+    /**
+     * Unregister the previously registered {@link SubscriptionManagerServiceCallback}.
+     *
+     * @param callback The callback to unregister.
+     */
+    public void unregisterCallback(@NonNull SubscriptionManagerServiceCallback callback) {
+        mSubscriptionManagerServiceCallbacks.remove(callback);
+    }
+
+    /**
+     * Enforce {@link android.Manifest.permission#MODIFY_PHONE_STATE} permission
+     *
+     * @param message Error message included in the exception.
+     */
+    private void enforceModifyPhoneState(String message) {
+        mContext.enforceCallingOrSelfPermission(
+                android.Manifest.permission.MODIFY_PHONE_STATE, message);
+    }
+
+    /**
+     * Enforce {@link android.Manifest.permission#READ_PRIVILEGED_PHONE_STATE} permission
+     *
+     * @param message Error message included in the exception.
+     */
+    private void enforceReadPrivilegedPhoneState(String message) {
+        mContext.enforceCallingOrSelfPermission(
+                Manifest.permission.READ_PRIVILEGED_PHONE_STATE, message);
+    }
+
+    /**
+     * Enforce {@link android.Manifest.permission#MANAGE_SUBSCRIPTION_USER_ASSOCIATION} permission
+     *
+     * @param message Error message included in the exception.
+     */
+    private void enforceManageSubscriptionUserAssociation(String message) {
+        mContext.enforceCallingOrSelfPermission(
+                Manifest.permission.MANAGE_SUBSCRIPTION_USER_ASSOCIATION, message);
+    }
+
+    /**
+     * Get the subscription info by subscription id.
+     *
+     * @param subId The subscription id.
+     *
+     * @return The subscription info. {@code null} if not found.
+     */
+    @Nullable
+    public SubscriptionInfoInternal getSubscriptionInfoInternal(int subId) {
+        return mSubscriptionDatabaseManager.getSubscriptionInfoInternal(subId);
     }
 
     /**

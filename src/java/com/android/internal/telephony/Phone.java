@@ -23,6 +23,8 @@
 
 package com.android.internal.telephony;
 
+import static android.telephony.TelephonyManager.HAL_SERVICE_RADIO;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.BroadcastOptions;
@@ -43,6 +45,7 @@ import android.os.RegistrantList;
 import android.os.ResultReceiver;
 import android.os.SystemClock;
 import android.os.SystemProperties;
+import android.os.UserHandle;
 import android.os.WorkSource;
 import android.preference.PreferenceManager;
 import android.sysprop.TelephonyProperties;
@@ -70,6 +73,7 @@ import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
+import android.telephony.TelephonyManager.HalService;
 import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.RegistrationManager;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
@@ -458,6 +462,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected final Context mContext;
 
+    protected SubscriptionManagerService mSubscriptionManagerService;
+
     /**
      * PhoneNotifier is an abstraction for all system-wide
      * state change notification. DefaultPhoneNotifier is
@@ -630,6 +636,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
         mIsSubscriptionManagerServiceEnabled = mContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_using_subscription_manager_service);
+        if (isSubscriptionManagerServiceEnabled()) {
+            mSubscriptionManagerService = SubscriptionManagerService.getInstance();
+        }
 
         // Initialize device storage and outgoing SMS usage monitors for SMSDispatchers.
         mTelephonyComponentFactory = telephonyComponentFactory;
@@ -4152,7 +4161,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             Rlog.e(LOG_TAG, "SubscriptionController.getInstance = null! Returning default subId");
             return SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
         }
-        return SubscriptionController.getInstance().getSubIdUsingPhoneId(mPhoneId);
+        return SubscriptionController.getInstance().getSubId(mPhoneId);
     }
 
     /**
@@ -4830,10 +4839,24 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * Get the HAL version.
      *
      * @return the current HalVersion
+     *
+     * @deprecated Use {@link #getHalVersion(int service)} instead.
      */
+    @Deprecated
     public HalVersion getHalVersion() {
+        return getHalVersion(HAL_SERVICE_RADIO);
+    }
+
+    /**
+     * Get the HAL version with a specific service.
+     *
+     * @param service the service id to query
+     * @return the current HalVersion for a specific service
+     *
+     */
+    public HalVersion getHalVersion(@HalService int service) {
         if (mCi != null && mCi instanceof RIL) {
-            return ((RIL) mCi).getHalVersion();
+            return ((RIL) mCi).getHalVersion(service);
         }
         return RIL.RADIO_HAL_VERSION_UNKNOWN;
     }
@@ -5084,6 +5107,18 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
+     * Set the UE's ability to accept/reject null ciphered and/or null integrity-protected
+     * connections.
+     *
+     * @param result Callback message.
+     * @param enabled true to allow null ciphered and/or null integrity-protected connections,
+     * false to disallow.
+     */
+    public void setNullCipherAndIntegrityEnabled(@Nullable Message result, boolean enabled) {
+        mCi.setNullCipherAndIntegrityEnabled(result, enabled);
+    }
+
+    /**
      * @return Telephony tester instance.
      */
     public @Nullable TelephonyTester getTelephonyTester() {
@@ -5096,6 +5131,17 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public boolean isSubscriptionManagerServiceEnabled() {
         return mIsSubscriptionManagerServiceEnabled;
+    }
+
+    /**
+     * @return UserHandle from phone sub id, or null if subscription is invalid.
+     */
+    public UserHandle getUserHandle() {
+        SubscriptionManager subManager = mContext.getSystemService(SubscriptionManager.class);
+        int subId = getSubId();
+        return subManager.isValidSubscriptionId(subId)
+                ? subManager.getSubscriptionUserHandle(subId)
+                : null;
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {

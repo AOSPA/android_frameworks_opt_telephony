@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.data;
 
+import static android.telephony.TelephonyManager.HAL_SERVICE_DATA;
+
 import android.annotation.CallbackExecutor;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
@@ -1420,13 +1422,6 @@ public class DataNetwork extends StateMachine {
                                 + AccessNetworkConstants.transportTypeToString(transport)
                                 + " data call list changed event. " + responseList);
                     } else {
-                        // If source PDN is reported lost, notify network agent that the PDN is
-                        // temporarily suspended and the old interface name is no longer usable.
-                        boolean currentPdnIsAlive = responseList.stream()
-                                .anyMatch(r -> mCid.get(mTransport) == r.getId());
-                        if (!currentPdnIsAlive) {
-                            notifyNetworkUnusable();
-                        }
                         log("Defer message " + eventToString(msg.what) + ":" + responseList);
                         deferMessage(msg);
                     }
@@ -1473,25 +1468,6 @@ public class DataNetwork extends StateMachine {
                     return NOT_HANDLED;
             }
             return HANDLED;
-        }
-
-        /**
-         * Notify network agent that the PDN is temporarily suspended and the old interface name is
-         * no longer usable. The state will be re-evaluated when the handover ends.
-         */
-        private void notifyNetworkUnusable() {
-            log(AccessNetworkConstants.transportTypeToString(mTransport)
-                    + " reports current PDN lost, update capability to SUSPENDED,"
-                    + " TNA interfaceName to \"\"");
-            mNetworkCapabilities = new NetworkCapabilities
-                    .Builder(mNetworkCapabilities)
-                    .removeCapability(
-                            NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
-                    .build();
-            mNetworkAgent.sendNetworkCapabilities(mNetworkCapabilities);
-
-            mLinkProperties.setInterfaceName("");
-            mNetworkAgent.sendLinkProperties(mLinkProperties);
         }
     }
 
@@ -2411,7 +2387,7 @@ public class DataNetwork extends StateMachine {
                         + dataNetwork + ". Silently tear down now.");
                 // If this is a pre-5G data setup, that means APN database has some problems. For
                 // example, different APN settings have the same APN name.
-                if (response.getTrafficDescriptors().isEmpty()) {
+                if (response.getTrafficDescriptors().isEmpty() && dataNetwork.isConnected()) {
                     reportAnomaly("Duplicate network interface " + response.getInterfaceName()
                             + " detected.", "62f66e7e-8d71-45de-a57b-dc5c78223fd5");
                 }
@@ -2543,9 +2519,9 @@ public class DataNetwork extends StateMachine {
             log("Remove network since deactivate request returned an error.");
             mFailCause = DataFailCause.RADIO_NOT_AVAILABLE;
             transitionTo(mDisconnectedState);
-        } else if (mPhone.getHalVersion().less(RIL.RADIO_HAL_VERSION_2_0)) {
+        } else if (mPhone.getHalVersion(HAL_SERVICE_DATA).less(RIL.RADIO_HAL_VERSION_2_0)) {
             log("Remove network on deactivate data response on old HAL "
-                    + mPhone.getHalVersion());
+                    + mPhone.getHalVersion(HAL_SERVICE_DATA));
             mFailCause = DataFailCause.LOST_CONNECTION;
             transitionTo(mDisconnectedState);
         }
@@ -3195,7 +3171,7 @@ public class DataNetwork extends StateMachine {
                 && !mAttachedNetworkRequestList.isEmpty()) {
             TelephonyNetworkRequest networkRequest = mAttachedNetworkRequestList.get(0);
             DataProfile dataProfile = mDataNetworkController.getDataProfileManager()
-                    .getDataProfileForNetworkRequest(networkRequest, targetNetworkType, true);
+                    .getDataProfileForNetworkRequest(networkRequest, targetNetworkType, false);
             if (dataProfile != null) {
                 mHandoverDataProfile = dataProfile;
                 log("Used different data profile for handover. " + mDataProfile);

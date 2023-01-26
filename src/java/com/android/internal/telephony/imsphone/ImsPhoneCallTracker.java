@@ -426,7 +426,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (intent.getAction().equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
+            if (intent.getAction().equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED) ||
+                    intent.getAction().equals(
+                    CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED)) {
                 int subId = intent.getIntExtra(CarrierConfigManager.EXTRA_SUBSCRIPTION_INDEX,
                         SubscriptionManager.INVALID_SUBSCRIPTION_ID);
                 int phoneId = intent.getIntExtra(CarrierConfigManager.EXTRA_SLOT_INDEX,
@@ -1112,6 +1114,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         IntentFilter intentfilter = new IntentFilter();
         intentfilter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+        intentfilter.addAction(CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED);
         intentfilter.addAction(TelecomManager.ACTION_DEFAULT_DIALER_CHANGED);
         mPhone.getContext().registerReceiver(mReceiver, intentfilter);
         updateCarrierConfiguration(mPhone.getSubId(), getCarrierConfigBundle(mPhone.getSubId()));
