@@ -114,6 +114,7 @@ import static com.android.internal.telephony.RILConstants.RIL_REQUEST_HANGUP_WAI
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IMS_REGISTRATION_STATE;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IMS_SEND_SMS;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_ISIM_AUTHENTICATION;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IS_N1_MODE_ENABLED;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IS_NR_DUAL_CONNECTIVITY_ENABLED;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IS_VONR_ENABLED;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_LAST_CALL_FAIL_CAUSE;
@@ -164,6 +165,7 @@ import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_LINK_C
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_LOCATION_UPDATES;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_LOGICAL_TO_PHYSICAL_SLOT_MAPPING;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_MUTE;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_N1_MODE_ENABLED;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_NETWORK_SELECTION_AUTOMATIC;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_NETWORK_SELECTION_MANUAL;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_NULL_CIPHER_AND_INTEGRITY_ENABLED;
@@ -210,6 +212,7 @@ import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SWITCH_WAI
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_TRIGGER_EMERGENCY_NETWORK_SCAN;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_TRIGGER_EPS_FALLBACK;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_UDUB;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_UPDATE_IMS_CALL_STATUS;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_UPDATE_IMS_REGISTRATION_INFO;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_UPDATE_SIM_PHONEBOOK_RECORD;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_VOICE_RADIO_TECH;
@@ -347,6 +350,10 @@ import android.telephony.data.RouteSelectionDescriptor;
 import android.telephony.data.TrafficDescriptor;
 import android.telephony.data.UrspRule;
 import android.telephony.ims.RegistrationManager;
+import android.telephony.ims.feature.ConnectionFailureInfo;
+import android.telephony.ims.feature.MmTelFeature;
+import android.telephony.ims.stub.ImsRegistrationImplBase;
+import android.telephony.ims.stub.ImsRegistrationImplBase.ImsDeregistrationReason;
 import android.text.TextUtils;
 import android.util.ArraySet;
 import android.util.SparseArray;
@@ -360,6 +367,7 @@ import com.android.internal.telephony.cdma.sms.CdmaSmsSubaddress;
 import com.android.internal.telephony.cdma.sms.SmsEnvelope;
 import com.android.internal.telephony.data.KeepaliveStatus;
 import com.android.internal.telephony.data.KeepaliveStatus.KeepaliveStatusCode;
+import com.android.internal.telephony.imsphone.ImsCallInfo;
 import com.android.internal.telephony.uicc.AdnCapacity;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus;
 import com.android.internal.telephony.uicc.IccCardStatus;
@@ -367,6 +375,7 @@ import com.android.internal.telephony.uicc.IccSimPortInfo;
 import com.android.internal.telephony.uicc.IccSlotPortMapping;
 import com.android.internal.telephony.uicc.IccSlotStatus;
 import com.android.internal.telephony.uicc.IccUtils;
+import com.android.internal.telephony.uicc.PortUtils;
 import com.android.internal.telephony.uicc.SimPhonebookRecord;
 import com.android.telephony.Rlog;
 
@@ -1823,10 +1832,12 @@ public class RILUtils {
      * @param p2 p2
      * @param p3 p3
      * @param data data
+     * @param radioHalVersion radio hal version
      * @return The converted SimApdu
      */
     public static android.hardware.radio.sim.SimApdu convertToHalSimApduAidl(int channel, int cla,
-            int instruction, int p1, int p2, int p3, String data) {
+            int instruction, int p1, int p2, int p3, String data, boolean isEs10Command,
+            HalVersion radioHalVersion) {
         android.hardware.radio.sim.SimApdu msg = new android.hardware.radio.sim.SimApdu();
         msg.sessionId = channel;
         msg.cla = cla;
@@ -1835,6 +1846,9 @@ public class RILUtils {
         msg.p2 = p2;
         msg.p3 = p3;
         msg.data = convertNullToEmptyString(data);
+        if (radioHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_2_1)) {
+            msg.isEs10 = isEs10Command;
+        }
         return msg;
     }
 
@@ -3278,7 +3292,8 @@ public class RILUtils {
             return new CellSignalStrengthNr(CellSignalStrengthNr.flip(ss.base.csiRsrp),
                     CellSignalStrengthNr.flip(ss.base.csiRsrq), ss.base.csiSinr,
                     ss.csiCqiTableIndex, ss.csiCqiReport, CellSignalStrengthNr.flip(ss.base.ssRsrp),
-                    CellSignalStrengthNr.flip(ss.base.ssRsrq), ss.base.ssSinr);
+                    CellSignalStrengthNr.flip(ss.base.ssRsrq), ss.base.ssSinr,
+                    CellInfo.UNAVAILABLE);
         }
         return null;
     }
@@ -3293,7 +3308,7 @@ public class RILUtils {
         return new CellSignalStrengthNr(CellSignalStrengthNr.flip(ss.csiRsrp),
                 CellSignalStrengthNr.flip(ss.csiRsrq), ss.csiSinr, ss.csiCqiTableIndex,
                 primitiveArrayToArrayList(ss.csiCqiReport), CellSignalStrengthNr.flip(ss.ssRsrp),
-                CellSignalStrengthNr.flip(ss.ssRsrq), ss.ssSinr);
+                CellSignalStrengthNr.flip(ss.ssRsrq), ss.ssSinr, ss.timingAdvance);
     }
 
     private static ClosedSubscriberGroupInfo convertHalClosedSubscriberGroupInfo(
@@ -4353,6 +4368,7 @@ public class RILUtils {
             android.hardware.radio.sim.CardStatus cardStatus) {
         IccCardStatus iccCardStatus = new IccCardStatus();
         iccCardStatus.setCardState(cardStatus.cardState);
+        iccCardStatus.setMultipleEnabledProfilesMode(cardStatus.supportedMepMode);
         iccCardStatus.setUniversalPinState(cardStatus.universalPinState);
         iccCardStatus.mGsmUmtsSubscriptionAppIndex = cardStatus.gsmUmtsSubscriptionAppIndex;
         iccCardStatus.mCdmaSubscriptionAppIndex = cardStatus.cdmaSubscriptionAppIndex;
@@ -4380,7 +4396,9 @@ public class RILUtils {
         }
         IccSlotPortMapping slotPortMapping = new IccSlotPortMapping();
         slotPortMapping.mPhysicalSlotIndex = cardStatus.slotMap.physicalSlotId;
-        slotPortMapping.mPortIndex = cardStatus.slotMap.portId;
+        slotPortMapping.mPortIndex = PortUtils.convertFromHalPortIndex(
+                cardStatus.slotMap.physicalSlotId, cardStatus.slotMap.portId,
+                iccCardStatus.mCardState, iccCardStatus.mSupportedMepMode);
         iccCardStatus.mSlotPortMapping = slotPortMapping;
         return iccCardStatus;
     }
@@ -4496,6 +4514,7 @@ public class RILUtils {
                 }
                 iccSlotStatus.atr = slotStatus.atr;
                 iccSlotStatus.eid = slotStatus.eid;
+                iccSlotStatus.setMultipleEnabledProfilesMode(slotStatus.supportedMepMode);
                 response.add(iccSlotStatus);
             }
             return response;
@@ -4563,7 +4582,8 @@ public class RILUtils {
             int logicalSlotIdx = mapping.getLogicalSlotIndex();
             res[logicalSlotIdx] = new android.hardware.radio.config.SlotPortMapping();
             res[logicalSlotIdx].physicalSlotId = mapping.getPhysicalSlotIndex();
-            res[logicalSlotIdx].portId = mapping.getPortIndex();
+            res[logicalSlotIdx].portId = PortUtils.convertToHalPortIndex(
+                    mapping.getPhysicalSlotIndex(), mapping.getPortIndex());
         }
         return res;
     }
@@ -4707,6 +4727,98 @@ public class RILUtils {
             default:
                 return NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_OR_SEARCHING;
         }
+    }
+
+    /** Convert IMS deregistration reason */
+    public static @ImsDeregistrationReason int convertHalDeregistrationReason(int reason) {
+        switch (reason) {
+            case android.hardware.radio.ims.ImsDeregistrationReason.REASON_SIM_REMOVED:
+                return ImsRegistrationImplBase.REASON_SIM_REMOVED;
+            case android.hardware.radio.ims.ImsDeregistrationReason.REASON_SIM_REFRESH:
+                return ImsRegistrationImplBase.REASON_SIM_REFRESH;
+            case android.hardware.radio.ims.ImsDeregistrationReason
+                    .REASON_ALLOWED_NETWORK_TYPES_CHANGED:
+                return ImsRegistrationImplBase.REASON_ALLOWED_NETWORK_TYPES_CHANGED;
+            default:
+                return ImsRegistrationImplBase.REASON_UNKNOWN;
+        }
+    }
+
+    /**
+     * Convert the IMS traffic type.
+     * @param trafficType IMS traffic type like registration, voice, video, SMS, emergency, and etc.
+     * @return The converted IMS traffic type.
+     */
+    public static int convertImsTrafficType(@MmTelFeature.ImsTrafficType int trafficType) {
+        switch (trafficType) {
+            case MmTelFeature.IMS_TRAFFIC_TYPE_EMERGENCY:
+                return android.hardware.radio.ims.ImsTrafficType.EMERGENCY;
+            case MmTelFeature.IMS_TRAFFIC_TYPE_EMERGENCY_SMS:
+                return android.hardware.radio.ims.ImsTrafficType.EMERGENCY_SMS;
+            case MmTelFeature.IMS_TRAFFIC_TYPE_VOICE:
+                return android.hardware.radio.ims.ImsTrafficType.VOICE;
+            case MmTelFeature.IMS_TRAFFIC_TYPE_VIDEO:
+                return android.hardware.radio.ims.ImsTrafficType.VIDEO;
+            case MmTelFeature.IMS_TRAFFIC_TYPE_SMS:
+                return android.hardware.radio.ims.ImsTrafficType.SMS;
+            case MmTelFeature.IMS_TRAFFIC_TYPE_REGISTRATION:
+                return android.hardware.radio.ims.ImsTrafficType.REGISTRATION;
+        }
+        return android.hardware.radio.ims.ImsTrafficType.UT_XCAP;
+    }
+
+    /**
+     * Convert the IMS traffic direction.
+     * @param trafficDirection Indicates the traffic direction.
+     * @return The converted IMS traffic direction.
+     */
+    public static int convertImsTrafficDirection(
+            @MmTelFeature.ImsTrafficDirection int trafficDirection) {
+        switch (trafficDirection) {
+            case MmTelFeature.IMS_TRAFFIC_DIRECTION_INCOMING:
+                return android.hardware.radio.ims.ImsCall.Direction.INCOMING;
+            default:
+                return android.hardware.radio.ims.ImsCall.Direction.OUTGOING;
+        }
+    }
+
+    /**
+     * Convert the IMS connection failure reason.
+     * @param halReason  Specifies the reason that IMS connection failed.
+     * @return The converted IMS connection failure reason.
+     */
+    public static @ConnectionFailureInfo.FailureReason int convertHalConnectionFailureReason(
+            int halReason) {
+        switch (halReason) {
+            case android.hardware.radio.ims.ConnectionFailureInfo
+                    .ConnectionFailureReason.REASON_ACCESS_DENIED:
+                return ConnectionFailureInfo.REASON_ACCESS_DENIED;
+            case android.hardware.radio.ims.ConnectionFailureInfo
+                    .ConnectionFailureReason.REASON_NAS_FAILURE:
+                return ConnectionFailureInfo.REASON_NAS_FAILURE;
+            case android.hardware.radio.ims.ConnectionFailureInfo
+                    .ConnectionFailureReason.REASON_RACH_FAILURE:
+                return ConnectionFailureInfo.REASON_RACH_FAILURE;
+            case android.hardware.radio.ims.ConnectionFailureInfo
+                    .ConnectionFailureReason.REASON_RLC_FAILURE:
+                return ConnectionFailureInfo.REASON_RLC_FAILURE;
+            case android.hardware.radio.ims.ConnectionFailureInfo
+                    .ConnectionFailureReason.REASON_RRC_REJECT:
+                return ConnectionFailureInfo.REASON_RRC_REJECT;
+            case android.hardware.radio.ims.ConnectionFailureInfo
+                    .ConnectionFailureReason.REASON_RRC_TIMEOUT:
+                return ConnectionFailureInfo.REASON_RRC_TIMEOUT;
+            case android.hardware.radio.ims.ConnectionFailureInfo
+                    .ConnectionFailureReason.REASON_NO_SERVICE:
+                return ConnectionFailureInfo.REASON_NO_SERVICE;
+            case android.hardware.radio.ims.ConnectionFailureInfo
+                    .ConnectionFailureReason.REASON_PDN_NOT_AVAILABLE:
+                return ConnectionFailureInfo.REASON_PDN_NOT_AVAILABLE;
+            case android.hardware.radio.ims.ConnectionFailureInfo
+                    .ConnectionFailureReason.REASON_RF_BUSY:
+                return ConnectionFailureInfo.REASON_RF_BUSY;
+        }
+        return ConnectionFailureInfo.REASON_UNSPECIFIED;
     }
 
     /** Append the data to the end of an ArrayList */
@@ -5184,6 +5296,12 @@ public class RILUtils {
                 return "TRIGGER_EPS_FALLBACK";
             case RIL_REQUEST_SET_NULL_CIPHER_AND_INTEGRITY_ENABLED:
                 return "SET_NULL_CIPHER_AND_INTEGRITY_ENABLED";
+            case RIL_REQUEST_UPDATE_IMS_CALL_STATUS:
+                return "UPDATE_IMS_CALL_STATUS";
+            case RIL_REQUEST_SET_N1_MODE_ENABLED:
+                return "SET_N1_MODE_ENABLED";
+            case RIL_REQUEST_IS_N1_MODE_ENABLED:
+                return "IS_N1_MODE_ENABLED";
             default:
                 return "<unknown request " + request + ">";
         }
@@ -5603,7 +5721,12 @@ public class RILUtils {
         }
     }
 
-    /** Convert IMS registration state */
+    /**
+     * Converts IMS registration state.
+     *
+     * @param state The IMS registration state.
+     * @return The converted HAL IMS registration state.
+     */
     public static int convertImsRegistrationState(int state) {
         switch (state) {
             case RegistrationManager.REGISTRATION_STATE_NOT_REGISTERED:
@@ -5615,7 +5738,35 @@ public class RILUtils {
         }
     }
 
-    /** Convert IMS capability */
+    /**
+     * Converts IMS service radio technology.
+     *
+     * @param imsRadioTech The IMS service radio technology.
+     * @return The converted HAL access network type.
+     */
+
+    public static int convertImsRegistrationTech(
+            @ImsRegistrationImplBase.ImsRegistrationTech int imsRadioTech) {
+        switch (imsRadioTech) {
+            case ImsRegistrationImplBase.REGISTRATION_TECH_LTE:
+                return android.hardware.radio.AccessNetwork.EUTRAN;
+            case ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN:
+                return android.hardware.radio.AccessNetwork.IWLAN;
+            case ImsRegistrationImplBase.REGISTRATION_TECH_NR:
+                return android.hardware.radio.AccessNetwork.NGRAN;
+            case ImsRegistrationImplBase.REGISTRATION_TECH_3G:
+                return android.hardware.radio.AccessNetwork.UTRAN;
+            default:
+                return android.hardware.radio.AccessNetwork.UNKNOWN;
+        }
+    }
+
+    /**
+     * Converts IMS capabilities.
+     *
+     * @param capabilities The IMS capabilities.
+     * @return The converted HAL IMS capabilities.
+     */
     public static int convertImsCapability(int capabilities) {
         int halCapabilities = android.hardware.radio.ims.ImsRegistration.IMS_MMTEL_CAPABILITY_NONE;
         if ((capabilities & CommandsInterface.IMS_MMTEL_CAPABILITY_VOICE) > 0) {
@@ -5633,6 +5784,65 @@ public class RILUtils {
             halCapabilities |= android.hardware.radio.ims.ImsRegistration.IMS_RCS_CAPABILITIES;
         }
         return halCapabilities;
+    }
+
+    /** Converts the ImsCallInfo instances to HAL ImsCall instances. */
+    public static android.hardware.radio.ims.ImsCall[] convertImsCallInfo(
+            List<ImsCallInfo> imsCallInfos) {
+        if (imsCallInfos == null) {
+            return new android.hardware.radio.ims.ImsCall[0];
+        }
+
+        int length = 0;
+        for (int i = 0; i < imsCallInfos.size(); i++) {
+            if (imsCallInfos.get(i) != null) length++;
+        }
+        if (length == 0) {
+            return new android.hardware.radio.ims.ImsCall[0];
+        }
+
+        android.hardware.radio.ims.ImsCall[] halInfos =
+                new android.hardware.radio.ims.ImsCall[length];
+
+        int index = 0;
+        for (int i = 0; i < imsCallInfos.size(); i++) {
+            ImsCallInfo info = imsCallInfos.get(i);
+            if (info == null) continue;
+
+            halInfos[index] = new android.hardware.radio.ims.ImsCall();
+            halInfos[index].index = info.getIndex();
+            halInfos[index].callState = convertToHalImsCallState(info.getCallState());
+            halInfos[index].callType = info.isEmergencyCall()
+                    ? android.hardware.radio.ims.ImsCall.CallType.EMERGENCY
+                    : android.hardware.radio.ims.ImsCall.CallType.NORMAL;
+            halInfos[index].accessNetwork = convertToHalAccessNetworkAidl(info.getCallRadioTech());
+            halInfos[index].direction = info.isIncoming()
+                    ? android.hardware.radio.ims.ImsCall.Direction.INCOMING
+                    : android.hardware.radio.ims.ImsCall.Direction.OUTGOING;
+            halInfos[index].isHeldByRemote = info.isHeldByRemote();
+            index++;
+        }
+
+        return halInfos;
+    }
+
+    /**
+     * Converts the call state to HAL IMS call state.
+     *
+     * @param state The {@link Call.State}.
+     * @return The converted {@link android.hardware.radio.ims.ImsCall.CallState}.
+     */
+    private static int convertToHalImsCallState(Call.State state) {
+        switch (state) {
+            case ACTIVE: return android.hardware.radio.ims.ImsCall.CallState.ACTIVE;
+            case HOLDING: return android.hardware.radio.ims.ImsCall.CallState.HOLDING;
+            case DIALING: return android.hardware.radio.ims.ImsCall.CallState.DIALING;
+            case ALERTING: return android.hardware.radio.ims.ImsCall.CallState.ALERTING;
+            case INCOMING: return android.hardware.radio.ims.ImsCall.CallState.INCOMING;
+            case WAITING: return android.hardware.radio.ims.ImsCall.CallState.WAITING;
+            case DISCONNECTING: return android.hardware.radio.ims.ImsCall.CallState.DISCONNECTING;
+            default: return android.hardware.radio.ims.ImsCall.CallState.DISCONNECTED;
+        }
     }
 
     private static void logd(String log) {

@@ -34,6 +34,7 @@ import android.os.Message;
 import android.os.WorkSource;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
+import android.telephony.BarringInfo;
 import android.telephony.CarrierRestrictionRules;
 import android.telephony.ClientRequestStats;
 import android.telephony.DomainSelectionService;
@@ -48,10 +49,14 @@ import android.telephony.data.DataProfile;
 import android.telephony.data.NetworkSliceInfo;
 import android.telephony.data.TrafficDescriptor;
 import android.telephony.emergency.EmergencyNumber;
+import android.telephony.ims.RegistrationManager;
+import android.telephony.ims.feature.MmTelFeature;
+import android.telephony.ims.stub.ImsRegistrationImplBase;
 
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.emergency.EmergencyConstants;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
+import com.android.internal.telephony.imsphone.ImsCallInfo;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
 import com.android.internal.telephony.uicc.IccCardStatus;
 import com.android.internal.telephony.uicc.SimPhonebookRecord;
@@ -1802,6 +1807,17 @@ public interface CommandsInterface {
     public void getDeviceIdentity(Message response);
 
     /**
+     * Request the device IMEI / IMEI type / IMEISV
+     * "response" is ImeiInfo object that contains
+     *  [0] ImeiType Indicates whether IMEI is of primary or secondary type
+     *  [1] IMEI if GSM subscription is available
+     *  [2] IMEISV if GSM subscription is available
+     *
+     * @param response Message
+     */
+    public void getImei(Message response);
+
+    /**
      * Request the device MDN / H_SID / H_NID / MIN.
      * "response" is const char **
      *   [0] is MDN if CDMA subscription is available
@@ -2139,6 +2155,27 @@ public interface CommandsInterface {
      */
     public void iccTransmitApduLogicalChannel(int channel, int cla, int instruction,
             int p1, int p2, int p3, String data, Message response);
+
+    /**
+     * Exchange APDUs with the SIM on a logical channel.
+     *
+     * Input parameters equivalent to TS 27.007 AT+CGLA command.
+     *
+     * @param channel Channel id of the channel to use for communication. Has to
+     *            be greater than zero.
+     * @param cla Class of the APDU command.
+     * @param instruction Instruction of the APDU command.
+     * @param p1 P1 value of the APDU command.
+     * @param p2 P2 value of the APDU command.
+     * @param p3 P3 value of the APDU command. If p3 is negative a 4 byte APDU
+     *            is sent to the SIM.
+     * @param data Data to be sent with the APDU.
+     * @param isEs10Command whether APDU command is an ES10 command or a regular APDU
+     * @param response Callback message. response.obj.userObj will be
+     *            an IccIoResult on success.
+     */
+    void iccTransmitApduLogicalChannel(int channel, int cla, int instruction,
+            int p1, int p2, int p3, String data, boolean isEs10Command, Message response);
 
     /**
      * Exchange APDUs with the SIM on a basic channel.
@@ -2658,6 +2695,15 @@ public interface CommandsInterface {
     default void getBarringInfo(Message result) {};
 
     /**
+     * Returns the last barring information received.
+     *
+     * @return the last barring information.
+     */
+    default @Nullable BarringInfo getLastBarringInfo() {
+        return null;
+    };
+
+    /**
      * Allocates a pdu session id
      *
      * AsyncResult.result is the allocated pdu session id
@@ -2786,7 +2832,7 @@ public interface CommandsInterface {
      public void unregisterForSimPhonebookRecordsReceived(Handler h);
 
     /**
-     * Registers for notifications when connection setup fails.
+     * Registers for notifications of connection setup failure.
      *
      * @param h Handler for notification message.
      * @param what User-defined message code.
@@ -2795,7 +2841,7 @@ public interface CommandsInterface {
     default void registerForConnectionSetupFailure(Handler h, int what, Object obj) {}
 
     /**
-     * Unregisters for notifications when connection setup fails.
+     * Unregisters for notifications of connection setup failure.
      *
      * @param h Handler to be removed from the registrant list.
      */
@@ -2916,13 +2962,14 @@ public interface CommandsInterface {
      * Updates the IMS registration information to the radio.
      *
      * @param state The current IMS registration state.
-     * @param accessNetworkType The type of underlying radio access network used.
-     * @param suggestedAction The expected action that modem should perform.
+     * @param imsRadioTech The type of underlying radio access network used.
+     * @param suggestedAction The suggested action for the radio to perform.
      * @param capabilities IMS capabilities such as VOICE, VIDEO and SMS.
      */
     default void updateImsRegistrationInfo(int state,
-            @AccessNetworkConstants.RadioAccessNetworkType int accessNetworkType,
-            int suggestedAction, int capabilities, Message result) {}
+            @ImsRegistrationImplBase.ImsRegistrationTech int imsRadioTech,
+            @RegistrationManager.SuggestedAction int suggestedAction,
+            int capabilities, Message result) {}
 
     /**
      * Notifies the NAS and RRC layers of the radio the type of upcoming IMS traffic.
@@ -2930,9 +2977,13 @@ public interface CommandsInterface {
      * @param token A nonce to identify the request.
      * @param trafficType IMS traffic type like registration, voice, video, SMS, emergency, and etc.
      * @param accessNetworkType The type of underlying radio access network used.
+     * @param trafficDirection Indicates whether traffic is originated by mobile originated or
+     *        mobile terminated use case eg. MO/MT call/SMS etc.
      */
-    default void startImsTraffic(int token, int trafficType,
+    default void startImsTraffic(int token,
+            @MmTelFeature.ImsTrafficType int trafficType,
             @AccessNetworkConstants.RadioAccessNetworkType int accessNetworkType,
+            @MmTelFeature.ImsTrafficDirection int trafficDirection,
             Message result) {}
 
     /**
@@ -2955,18 +3006,53 @@ public interface CommandsInterface {
      * @param mediaType Media type is used to identify media stream such as audio or video.
      * @param direction Direction of this packet stream (e.g. uplink or downlink).
      * @param bitsPerSecond The bit rate requested by the opponent UE.
+     * @param result Callback message to receive the result.
      */
     default void sendAnbrQuery(int mediaType, int direction, int bitsPerSecond, Message result) {}
+
+    /**
+     * Notifies the recommended bit rate for the indicated logical channel and direction.
+     *
+     * @param mediaType MediaType is used to identify media stream such as audio or video.
+     * @param direction Direction of this packet stream (e.g. uplink or downlink).
+     * @param bitsPerSecond The recommended bit rate for the UE for a specific logical channel and
+     *        a specific direction by NW.
+     * @param result Callback message to receive the result.
+     */
+    default void triggerNotifyAnbr(int mediaType, int direction, int bitsPerSecond,
+                Message result) {}
 
     /**
      * Set the UE's ability to accept/reject null ciphered and/or null integrity-protected
      * connections.
      *
-     * @param result Callback message containing the success or failure status.
      * @param enabled true to allow null ciphered and/or null integrity-protected connections,
      * false to disallow.
+     * @param result Callback message containing the success or failure status.
      */
-    default void setNullCipherAndIntegrityEnabled(Message result, boolean enabled) {}
+    default void setNullCipherAndIntegrityEnabled(boolean enabled, Message result) {}
+
+    /**
+     * Notifies the IMS call status to the modem.
+     *
+     * @param imsCallInfo The list of {@link ImsCallInfo}.
+     * @param result A callback to receive the response.
+     */
+    default void updateImsCallStatus(@NonNull List<ImsCallInfo> imsCallInfo, Message result) {}
+
+    /**
+     * Enables or disables N1 mode (access to 5G core network) in accordance with
+     * 3GPP TS 24.501 4.9.
+     * @param enable {@code true} to enable N1 mode, {@code false} to disable N1 mode.
+     * @param result Callback message to receive the result.
+     */
+    default void setN1ModeEnabled(boolean enable, Message result) {}
+
+    /**
+     * Check whether N1 mode (access to 5G core network) is enabled or not.
+     * @param result Callback message to receive the result.
+     */
+    default void isN1ModeEnabled(Message result) {}
 
     /**
      *  Get phone radio capability
