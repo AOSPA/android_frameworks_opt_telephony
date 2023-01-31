@@ -82,7 +82,6 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.SlidingWindowEventCounter;
-import com.android.internal.telephony.SubscriptionInfoUpdater;
 import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.data.AccessNetworksManager.AccessNetworksManagerCallback;
 import com.android.internal.telephony.data.DataConfigManager.DataConfigManagerCallback;
@@ -813,12 +812,7 @@ public class DataNetworkController extends Handler {
         log("DataNetworkController created.");
 
         mAccessNetworksManager = phone.getAccessNetworksManager();
-        mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
-                TelephonyComponentFactory.getInstance()
-                        .inject(DataServiceManager.class.getName())
-                        .makeDataServiceManager(phone, looper,
-                                AccessNetworkConstants.TRANSPORT_TYPE_WWAN));
-        if (!mAccessNetworksManager.isInLegacyMode()) {
+        for (int transport : mAccessNetworksManager.getAvailableTransports()) {
             mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
                     TelephonyComponentFactory.getInstance()
                             .inject(DataServiceManager.class.getName())
@@ -1015,12 +1009,10 @@ public class DataNetworkController extends Handler {
         mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
                 .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
 
-        if (!mAccessNetworksManager.isInLegacyMode()) {
-            mPhone.getServiceStateTracker().registerForServiceStateChanged(this,
-                    EVENT_SERVICE_STATE_CHANGED, null);
-            mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
-                    .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
-        }
+        mPhone.getServiceStateTracker().registerForServiceStateChanged(this,
+                EVENT_SERVICE_STATE_CHANGED, null);
+        mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
+                .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
 
         mPhone.getContext().getSystemService(TelephonyRegistryManager.class)
                 .addOnSubscriptionsChangedListener(new OnSubscriptionsChangedListener() {
@@ -1552,7 +1544,6 @@ public class DataNetworkController extends Handler {
         // to setup data network when radio power is about to be turned off.
         // Besides, in legacy IWLAN mode, data should be allowed.
         if (transport == AccessNetworkConstants.TRANSPORT_TYPE_WWAN
-                && !mAccessNetworksManager.isInLegacyMode()
                 && getDataNetworkType(transport) != TelephonyManager.NETWORK_TYPE_IWLAN
                 && (!mPhone.getServiceStateTracker().getDesiredPowerState()
                 || mPhone.mCi.getRadioState() != TelephonyManager.RADIO_POWER_ON)) {
@@ -2408,10 +2399,9 @@ public class DataNetworkController extends Handler {
         log("onCarrierConfigUpdated: config is "
                 + (mDataConfigManager.isConfigCarrierSpecific() ? "" : "not ")
                 + "carrier specific. mSimState="
-                + SubscriptionInfoUpdater.simStateString(mSimState));
+                + TelephonyManager.simStateToString(mSimState));
         updateNetworkRequestsPriority();
-        sendMessage(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
-                DataEvaluationReason.DATA_CONFIG_CHANGED));
+        onReevaluateUnsatisfiedNetworkRequests(DataEvaluationReason.DATA_CONFIG_CHANGED);
     }
 
     /**
@@ -3067,7 +3057,7 @@ public class DataNetworkController extends Handler {
      * @param simState SIM state. (Note this is mixed with card state and application state.)
      */
     protected void onSimStateChanged(@SimState int simState) {
-        log("onSimStateChanged: state=" + SubscriptionInfoUpdater.simStateString(simState));
+        log("onSimStateChanged: state=" + TelephonyManager.simStateToString(simState));
         if (mSimState != simState) {
             mSimState = simState;
             if (simState == TelephonyManager.SIM_STATE_ABSENT) {
@@ -3250,6 +3240,12 @@ public class DataNetworkController extends Handler {
             log("Found more network requests that can be satisfied. " + networkRequestList);
             dataNetwork.attachNetworkRequests(networkRequestList);
         }
+
+        if (dataNetwork.getNetworkCapabilities().hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+            // Update because DataNetwork#isInternetSupported might have changed with capabilities.
+            updateOverallInternetDataState();
+        }
     }
 
     /**
@@ -3400,9 +3396,9 @@ public class DataNetworkController extends Handler {
     }
 
     /**
-     * Update the internet data network state. For now only {@link TelephonyManager#DATA_CONNECTED}
-     * , {@link TelephonyManager#DATA_SUSPENDED}, and
-     * {@link TelephonyManager#DATA_DISCONNECTED} are supported.
+     * Update the internet data network state. For now only {@link TelephonyManager#DATA_CONNECTED},
+     * {@link TelephonyManager#DATA_SUSPENDED}, and {@link TelephonyManager#DATA_DISCONNECTED}
+     * are supported.
      */
     private void updateOverallInternetDataState() {
         boolean anyInternetConnected = mDataNetworkList.stream()
@@ -3679,8 +3675,8 @@ public class DataNetworkController extends Handler {
 
     /**
      * Get the internet data network state. Note that this is the best effort if more than one
-     * data network supports internet. For now only {@link TelephonyManager#DATA_CONNECTED}
-     * , {@link TelephonyManager#DATA_SUSPENDED}, and {@link TelephonyManager#DATA_DISCONNECTED}
+     * data network supports internet. For now only {@link TelephonyManager#DATA_CONNECTED},
+     * {@link TelephonyManager#DATA_SUSPENDED}, and {@link TelephonyManager#DATA_DISCONNECTED}
      * are supported.
      *
      * @return The data network state.
@@ -3790,7 +3786,7 @@ public class DataNetworkController extends Handler {
         pw.println("mImsDataNetworkState="
                 + TelephonyUtils.dataStateToString(mImsDataNetworkState));
         pw.println("mDataServiceBound=" + mDataServiceBound);
-        pw.println("mSimState=" + SubscriptionInfoUpdater.simStateString(mSimState));
+        pw.println("mSimState=" + TelephonyManager.simStateToString(mSimState));
         pw.println("mDataNetworkControllerCallbacks=" + mDataNetworkControllerCallbacks);
         pw.println("Subscription plans:");
         pw.increaseIndent();

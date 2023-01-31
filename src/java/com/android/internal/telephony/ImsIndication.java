@@ -24,6 +24,7 @@ import static com.android.internal.telephony.RILConstants.RIL_UNSOL_TRIGGER_IMS_
 
 import android.hardware.radio.ims.IRadioImsIndication;
 import android.os.AsyncResult;
+import android.telephony.ims.feature.ConnectionFailureInfo;
 
 /**
  * Interface declaring unsolicited radio indications for IMS APIs.
@@ -57,14 +58,11 @@ public class ImsIndication extends IRadioImsIndication.Stub {
             android.hardware.radio.ims.ConnectionFailureInfo failureInfo) {
         mRil.processIndication(HAL_SERVICE_IMS, indicationType);
 
-        int[] info = new int[3];
-        info[0] = failureInfo.failureReason;
-        info[1] = failureInfo.causeCode;
-        info[2] = failureInfo.waitTimeMillis;
-
         Object[] response = new Object[2];
         response[0] = token;
-        response[1] = info;
+        response[1] = new ConnectionFailureInfo(
+                RILUtils.convertHalConnectionFailureReason(failureInfo.failureReason),
+                failureInfo.causeCode, failureInfo.waitTimeMillis);
 
         if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_CONNECTION_SETUP_FAILURE, response);
 
@@ -111,7 +109,7 @@ public class ImsIndication extends IRadioImsIndication.Stub {
         if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_TRIGGER_IMS_DEREGISTRATION, reason);
 
         int[] response = new int[1];
-        response[0] = reason;
+        response[0] = RILUtils.convertHalDeregistrationReason(reason);
 
         mRil.mTriggerImsDeregistrationRegistrants.notifyRegistrants(
                 new AsyncResult(null, response, null));
