@@ -51,6 +51,7 @@ import com.android.internal.telephony.data.LinkBandwidthEstimator;
 import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.data.TelephonyNetworkAgent;
 import com.android.internal.telephony.data.TelephonyNetworkAgent.TelephonyNetworkAgentCallback;
+import com.android.internal.telephony.data.TelephonyNetworkFactory;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.imsphone.ImsExternalCallTracker;
 import com.android.internal.telephony.imsphone.ImsPhone;
@@ -602,5 +603,11 @@ public class TelephonyComponentFactory {
         Rlog.i(TAG, "makeTelephonyNetworkAgent");
         return new TelephonyNetworkAgent(phone, looper, dataNetwork, score, config,
                 provider, callback);
+    }
+
+    public TelephonyNetworkFactory makeTelephonyNetworkFactory(Looper looper, Phone phone,
+            PhoneSwitcher phoneSwitcher) {
+        Rlog.i(TAG, "make TelephonyNetworkFactory");
+        return new TelephonyNetworkFactory(looper, phone, phoneSwitcher);
     }
 }
