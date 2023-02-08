@@ -813,11 +813,11 @@ public class DataNetworkController extends Handler {
 
         mAccessNetworksManager = phone.getAccessNetworksManager();
         for (int transport : mAccessNetworksManager.getAvailableTransports()) {
-            mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
+            mDataServiceManagers.put(transport,
                     TelephonyComponentFactory.getInstance()
                             .inject(DataServiceManager.class.getName())
                             .makeDataServiceManager(phone, looper,
-                                    AccessNetworkConstants.TRANSPORT_TYPE_WLAN));
+                                    transport));
         }
         mDataConfigManager = TelephonyComponentFactory.getInstance().inject(
                 DataConfigManager.class.getName())
