@@ -27,9 +27,11 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.Registrant;
 import android.os.RegistrantList;
@@ -79,6 +81,9 @@ import java.util.stream.Collectors;
 public class AccessNetworksManager extends Handler {
     private static final boolean DBG = false;
     private static final String APN_TRANSPORT = "apn_transport-%d-%d";
+
+    /** Event to guide a transport type for initial data connection of emergency data network. */
+    private static final int EVENT_GUIDE_TRANSPORT_TYPE_FOR_EMERGENCY = 1;
 
     /**
      * The counters to detect frequent QNS attempt to change preferred network transport by ApnType.
@@ -176,6 +181,19 @@ public class AccessNetworksManager extends Handler {
                     .mapToObj(AccessNetworkType::toString)
                     .collect(Collectors.joining(","))
                     + "]";
+        }
+    }
+
+    @Override
+    public void handleMessage(@NonNull Message msg) {
+        switch (msg.what) {
+            case EVENT_GUIDE_TRANSPORT_TYPE_FOR_EMERGENCY:
+                AsyncResult ar = (AsyncResult) msg.obj;
+                int transport = (int) ar.result;
+                onEmergencyDataNetworkPreferredTransportChanged(transport);
+                break;
+            default:
+                loge("Unexpected event " + msg.what);
         }
     }
 
@@ -301,6 +319,20 @@ public class AccessNetworksManager extends Handler {
         }
     }
 
+    private void onEmergencyDataNetworkPreferredTransportChanged(
+            @AccessNetworkConstants.TransportType int transportType) {
+        try {
+            logl("onEmergencyDataNetworkPreferredTransportChanged: "
+                    + AccessNetworkConstants.transportTypeToString(transportType));
+            if (mIQualifiedNetworksService != null) {
+                mIQualifiedNetworksService.reportEmergencyDataNetworkPreferredTransportChanged(
+                        mPhone.getPhoneId(), transportType);
+            }
+        } catch (Exception ex) {
+            loge("onEmergencyDataNetworkPreferredTransportChanged: ", ex);
+        }
+    }
+
     /**
      * Access networks manager callback. This should be only used by {@link DataNetworkController}.
      */
@@ -375,6 +407,8 @@ public class AccessNetworksManager extends Handler {
                             mApnTypeToQnsChangeNetworkCounter.clear();
                         }
                     });
+            mPhone.registerForEmergencyDomainSelected(
+                    this, EVENT_GUIDE_TRANSPORT_TYPE_FOR_EMERGENCY, null);
         });
     }
 

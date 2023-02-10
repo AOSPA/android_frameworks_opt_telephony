@@ -231,6 +231,8 @@ public class GsmCdmaPhone extends Phone {
     CellBroadcastConfigTracker mCellBroadcastConfigTracker =
             CellBroadcastConfigTracker.make(this, null);
 
+    private boolean mIsNullCipherAndIntegritySupported = false;
+
     // Create Cfu (Call forward unconditional) so that dialing number &
     // mOnComplete (Message object passed by client) can be packed &
     // given as a single Cfu object as user data to RIL.
@@ -463,6 +465,7 @@ public class GsmCdmaPhone extends Phone {
         mCi.registerForCarrierInfoForImsiEncryption(this,
                 EVENT_RESET_CARRIER_KEY_IMSI_ENCRYPTION, null);
         mCi.registerForTriggerImsDeregistration(this, EVENT_IMS_DEREGISTRATION_TRIGGERED, null);
+        mCi.registerForNotifyAnbr(this, EVENT_TRIGGER_NOTIFY_ANBR, null);
         IntentFilter filter = new IntentFilter(
                 CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         filter.addAction(CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED);
@@ -3461,6 +3464,14 @@ public class GsmCdmaPhone extends Phone {
                 break;
             case EVENT_SET_NULL_CIPHER_AND_INTEGRITY_DONE:
                 logd("EVENT_SET_NULL_CIPHER_AND_INTEGRITY_DONE");
+                ar = (AsyncResult) msg.obj;
+                if (ar == null || ar.exception == null) {
+                    mIsNullCipherAndIntegritySupported = true;
+                    return;
+                }
+                CommandException.Error error = ((CommandException) ar.exception).getCommandError();
+                mIsNullCipherAndIntegritySupported = !error.equals(
+                        CommandException.Error.REQUEST_NOT_SUPPORTED);
                 break;
 
             case EVENT_IMS_DEREGISTRATION_TRIGGERED:
@@ -3477,8 +3488,10 @@ public class GsmCdmaPhone extends Phone {
                 logd("EVENT_TRIGGER_NOTIFY_ANBR");
                 ar = (AsyncResult) msg.obj;
                 if (ar.exception == null) {
-                    mImsPhone.triggerNotifyAnbr(((int[]) ar.result)[0], ((int[]) ar.result)[1],
-                            ((int[]) ar.result)[2]);
+                    if (mImsPhone != null) {
+                        mImsPhone.triggerNotifyAnbr(((int[]) ar.result)[0], ((int[]) ar.result)[1],
+                                ((int[]) ar.result)[2]);
+                    }
                 }
                 break;
             default:
@@ -4943,5 +4956,10 @@ public class GsmCdmaPhone extends Phone {
         mCi.setNullCipherAndIntegrityEnabled(
                 getNullCipherAndIntegrityEnabledPreference(),
                 obtainMessage(EVENT_SET_NULL_CIPHER_AND_INTEGRITY_DONE));
+    }
+
+    @Override
+    public boolean isNullCipherAndIntegritySupported() {
+        return mIsNullCipherAndIntegritySupported;
     }
 }

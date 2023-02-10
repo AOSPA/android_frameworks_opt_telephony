@@ -47,6 +47,7 @@ import android.os.ResultReceiver;
 import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.os.WorkSource;
 import android.preference.PreferenceManager;
 import android.sysprop.TelephonyProperties;
@@ -5116,7 +5117,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      *        a specific direction by NW.
      */
     public void triggerNotifyAnbr(int mediaType, int direction, int bitsPerSecond) {
-        mCi.triggerNotifyAnbr(mediaType, direction, bitsPerSecond, null);
     }
 
     /**
@@ -5252,11 +5252,33 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
+     * Checks if the context user is a managed profile.
+     *
+     * Note that this applies specifically to <em>managed</em> profiles.
+     *
+     * @return whether the context user is a managed profile.
+     */
+    public boolean isManagedProfile() {
+        UserHandle userHandle = getUserHandle();
+        UserManager userManager = mContext.getSystemService(UserManager.class);
+        if (userHandle == null || userManager == null) return false;
+        return userManager.isManagedProfile(userHandle.getIdentifier());
+    }
+
+    /**
      * @return global null cipher and integrity enabled preference
      */
     public boolean getNullCipherAndIntegrityEnabledPreference() {
         SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
         return sp.getBoolean(PREF_NULL_CIPHER_AND_INTEGRITY_ENABLED, true);
+    }
+
+    /**
+     * @return whether or not this Phone interacts with a modem that supports the null cipher
+     * and integrity feature.
+     */
+    public boolean isNullCipherAndIntegritySupported() {
+        return false;
     }
 
     /**
@@ -5307,7 +5329,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      */
     public void setCellBroadcastIdRanges(
             @NonNull List<CellBroadcastIdRange> ranges, Consumer<Integer> callback) {
-        callback.accept(TelephonyManager.CELLBROADCAST_RESULT_UNSUPPORTED);
+        callback.accept(TelephonyManager.CELL_BROADCAST_RESULT_UNSUPPORTED);
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {

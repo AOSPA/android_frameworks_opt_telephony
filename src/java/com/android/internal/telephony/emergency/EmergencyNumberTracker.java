@@ -513,7 +513,7 @@ public class EmergencyNumberTracker extends Handler {
 
             if (((eccInfo.normalRoutingMncs).length != 0)
                     && (eccInfo.normalRoutingMncs[0].length() > 0)) {
-                emergencyCallRouting = EmergencyNumber.EMERGENCY_CALL_ROUTING_EMERGENCY;
+                emergencyCallRouting = EmergencyNumber.EMERGENCY_CALL_ROUTING_UNKNOWN;
 
                 for (String routingMnc : eccInfo.normalRoutingMncs) {
                     boolean mncExist = normalRoutedNumbers.containsKey(routingMnc);
@@ -788,7 +788,11 @@ public class EmergencyNumberTracker extends Handler {
         }
         mergedEmergencyNumberList.addAll(mEmergencyNumberListWithPrefix);
         mergedEmergencyNumberList.addAll(mEmergencyNumberListFromTestMode);
-        EmergencyNumber.mergeSameNumbersInEmergencyNumberList(mergedEmergencyNumberList);
+        if (shouldDeterminingOfUrnsAndCategoriesWhileMergingIgnored()) {
+            EmergencyNumber.mergeSameNumbersInEmergencyNumberList(mergedEmergencyNumberList);
+        } else {
+            EmergencyNumber.mergeSameNumbersInEmergencyNumberList(mergedEmergencyNumberList, true);
+        }
         mEmergencyNumberList = mergedEmergencyNumberList;
     }
 
@@ -818,16 +822,7 @@ public class EmergencyNumberTracker extends Handler {
      */
     private boolean shouldAdjustForRouting() {
         if (!shouldEmergencyNumberRoutingFromDbBeIgnored() && !mNormalRoutedNumbers.isEmpty()) {
-            CellIdentity cellIdentity = mPhone.getCurrentCellIdentity();
-            if (cellIdentity != null) {
-                String networkMnc = cellIdentity.getMncString();
-                if (mNormalRoutedNumbers.containsKey(networkMnc)) {
-                    Set<String> phoneNumbers = mNormalRoutedNumbers.get(networkMnc);
-                    if (phoneNumbers != null && !phoneNumbers.isEmpty()) {
-                        return true;
-                    }
-                }
-            }
+            return true;
         }
         return false;
     }
@@ -840,16 +835,15 @@ public class EmergencyNumberTracker extends Handler {
         CellIdentity cellIdentity = mPhone.getCurrentCellIdentity();
         if (cellIdentity != null) {
             String networkMnc = cellIdentity.getMncString();
-
             Set<String> normalRoutedPhoneNumbers = mNormalRoutedNumbers.get(networkMnc);
-            if (normalRoutedPhoneNumbers == null || normalRoutedPhoneNumbers.isEmpty()) {
-                return emergencyNumbers;
-            }
             Set<String> normalRoutedPhoneNumbersWithPrefix = new ArraySet<String>();
-            for (String num : normalRoutedPhoneNumbers) {
-                Set<String> phoneNumbersWithPrefix = addPrefixToEmergencyNumber(num);
-                if (phoneNumbersWithPrefix != null && !phoneNumbersWithPrefix.isEmpty()) {
-                    normalRoutedPhoneNumbersWithPrefix.addAll(phoneNumbersWithPrefix);
+
+            if (normalRoutedPhoneNumbers != null && !normalRoutedPhoneNumbers.isEmpty()) {
+                for (String num : normalRoutedPhoneNumbers) {
+                    Set<String> phoneNumbersWithPrefix = addPrefixToEmergencyNumber(num);
+                    if (phoneNumbersWithPrefix != null && !phoneNumbersWithPrefix.isEmpty()) {
+                        normalRoutedPhoneNumbersWithPrefix.addAll(phoneNumbersWithPrefix);
+                    }
                 }
             }
             List<EmergencyNumber> adjustedEmergencyNumberList = new ArrayList<>();
@@ -858,12 +852,16 @@ public class EmergencyNumberTracker extends Handler {
             for (EmergencyNumber num : emergencyNumbers) {
                 routing = num.getEmergencyCallRouting();
                 mnc = num.getMnc();
-                if (num.isFromSources(EmergencyNumber.EMERGENCY_NUMBER_SOURCE_DATABASE)
-                        && (normalRoutedPhoneNumbers.contains(num.getNumber())
-                        || (normalRoutedPhoneNumbersWithPrefix.contains(num.getNumber())))) {
-                    routing = EmergencyNumber.EMERGENCY_CALL_ROUTING_NORMAL;
-                    mnc = networkMnc;
-                    logd("adjustRoutingForEmergencyNumbers for number" + num.getNumber());
+                if (num.isFromSources(EmergencyNumber.EMERGENCY_NUMBER_SOURCE_DATABASE)) {
+                    if ((normalRoutedPhoneNumbers != null
+                            && normalRoutedPhoneNumbers.contains(num.getNumber()))
+                            || normalRoutedPhoneNumbersWithPrefix.contains(num.getNumber())) {
+                        routing = EmergencyNumber.EMERGENCY_CALL_ROUTING_NORMAL;
+                        mnc = networkMnc;
+                        logd("adjustRoutingForEmergencyNumbers for number" + num.getNumber());
+                    } else if (routing == EmergencyNumber.EMERGENCY_CALL_ROUTING_UNKNOWN) {
+                        routing = EmergencyNumber.EMERGENCY_CALL_ROUTING_EMERGENCY;
+                    }
                 }
                 adjustedEmergencyNumberList.add(new EmergencyNumber(num.getNumber(),
                         num.getCountryIso(), mnc,
@@ -1281,7 +1279,12 @@ public class EmergencyNumberTracker extends Handler {
                     mEmergencyNumberListFromDatabase));
         }
         mergedEmergencyNumberList.addAll(getEmergencyNumberListTestMode());
-        EmergencyNumber.mergeSameNumbersInEmergencyNumberList(mergedEmergencyNumberList);
+
+        if (shouldDeterminingOfUrnsAndCategoriesWhileMergingIgnored()) {
+            EmergencyNumber.mergeSameNumbersInEmergencyNumberList(mergedEmergencyNumberList);
+        } else {
+            EmergencyNumber.mergeSameNumbersInEmergencyNumberList(mergedEmergencyNumberList, true);
+        }
         return mergedEmergencyNumberList;
     }
 
@@ -1340,6 +1343,19 @@ public class EmergencyNumberTracker extends Handler {
     public boolean shouldEmergencyNumberRoutingFromDbBeIgnored() {
         return mResources.getBoolean(com.android.internal.R.bool
                 .ignore_emergency_number_routing_from_db);
+    }
+
+
+    /**
+     * @return {@code true} if determining of Urns & Service Categories while merging duplicate
+     * numbers should be ignored.
+     * {@code false} if determining of Urns & Service Categories while merging duplicate
+     * numbers should not be ignored.
+     */
+    @VisibleForTesting
+    public boolean shouldDeterminingOfUrnsAndCategoriesWhileMergingIgnored() {
+        // TODO: Device config
+        return false;
     }
 
     /**
