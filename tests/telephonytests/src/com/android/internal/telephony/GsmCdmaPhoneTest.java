@@ -22,6 +22,7 @@ import static com.android.internal.telephony.CommandsInterface.CF_REASON_UNCONDI
 import static com.android.internal.telephony.Phone.EVENT_ICC_CHANGED;
 import static com.android.internal.telephony.Phone.EVENT_IMS_DEREGISTRATION_TRIGGERED;
 import static com.android.internal.telephony.Phone.EVENT_RADIO_AVAILABLE;
+import static com.android.internal.telephony.Phone.EVENT_SET_NULL_CIPHER_AND_INTEGRITY_DONE;
 import static com.android.internal.telephony.Phone.EVENT_SRVCC_STATE_CHANGED;
 import static com.android.internal.telephony.Phone.EVENT_UICC_APPS_ENABLEMENT_STATUS_CHANGED;
 import static com.android.internal.telephony.TelephonyTestUtils.waitForMs;
@@ -2124,6 +2125,51 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     }
 
     @Test
+    public void testHandleNullCipherAndIntegrityEnabled_radioFeatureUnsupported() {
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_CELLULAR_SECURITY,
+                TelephonyManager.PROPERTY_ENABLE_NULL_CIPHER_TOGGLE, Boolean.TRUE.toString(),
+                false);
+        mPhoneUT.mCi = mMockCi;
+        assertFalse(mPhoneUT.isNullCipherAndIntegritySupported());
+
+        mPhoneUT.sendMessage(mPhoneUT.obtainMessage(EVENT_RADIO_AVAILABLE,
+                new AsyncResult(null, new int[]{ServiceState.RIL_RADIO_TECHNOLOGY_GSM}, null)));
+        processAllMessages();
+
+        verify(mMockCi, times(1)).setNullCipherAndIntegrityEnabled(anyBoolean(),
+                any(Message.class));
+
+        // Some ephemeral error occurred in the modem, but the feature was supported
+        mPhoneUT.sendMessage(mPhoneUT.obtainMessage(EVENT_SET_NULL_CIPHER_AND_INTEGRITY_DONE,
+                new AsyncResult(null, null,
+                        new CommandException(CommandException.Error.REQUEST_NOT_SUPPORTED))));
+        processAllMessages();
+        assertFalse(mPhoneUT.isNullCipherAndIntegritySupported());
+    }
+
+    @Test
+    public void testHandleNullCipherAndIntegrityEnabled_radioSupportsFeature() {
+        DeviceConfig.setProperty(DeviceConfig.NAMESPACE_CELLULAR_SECURITY,
+                TelephonyManager.PROPERTY_ENABLE_NULL_CIPHER_TOGGLE, Boolean.TRUE.toString(),
+                false);
+        mPhoneUT.mCi = mMockCi;
+        assertFalse(mPhoneUT.isNullCipherAndIntegritySupported());
+
+        mPhoneUT.sendMessage(mPhoneUT.obtainMessage(EVENT_RADIO_AVAILABLE,
+                new AsyncResult(null, new int[]{ServiceState.RIL_RADIO_TECHNOLOGY_GSM}, null)));
+        processAllMessages();
+
+        verify(mMockCi, times(1)).setNullCipherAndIntegrityEnabled(anyBoolean(),
+                any(Message.class));
+
+        // Some ephemeral error occurred in the modem, but the feature was supported
+        mPhoneUT.sendMessage(mPhoneUT.obtainMessage(EVENT_SET_NULL_CIPHER_AND_INTEGRITY_DONE,
+                new AsyncResult(null, null, null)));
+        processAllMessages();
+        assertTrue(mPhoneUT.isNullCipherAndIntegritySupported());
+    }
+
+    @Test
     public void testHandleNullCipherAndIntegrityEnabled_featureFlagOn() {
         DeviceConfig.setProperty(DeviceConfig.NAMESPACE_CELLULAR_SECURITY,
                 TelephonyManager.PROPERTY_ENABLE_NULL_CIPHER_TOGGLE, Boolean.TRUE.toString(),
@@ -2151,7 +2197,6 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         verify(mMockCi, times(0)).setNullCipherAndIntegrityEnabled(anyBoolean(),
                 any(Message.class));
-
     }
 
     public void fdnCheckCleanup() {
@@ -2269,7 +2314,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         mPhoneUT.mCi = mMockCi;
 
         mPhoneUT.setCellBroadcastIdRanges(ranges, r -> assertTrue(
-                TelephonyManager.CELLBROADCAST_RESULT_SUCCESS == r));
+                TelephonyManager.CELL_BROADCAST_RESULT_SUCCESS == r));
         waitForMs(100);
 
         verify(mMockCi, times(1)).setGsmBroadcastConfig(gsmCaptor.capture(), msgCaptor.capture());
@@ -2308,7 +2353,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
                 CdmaSmsBroadcastConfigInfo[].class);
 
         mPhoneUT.setCellBroadcastIdRanges(ranges, r -> assertTrue(
-                TelephonyManager.CELLBROADCAST_RESULT_SUCCESS == r));
+                TelephonyManager.CELL_BROADCAST_RESULT_SUCCESS == r));
         waitForMs(100);
 
         verify(mMockCi, times(1)).setGsmBroadcastConfig(any(), any());
@@ -2336,7 +2381,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         // Verify not to set cdma or gsm config as the config is not changed
         mPhoneUT.setCellBroadcastIdRanges(ranges, r -> assertTrue(
-                TelephonyManager.CELLBROADCAST_RESULT_SUCCESS == r));
+                TelephonyManager.CELL_BROADCAST_RESULT_SUCCESS == r));
         waitForMs(100);
 
         verify(mMockCi, times(1)).setCdmaBroadcastConfig(any(), any());
@@ -2348,7 +2393,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         // Verify to reset ranges with empty ranges list
         mPhoneUT.setCellBroadcastIdRanges(new ArrayList<>(), r -> assertTrue(
-                TelephonyManager.CELLBROADCAST_RESULT_SUCCESS == r));
+                TelephonyManager.CELL_BROADCAST_RESULT_SUCCESS == r));
 
         waitForMs(100);
 
@@ -2394,7 +2439,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         //Verify to set gsm and cdma config then activate again
         mPhoneUT.setCellBroadcastIdRanges(ranges, r -> assertTrue(
-                TelephonyManager.CELLBROADCAST_RESULT_SUCCESS == r));
+                TelephonyManager.CELL_BROADCAST_RESULT_SUCCESS == r));
 
         waitForMs(100);
 
@@ -2457,7 +2502,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         // Verify the result on setGsmBroadcastConfig failure
         mPhoneUT.setCellBroadcastIdRanges(ranges, r -> assertTrue(
-                TelephonyManager.CELLBROADCAST_RESULT_FAIL_CONFIG == r));
+                TelephonyManager.CELL_BROADCAST_RESULT_FAIL_CONFIG == r));
         waitForMs(100);
 
         verify(mMockCi, times(1)).setGsmBroadcastConfig(any(), msgCaptor.capture());
@@ -2475,7 +2520,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         // Verify the result on setGsmBroadcastActivation failure
         mPhoneUT.setCellBroadcastIdRanges(ranges, r -> assertTrue(
-                TelephonyManager.CELLBROADCAST_RESULT_FAIL_ACTIVATION == r));
+                TelephonyManager.CELL_BROADCAST_RESULT_FAIL_ACTIVATION == r));
         waitForMs(100);
 
         verify(mMockCi, times(2)).setGsmBroadcastConfig(any(), msgCaptor.capture());
@@ -2500,7 +2545,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         // Verify the result on setCdmaBroadcastConfig failure
         mPhoneUT.setCellBroadcastIdRanges(ranges, r -> assertTrue(
-                TelephonyManager.CELLBROADCAST_RESULT_FAIL_CONFIG == r));
+                TelephonyManager.CELL_BROADCAST_RESULT_FAIL_CONFIG == r));
         waitForMs(100);
 
         verify(mMockCi, times(3)).setGsmBroadcastConfig(any(), msgCaptor.capture());
@@ -2536,7 +2581,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
 
         // Verify the result on setCdmaBroadcastActivation failure
         mPhoneUT.setCellBroadcastIdRanges(ranges, r -> assertTrue(
-                TelephonyManager.CELLBROADCAST_RESULT_FAIL_ACTIVATION == r));
+                TelephonyManager.CELL_BROADCAST_RESULT_FAIL_ACTIVATION == r));
         waitForMs(200);
 
         // Verify no more calls as there is no change of ranges for 3gpp
