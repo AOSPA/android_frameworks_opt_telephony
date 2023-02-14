@@ -27,11 +27,11 @@ import android.app.AppOpsManager;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
 import android.os.RemoteException;
 import android.os.TelephonyServiceManager.ServiceRegisterer;
-import android.os.UserHandle;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.SubscriptionManager;
@@ -151,8 +151,7 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     public String getSubscriberIdForSubscriber(int subId, String callingPackage,
             String callingFeatureId) {
         String message = "getSubscriberIdForSubscriber";
-
-        enforceCallingPackage(callingPackage, Binder.getCallingUid(), message);
+        mAppOps.checkPackage(Binder.getCallingUid(), callingPackage);
 
         long identity = Binder.clearCallingIdentity();
         boolean isActive;
@@ -331,28 +330,6 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     private void enforceModifyPermission() {
         mContext.enforceCallingOrSelfPermission(MODIFY_PHONE_STATE,
                 "Requires MODIFY_PHONE_STATE");
-    }
-
-    /**
-     * Make sure the caller is the calling package itself
-     *
-     * @throws SecurityException if the caller is not the calling package
-     */
-    private void enforceCallingPackage(String callingPackage, int callingUid, String message) {
-        int packageUid = -1;
-        PackageManager pm = mContext.createContextAsUser(
-                UserHandle.getUserHandleForUid(callingUid), 0).getPackageManager();
-        if (pm != null) {
-            try {
-                packageUid = pm.getPackageUid(callingPackage, 0);
-            } catch (PackageManager.NameNotFoundException e) {
-                // packageUid is -1
-            }
-        }
-        if (packageUid != callingUid) {
-            throw new SecurityException(message + ": Package " + callingPackage
-                    + " does not belong to " + callingUid);
-        }
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -624,27 +601,34 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
     /**
-     * Returns SIP URI or tel URI of the Public Service Identity of the SM-SC that fetched from
-     * EFPSISMSC elementary field that are loaded based on the ISIM/USIM appType.
+     * Returns SIP URI or tel URI of the Public Service Identity of the SM-SC fetched from
+     * EF_PSISMSC elementary field as defined in Section 4.5.9 (3GPP TS 31.102).
+     * @throws IllegalStateException in case if phone or UiccApplication is not available.
      */
-    public String getSmscIdentity(int subId, int appType)
-            throws RemoteException {
-        return callPhoneMethodForSubIdWithPrivilegedCheck(subId, "getSmscIdentity",
+    public Uri getSmscIdentity(int subId, int appType) throws RemoteException {
+        Uri smscIdentityUri = callPhoneMethodForSubIdWithPrivilegedCheck(subId, "getSmscIdentity",
                 (phone) -> {
-                    UiccPort uiccPort = phone.getUiccPort();
-                    if (uiccPort == null || uiccPort.getUiccProfile() == null) {
-                        loge("getSmscIdentity(): uiccPort or uiccProfile is null");
+                    try {
+                        String smscIdentity = null;
+                        UiccPort uiccPort = phone.getUiccPort();
+                        UiccCardApplication uiccApp =
+                                uiccPort.getUiccProfile().getApplicationByType(
+                                        appType);
+                        smscIdentity = (uiccApp != null) ? uiccApp.getIccRecords().getSmscIdentity()
+                                : null;
+                        if (TextUtils.isEmpty(smscIdentity)) {
+                            return Uri.EMPTY;
+                        }
+                        return Uri.parse(smscIdentity);
+                    } catch (NullPointerException ex) {
+                        Rlog.e(TAG, "getSmscIdentity(): Exception = " + ex);
                         return null;
                     }
-                    UiccCardApplication uiccApp = uiccPort.getUiccProfile().getApplicationByType(
-                            appType);
-                    if (uiccApp == null) {
-                        loge("getSmscIdentity(): no app with specified type = "
-                                + appType);
-                        return null;
-                    }
-                    return uiccApp.getIccRecords().getSmscIdentity();
                 });
+        if (smscIdentityUri == null) {
+            throw new IllegalStateException("Telephony service error");
+        }
+        return smscIdentityUri;
     }
 
     private void log(String s) {
