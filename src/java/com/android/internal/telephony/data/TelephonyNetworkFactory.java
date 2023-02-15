@@ -31,7 +31,6 @@ import android.util.LocalLog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.metrics.NetworkRequestsStats;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.telephony.Rlog;
@@ -65,7 +64,6 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     private static final int EVENT_NETWORK_RELEASE                  = 4;
 
     private final PhoneSwitcher mPhoneSwitcher;
-    private final SubscriptionController mSubscriptionController;
     private final LocalLog mLocalLog = new LocalLog(REQUEST_LOG_SIZE);
 
     // Key: network request. Value: the transport of the network request applies to,
@@ -91,10 +89,9 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         mPhone = phone;
         mInternalHandler = new InternalHandler(looper);
 
-        mSubscriptionController = SubscriptionController.getInstance();
         mAccessNetworksManager = mPhone.getAccessNetworksManager();
 
-        setCapabilityFilter(makeNetworkFilter(mSubscriptionController, mPhone.getPhoneId()));
+        setCapabilityFilter(makeNetworkFilterByPhoneId(mPhone.getPhoneId()));
         setScoreFilter(TELEPHONY_NETWORK_SCORE);
 
         mPhoneSwitcher = phoneSwitcher;
@@ -118,10 +115,8 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 }
             };
 
-    private NetworkCapabilities makeNetworkFilter(SubscriptionController subscriptionController,
-            int phoneId) {
-        final int subscriptionId = subscriptionController.getSubId(phoneId);
-        return makeNetworkFilter(subscriptionId);
+    private NetworkCapabilities makeNetworkFilterByPhoneId(int phoneId) {
+        return makeNetworkFilter(SubscriptionManager.getSubscriptionId(phoneId));
     }
 
     /**
@@ -214,14 +209,10 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     // apply or revoke requests if our active-ness changes
     private void onActivePhoneSwitch() {
         logl("onActivePhoneSwitch");
-        if (mSubscriptionId == mSubscriptionController.getActiveDataSubscriptionId()) {
-            logl("onActivePhoneSwitch: set primary flag for phoneId: " + mPhone.getPhoneId());
-            setScoreFilter(new NetworkScore.Builder().setLegacyInt(TELEPHONY_NETWORK_SCORE)
-                    .setTransportPrimary(true).build());
-        } else {
-            setScoreFilter(new NetworkScore.Builder().setLegacyInt(TELEPHONY_NETWORK_SCORE)
-                    .setTransportPrimary(false).build());
-        }
+
+        // TODO(b/264049472) re-apply setTransportPrimary(true/false) as necessary.
+        setScoreFilter(new NetworkScore.Builder().setLegacyInt(TELEPHONY_NETWORK_SCORE)
+                .setTransportPrimary(false).build());
 
         for (Map.Entry<TelephonyNetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
             TelephonyNetworkRequest networkRequest = entry.getKey();
@@ -252,8 +243,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     // watch for phone->subId changes, reapply new filter and let
     // that flow through to apply/revoke of requests
     private void onSubIdChange() {
-        final int newSubscriptionId = mSubscriptionController.getSubId(
-                mPhone.getPhoneId());
+        int newSubscriptionId = SubscriptionManager.getSubscriptionId(mPhone.getPhoneId());
         if (mSubscriptionId != newSubscriptionId) {
             if (DBG) logl("onSubIdChange " + mSubscriptionId + "->" + newSubscriptionId);
             mSubscriptionId = newSubscriptionId;

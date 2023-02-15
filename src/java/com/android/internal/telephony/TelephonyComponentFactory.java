@@ -30,6 +30,7 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStatVfs;
+import android.telephony.AccessNetworkConstants.TransportType;
 import android.text.TextUtils;
 import android.util.SparseArray;
 
@@ -524,6 +525,19 @@ public class TelephonyComponentFactory {
      */
     public DataNetworkController makeDataNetworkController(Phone phone, Looper looper) {
         return new DataNetworkController(phone, looper);
+    }
+
+    /**
+     * Create data service manager.
+     *
+     * @param phone The phone object
+     * @param looper The looper for event handling
+     * @param transportType The transport type
+     * @return The data service manager instance
+     */
+    public DataServiceManager makeDataServiceManager(Phone phone, Looper looper,
+            @TransportType int transportType) {
+        return new DataServiceManager(phone, looper, transportType);
     }
 
     /**

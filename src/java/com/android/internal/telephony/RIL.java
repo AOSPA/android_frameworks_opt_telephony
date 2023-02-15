@@ -577,9 +577,20 @@ public class RIL extends BaseCommands implements CommandsInterface {
             if (mMockModem != null) {
                 mMockModem = null;
                 for (int service = MIN_SERVICE_IDX; service <= MAX_SERVICE_IDX; service++) {
-                    if (isRadioServiceSupported(service)) {
-                        resetProxyAndRequestList(service);
+                    if (service == HAL_SERVICE_RADIO) {
+                        if (isRadioVersion2_0()) {
+                            mHalVersion.put(service, RADIO_HAL_VERSION_2_0);
+                        } else {
+                            mHalVersion.put(service, RADIO_HAL_VERSION_UNKNOWN);
+                        }
+                    } else {
+                        if (isRadioServiceSupported(service)) {
+                            mHalVersion.put(service, RADIO_HAL_VERSION_UNKNOWN);
+                        } else {
+                            mHalVersion.put(service, RADIO_HAL_VERSION_UNSUPPORTED);
+                        }
                     }
+                    resetProxyAndRequestList(service);
                 }
             }
         }
@@ -6379,6 +6390,13 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("RIL: " + this);
+        pw.println(" " + mServiceProxies.get(HAL_SERVICE_DATA));
+        pw.println(" " + mServiceProxies.get(HAL_SERVICE_MESSAGING));
+        pw.println(" " + mServiceProxies.get(HAL_SERVICE_MODEM));
+        pw.println(" " + mServiceProxies.get(HAL_SERVICE_NETWORK));
+        pw.println(" " + mServiceProxies.get(HAL_SERVICE_SIM));
+        pw.println(" " + mServiceProxies.get(HAL_SERVICE_VOICE));
+        pw.println(" " + mServiceProxies.get(HAL_SERVICE_IMS));
         pw.println(" mWakeLock=" + mWakeLock);
         pw.println(" mWakeLockTimeout=" + mWakeLockTimeout);
         synchronized (mRequestList) {

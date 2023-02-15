@@ -111,6 +111,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -231,7 +232,7 @@ public class DataNetworkController extends Handler {
     protected final @NonNull DataRetryManager mDataRetryManager;
     private final @NonNull ImsManager mImsManager;
     private final @NonNull NetworkPolicyManager mNetworkPolicyManager;
-    private final @NonNull SparseArray<DataServiceManager> mDataServiceManagers =
+    protected final @NonNull SparseArray<DataServiceManager> mDataServiceManagers =
             new SparseArray<>();
 
     /** The subscription index associated with this data network controller. */
@@ -268,7 +269,7 @@ public class DataNetworkController extends Handler {
      * The current data network list, including the ones that are connected, connecting, or
      * disconnecting.
      */
-    private final @NonNull List<DataNetwork> mDataNetworkList = new ArrayList<>();
+    protected final @NonNull List<DataNetwork> mDataNetworkList = new ArrayList<>();
 
     /** {@code true} indicating at least one data network exists. */
     private boolean mAnyDataNetworkExisting;
@@ -813,11 +814,16 @@ public class DataNetworkController extends Handler {
 
         mAccessNetworksManager = phone.getAccessNetworksManager();
         mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
-                new DataServiceManager(mPhone, looper, AccessNetworkConstants.TRANSPORT_TYPE_WWAN));
+                TelephonyComponentFactory.getInstance()
+                        .inject(DataServiceManager.class.getName())
+                        .makeDataServiceManager(phone, looper,
+                                AccessNetworkConstants.TRANSPORT_TYPE_WWAN));
         if (!mAccessNetworksManager.isInLegacyMode()) {
             mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
-                    new DataServiceManager(mPhone, looper,
-                            AccessNetworkConstants.TRANSPORT_TYPE_WLAN));
+                    TelephonyComponentFactory.getInstance()
+                            .inject(DataServiceManager.class.getName())
+                            .makeDataServiceManager(phone, looper,
+                                    AccessNetworkConstants.TRANSPORT_TYPE_WLAN));
         }
         mDataConfigManager = TelephonyComponentFactory.getInstance().inject(
                 DataConfigManager.class.getName())
@@ -1398,8 +1404,26 @@ public class DataNetworkController extends Handler {
                         .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                         .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
                         .build(), mPhone);
+        // If one of the existing networks can satisfy the internet request, then internet is
+        // allowed.
+        if (mDataNetworkList.stream().anyMatch(dataNetwork -> internetRequest.canBeSatisfiedBy(
+                dataNetwork.getNetworkCapabilities()))) {
+            return true;
+        }
+
+        // If no existing network can satisfy the request, then check if we can possibly setup
+        // the internet network.
+
         DataEvaluation evaluation = evaluateNetworkRequest(internetRequest,
                 DataEvaluationReason.EXTERNAL_QUERY);
+        if (evaluation.containsOnly(DataDisallowedReason.ONLY_ALLOWED_SINGLE_NETWORK)) {
+            // If the only failed reason is only single network allowed, then check if the request
+            // can trump the current network.
+            return internetRequest.getPriority() > mDataNetworkList.stream()
+                    .map(DataNetwork::getPriority)
+                    .max(Comparator.comparing(Integer::valueOf))
+                    .orElse(0);
+        }
         return !evaluation.containsDisallowedReasons();
     }
 
@@ -2871,7 +2895,7 @@ public class DataNetworkController extends Handler {
      * @param dataNetwork The data network.
      * @param cause The disconnect cause.
      */
-    private void onDataNetworkDisconnected(@NonNull DataNetwork dataNetwork,
+    protected void onDataNetworkDisconnected(@NonNull DataNetwork dataNetwork,
             @DataFailureCause int cause) {
         logl("onDataNetworkDisconnected: " + dataNetwork + ", cause="
                 + DataFailCause.toString(cause) + "(" + cause + ")");
