@@ -1632,7 +1632,7 @@ public class PhoneSwitcher extends Handler {
         }
     }
 
-    private int phoneIdForRequest(TelephonyNetworkRequest networkRequest) {
+    protected int phoneIdForRequest(TelephonyNetworkRequest networkRequest) {
         NetworkRequest netRequest = networkRequest.getNativeNetworkRequest();
         int subId = getSubIdFromNetworkSpecifier(netRequest.getNetworkSpecifier());
 

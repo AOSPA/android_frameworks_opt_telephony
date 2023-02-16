@@ -45,14 +45,14 @@ import java.util.Map;
  * service to the data network controller.
  */
 public class TelephonyNetworkFactory extends NetworkFactory {
-    public final String LOG_TAG;
+    protected String LOG_TAG;
     protected static final boolean DBG = true;
 
     private static final int REQUEST_LOG_SIZE = 256;
 
-    private static final int ACTION_NO_OP   = 0;
-    private static final int ACTION_REQUEST = 1;
-    private static final int ACTION_RELEASE = 2;
+    protected static final int ACTION_NO_OP   = 0;
+    protected static final int ACTION_REQUEST = 1;
+    protected static final int ACTION_RELEASE = 2;
 
     private static final int TELEPHONY_NETWORK_SCORE = 50;
 
@@ -63,21 +63,21 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     private static final int EVENT_NETWORK_REQUEST                  = 3;
     private static final int EVENT_NETWORK_RELEASE                  = 4;
 
-    private final PhoneSwitcher mPhoneSwitcher;
+    protected final PhoneSwitcher mPhoneSwitcher;
     private final LocalLog mLocalLog = new LocalLog(REQUEST_LOG_SIZE);
 
     // Key: network request. Value: the transport of the network request applies to,
     // AccessNetworkConstants.TRANSPORT_TYPE_INVALID if not applied.
-    private final Map<TelephonyNetworkRequest, Integer> mNetworkRequests = new HashMap<>();
+    protected final Map<TelephonyNetworkRequest, Integer> mNetworkRequests = new HashMap<>();
 
-    private final Phone mPhone;
+    protected final Phone mPhone;
 
     private AccessNetworksManager mAccessNetworksManager;
 
-    private int mSubscriptionId;
+    protected int mSubscriptionId;
 
     @VisibleForTesting
-    public final Handler mInternalHandler;
+    public Handler mInternalHandler;
 
 
     private static final int PRIMARY_SLOT = 0;
@@ -158,8 +158,8 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         return builder.build();
     }
 
-    private class InternalHandler extends Handler {
-        InternalHandler(Looper looper) {
+    protected class InternalHandler extends Handler {
+        protected InternalHandler(Looper looper) {
             super(looper);
         }
 
@@ -186,7 +186,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         }
     }
 
-    private int getTransportTypeFromNetworkRequest(TelephonyNetworkRequest networkRequest) {
+    protected int getTransportTypeFromNetworkRequest(TelephonyNetworkRequest networkRequest) {
         int transport = AccessNetworkConstants.TRANSPORT_TYPE_WWAN;
         int capability = networkRequest.getApnTypeNetworkCapability();
         if (capability >= 0) {
@@ -196,7 +196,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         return transport;
     }
 
-    private static int getAction(boolean wasActive, boolean isActive) {
+    protected static int getAction(boolean wasActive, boolean isActive) {
         if (!wasActive && isActive) {
             return ACTION_REQUEST;
         } else if (wasActive && !isActive) {

@@ -314,8 +314,10 @@ public class PhoneFactory {
                 sNotificationChannelController = new NotificationChannelController(context);
 
                 for (int i = 0; i < numPhones; i++) {
-                    sTelephonyNetworkFactories[i] = new TelephonyNetworkFactory(
-                            Looper.myLooper(), sPhones[i], sPhoneSwitcher);
+                    sTelephonyNetworkFactories[i] = TelephonyComponentFactory.getInstance().inject(
+                            TelephonyNetworkFactory.class.getName())
+                            .makeTelephonyNetworkFactory(Looper.myLooper(),
+                            sPhones[i], sPhoneSwitcher);
                 }
                 telephonyComponentFactory.inject(TelephonyComponentFactory.class.getName()).
                         makeExtTelephonyClasses(context, sPhones, sCommandsInterfaces);
@@ -363,8 +365,9 @@ public class PhoneFactory {
                         PackageManager.FEATURE_TELEPHONY_IMS)) {
                     sPhones[i].createImsPhone();
                 }
-                sTelephonyNetworkFactories[i] = new TelephonyNetworkFactory(
-                        Looper.myLooper(), sPhones[i], sPhoneSwitcher);
+                sTelephonyNetworkFactories[i] = TelephonyComponentFactory.getInstance().inject(
+                        TelephonyNetworkFactory.class.getName())
+                        .makeTelephonyNetworkFactory(Looper.myLooper(), sPhones[i], sPhoneSwitcher);
             }
         }
     }
