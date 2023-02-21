@@ -634,6 +634,7 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
     private void initializeConfig() {
         mCarrierConfig = mContextFixture.getCarrierConfigBundle();
+        when(mCarrierConfigManager.getConfigForSubId(anyInt(), any())).thenReturn(mCarrierConfig);
         mCarrierConfig.putStringArray(
                 CarrierConfigManager.KEY_TELEPHONY_NETWORK_CAPABILITY_PRIORITIES_STRING_ARRAY,
                 new String[]{
@@ -788,9 +789,11 @@ public class DataNetworkControllerTest extends TelephonyTest {
         // between DataNetworkController and its sub-modules, we intend to make those modules "real"
         // as well, except some modules below we replaced with mocks.
         mDataNetworkControllerUT = new DataNetworkController(mPhone, Looper.myLooper());
-        verify(mCarrierConfigManager).registerCarrierConfigChangeListener(any(),
+        // First two come from DataServiceManager and the third comes from DataConfigManager which
+        // is what we want to capture and assign to mCarrierConfigChangeListener
+        verify(mCarrierConfigManager, times(3)).registerCarrierConfigChangeListener(any(),
                 listenerArgumentCaptor.capture());
-        mCarrierConfigChangeListener = listenerArgumentCaptor.getAllValues().get(0);
+        mCarrierConfigChangeListener = listenerArgumentCaptor.getAllValues().get(2);
         assertThat(mCarrierConfigChangeListener).isNotNull();
         doReturn(mDataNetworkControllerUT).when(mPhone).getDataNetworkController();
 
@@ -2719,6 +2722,64 @@ public class DataNetworkControllerTest extends TelephonyTest {
     }
 
     @Test
+    public void testSetupDataNetworkRetryFailedNetworkRequestRemovedAndAdded() throws Exception {
+        mDataNetworkControllerUT.getDataRetryManager()
+                .registerCallback(mMockedDataRetryManagerCallback);
+        setFailedSetupDataResponse(mMockedWwanDataServiceManager, DataFailCause.CONGESTION,
+                10000, false);
+
+        TelephonyNetworkRequest firstTnr = createNetworkRequest(
+                NetworkCapabilities.NET_CAPABILITY_IMS);
+        TelephonyNetworkRequest secondTnr = createNetworkRequest(
+                NetworkCapabilities.NET_CAPABILITY_IMS);
+
+        mDataNetworkControllerUT.addNetworkRequest(firstTnr);
+        processAllMessages();
+
+        mDataNetworkControllerUT.removeNetworkRequest(firstTnr);
+        mDataNetworkControllerUT.addNetworkRequest(secondTnr);
+        processAllFutureMessages();
+
+        verify(mMockedWwanDataServiceManager, times(1)).setupDataCall(anyInt(),
+                any(DataProfile.class), anyBoolean(), anyBoolean(), anyInt(), any(), anyInt(),
+                any(), any(), anyBoolean(), any(Message.class));
+
+        ArgumentCaptor<DataRetryManager.DataSetupRetryEntry> retryEntry =
+                ArgumentCaptor.forClass(DataRetryManager.DataSetupRetryEntry.class);
+        verify(mMockedDataRetryManagerCallback, times(1))
+                .onDataNetworkSetupRetry(retryEntry.capture());
+        assertThat(retryEntry.getValue().getState()).isEqualTo(
+                DataRetryManager.DataRetryEntry.RETRY_STATE_FAILED);
+        assertThat(retryEntry.getValue().networkRequestList.size()).isEqualTo(1);
+        assertThat(retryEntry.getValue().networkRequestList.get(0)).isEqualTo(firstTnr);
+
+        DataRetryManager.DataSetupRetryEntry dataSetupRetryEntry = retryEntry.getValue();
+        logd("DataSetupRetryEntry:" + dataSetupRetryEntry);
+
+        processAllMessages();
+        processAllFutureMessages();
+
+        setSuccessfulSetupDataResponse(mMockedWwanDataServiceManager, 1);
+        logd("Sending TAC_CHANGED event");
+        mDataNetworkControllerUT.obtainMessage(25/*EVENT_TAC_CHANGED*/).sendToTarget();
+        mDataNetworkControllerUT.getDataRetryManager().obtainMessage(10/*EVENT_TAC_CHANGED*/)
+                .sendToTarget();
+        processAllFutureMessages();
+
+        // TAC changes should clear the already-scheduled retry and throttling.
+        assertThat(mDataNetworkControllerUT.getDataRetryManager().isAnySetupRetryScheduled(
+                mImsCellularDataProfile, AccessNetworkConstants.TRANSPORT_TYPE_WWAN)).isFalse();
+
+        // But DNC should re-evaluate unsatisfied request and setup IMS again.
+        verifyConnectedNetworkHasCapabilities(NetworkCapabilities.NET_CAPABILITY_IMS,
+                NetworkCapabilities.NET_CAPABILITY_MMTEL);
+
+        verify(mMockedWwanDataServiceManager, times(2)).setupDataCall(anyInt(),
+                any(DataProfile.class), anyBoolean(), anyBoolean(), anyInt(), any(), anyInt(),
+                any(), any(), anyBoolean(), any(Message.class));
+    }
+
+    @Test
     public void testSetupDataNetworkPermanentFailure() {
         setFailedSetupDataResponse(mMockedWwanDataServiceManager, DataFailCause.PROTOCOL_ERRORS,
                 DataCallResponse.RETRY_DURATION_UNDEFINED, false);
@@ -3151,6 +3212,33 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
         // All data (including IMS) should be torn down.
         verifyAllDataDisconnected();
+    }
+
+    @Test
+    public void testDelayImsTearDownDuringSrvcc() throws Exception {
+        testSetupImsDataNetwork();
+        // SRVCC in progress, delay tear down
+        mDataNetworkControllerUT.obtainMessage(4 /*EVENT_SRVCC_STATE_CHANGED*/,
+                new AsyncResult(null,
+                        new int[]{TelephonyManager.SRVCC_STATE_HANDOVER_STARTED}, null))
+                .sendToTarget();
+        serviceStateChanged(TelephonyManager.NETWORK_TYPE_HSPAP,
+                NetworkRegistrationInfo.REGISTRATION_STATE_HOME);
+        processAllMessages();
+
+        // Make sure IMS network is still connected.
+        verifyConnectedNetworkHasCapabilities(NetworkCapabilities.NET_CAPABILITY_IMS,
+                NetworkCapabilities.NET_CAPABILITY_MMTEL);
+
+        // SRVCC handover ends, tear down as normal
+        mDataNetworkControllerUT.obtainMessage(4 /*EVENT_SRVCC_STATE_CHANGED*/,
+                        new AsyncResult(null,
+                                new int[]{TelephonyManager.SRVCC_STATE_HANDOVER_CANCELED}, null))
+                .sendToTarget();
+        processAllFutureMessages();
+
+        // Make sure IMS network is torn down
+        verifyNoConnectedNetworkHasCapability(NetworkCapabilities.NET_CAPABILITY_MMTEL);
     }
 
     @Test

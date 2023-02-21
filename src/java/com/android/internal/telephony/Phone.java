@@ -50,6 +50,7 @@ import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.WorkSource;
 import android.preference.PreferenceManager;
+import android.provider.DeviceConfig;
 import android.sysprop.TelephonyProperties;
 import android.telecom.VideoProfile;
 import android.telephony.AccessNetworkConstants;
@@ -96,10 +97,12 @@ import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.internal.telephony.data.DataNetworkController;
 import com.android.internal.telephony.data.DataSettingsManager;
 import com.android.internal.telephony.data.LinkBandwidthEstimator;
+import com.android.internal.telephony.domainselection.DomainSelectionResolver;
 import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.EcbmHandler;
 import com.android.internal.telephony.emergency.EmergencyConstants;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
+import com.android.internal.telephony.emergency.EmergencyStateTracker;
 import com.android.internal.telephony.imsphone.ImsCallInfo;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
@@ -299,6 +302,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     public static final String PREF_NULL_CIPHER_AND_INTEGRITY_ENABLED =
             "pref_null_cipher_and_integrity_enabled";
+    private final TelephonyAdminReceiver m2gAdminUpdater;
 
     /**
      * This method is invoked when the Phone exits Emergency Callback Mode.
@@ -643,11 +647,15 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         // Initialize SMS stats
         mSmsStats = new SmsStats(this);
 
+        // This is a temp flag which will be removed before U AOSP public release.
         mIsSubscriptionManagerServiceEnabled = mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_using_subscription_manager_service);
+                com.android.internal.R.bool.config_using_subscription_manager_service)
+                || DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_TELEPHONY,
+                "enable_subscription_manager_service", false);
         if (isSubscriptionManagerServiceEnabled()) {
             mSubscriptionManagerService = SubscriptionManagerService.getInstance();
         }
+        m2gAdminUpdater = new TelephonyAdminReceiver(context, this);
 
         if (getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
             return;
@@ -2373,6 +2381,12 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         if (!mIsCarrierNrSupported) {
             allowedNetworkTypes &= ~TelephonyManager.NETWORK_TYPE_BITMASK_NR;
         }
+        if (m2gAdminUpdater.isCellular2gDisabled()) {
+            logd("SubId " + getSubId()
+                    + " disabling 2g in getEffectiveAllowedNetworkTypes according to admin user "
+                    + "restriction");
+            allowedNetworkTypes &= ~TelephonyManager.NETWORK_CLASS_BITMASK_2G;
+        }
         logd("SubId" + getSubId() + ",getEffectiveAllowedNetworkTypes: "
                 + TelephonyManager.convertNetworkTypeBitmaskToString(allowedNetworkTypes));
         return allowedNetworkTypes;
@@ -2487,7 +2501,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                 }
                 int key = convertAllowedNetworkTypeDbNameToMapIndex(networkTypesValues[0]);
                 long value = Long.parseLong(networkTypesValues[1]);
-                if (key != INVALID_ALLOWED_NETWORK_TYPES
+                if (TelephonyManager.isValidAllowedNetworkTypesReason(key)
                         && value != INVALID_ALLOWED_NETWORK_TYPES) {
                     synchronized (mAllowedNetworkTypesForReasons) {
                         mAllowedNetworkTypesForReasons.put(key, value);
@@ -2525,7 +2539,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         }
     }
 
-    private String convertAllowedNetworkTypeMapIndexToDbName(int reason) {
+    private String convertAllowedNetworkTypeMapIndexToDbName(
+            @TelephonyManager.AllowedNetworkTypesReason int reason) {
         switch (reason) {
             case TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER:
                 return ALLOWED_NETWORK_TYPES_TEXT_USER;
@@ -2536,7 +2551,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             case TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_ENABLE_2G:
                 return ALLOWED_NETWORK_TYPES_TEXT_ENABLE_2G;
             default:
-                return Integer.toString(INVALID_ALLOWED_NETWORK_TYPES);
+                throw new IllegalArgumentException(
+                        "No DB name conversion available for allowed network type reason: " + reason
+                                + ". Did you forget to add an ALLOWED_NETWORK_TYPE_TEXT entry for"
+                                + " a new reason?");
         }
     }
 
@@ -3042,6 +3060,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     // This property is used to handle phone process crashes, and is the same for CDMA and IMS
     // phones
     protected static boolean getInEcmMode() {
+        if (DomainSelectionResolver.getInstance().isDomainSelectionSupported()) {
+            return EmergencyStateTracker.getInstance().isInEcm();
+        }
         return TelephonyProperties.in_ecm_mode().orElse(false);
     }
 
@@ -3054,6 +3075,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     public boolean isInCdmaEcm() {
+        if (DomainSelectionResolver.getInstance().isDomainSelectionSupported()) {
+            return EmergencyStateTracker.getInstance().isInCdmaEcm();
+        }
         return getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA && isInEcm()
                 && (mImsPhone == null || !mImsPhone.isInImsEcm());
     }
@@ -5330,6 +5354,69 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public void setCellBroadcastIdRanges(
             @NonNull List<CellBroadcastIdRange> ranges, Consumer<Integer> callback) {
         callback.accept(TelephonyManager.CELL_BROADCAST_RESULT_UNSUPPORTED);
+    }
+
+    /**
+     * Start receiving satellite position updates.
+     * This can be called by the pointing UI when the user starts pointing to the satellite.
+     * Modem should continue to report the pointing input as the device or satellite moves.
+     *
+     * @param result The Message to send to result of the operation to.
+     **/
+    public void startSatellitePositionUpdates(Message result) {
+        mCi.startSendingSatellitePointingInfo(result);
+    }
+
+    /**
+     * Stop receiving satellite position updates.
+     * This can be called by the pointing UI when the user stops pointing to the satellite.
+     *
+     * @param result The Message to send to result of the operation to.
+     **/
+    public void stopSatellitePositionUpdates(Message result) {
+        mCi.stopSendingSatellitePointingInfo(result);
+    }
+
+    /**
+     * Registers for pointing info changed from satellite modem.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    public void registerForSatellitePointingInfoChanged(@NonNull Handler h,
+            int what, @Nullable Object obj) {
+        mCi.registerForSatellitePointingInfoChanged(h, what, obj);
+    }
+
+    /**
+     * Unregisters for pointing info changed from satellite modem.
+     *
+     * @param h Handler to be removed from the registrant list.
+     */
+    public void unregisterForSatellitePointingInfoChanged(@NonNull Handler h) {
+        mCi.unregisterForSatellitePointingInfoChanged(h);
+    }
+
+    /**
+     * Registers for messages transfer complete from satellite modem.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    public void registerForSatelliteMessagesTransferComplete(@NonNull Handler h,
+            int what, @Nullable Object obj) {
+        mCi.registerForSatelliteMessagesTransferComplete(h, what, obj);
+    }
+
+    /**
+     * Unregisters for messages transfer complete from satellite modem.
+     *
+     * @param h Handler to be removed from the registrant list.
+     */
+    public void unregisterForSatelliteMessagesTransferComplete(@NonNull Handler h) {
+        mCi.unregisterForSatelliteMessagesTransferComplete(h);
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
