@@ -80,6 +80,7 @@ import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
+import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
@@ -409,6 +410,8 @@ public class SubscriptionController extends ISub.Stub {
                         }
                     }
                 });
+
+        SubscriptionManager.invalidateSubscriptionManagerServiceEnabledCaches();
 
         if (DBG) logdl("[SubscriptionController] init by Context");
     }
@@ -3305,6 +3308,7 @@ public class SubscriptionController extends ISub.Stub {
             case SubscriptionManager.NR_ADVANCED_CALLING_ENABLED:
             case SubscriptionManager.USAGE_SETTING:
             case SubscriptionManager.USER_HANDLE:
+            case SubscriptionManager.SATELLITE_ENABLED:
                 value.put(propKey, Integer.parseInt(propValue));
                 break;
             case SubscriptionManager.ALLOWED_NETWORK_TYPES:
@@ -3402,6 +3406,7 @@ public class SubscriptionController extends ISub.Stub {
                         case SimInfo.COLUMN_PHONE_NUMBER_SOURCE_IMS:
                         case SubscriptionManager.USAGE_SETTING:
                         case SubscriptionManager.USER_HANDLE:
+                        case SubscriptionManager.SATELLITE_ENABLED:
                             resultValue = cursor.getString(0);
                             break;
                         default:
@@ -4920,8 +4925,7 @@ public class SubscriptionController extends ISub.Stub {
     public UserHandle getSubscriptionUserHandle(int subId) {
         enforceManageSubscriptionUserAssociation("getSubscriptionUserHandle");
 
-        if (!mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_enable_get_subscription_user_handle)) {
+        if (!SubscriptionInfoUpdater.isWorkProfileTelephonyEnabled()) {
             return null;
         }
 
@@ -4959,6 +4963,10 @@ public class SubscriptionController extends ISub.Stub {
     public boolean isSubscriptionAssociatedWithUser(int subscriptionId,
             @NonNull UserHandle userHandle) {
         enforceManageSubscriptionUserAssociation("isSubscriptionAssociatedWithUser");
+
+        if (!SubscriptionInfoUpdater.isWorkProfileTelephonyEnabled()) {
+            return true;
+        }
 
         long token = Binder.clearCallingIdentity();
         try {
@@ -5014,6 +5022,10 @@ public class SubscriptionController extends ISub.Stub {
                 return new ArrayList<>();
             }
 
+            if (!SubscriptionInfoUpdater.isWorkProfileTelephonyEnabled()) {
+                return subInfoList;
+            }
+
             List<SubscriptionInfo> subscriptionsAssociatedWithUser = new ArrayList<>();
             List<SubscriptionInfo> subscriptionsWithNoAssociation = new ArrayList<>();
             for (SubscriptionInfo subInfo : subInfoList) {
@@ -5033,6 +5045,16 @@ public class SubscriptionController extends ISub.Stub {
         } finally {
             Binder.restoreCallingIdentity(token);
         }
+    }
+
+    /**
+     * @return {@code true} if using {@link SubscriptionManagerService} instead of
+     * {@link SubscriptionController}.
+     */
+    //TODO: Removed before U AOSP public release.
+    @Override
+    public boolean isSubscriptionManagerServiceEnabled() {
+        return false;
     }
 
     /**

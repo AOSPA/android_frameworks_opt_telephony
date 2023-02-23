@@ -152,6 +152,8 @@ public class SubscriptionControllerTest extends TelephonyTest {
         replaceInstance(SubscriptionController.class, "sInstance", null, null);
         replaceInstance(MultiSimSettingController.class, "sInstance", null,
                 mMultiSimSettingControllerMock);
+        replaceInstance(SubscriptionInfoUpdater.class, "mIsWorkProfileTelephonyEnabled",
+                null, true);
 
         mSubscriptionControllerUT = SubscriptionController.init(mContext);
         mCallingPackage = mContext.getOpPackageName();
@@ -2189,9 +2191,8 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
     @Test
-    public void setSubscriptionUserHandle_withoutPermission() {
+    public void setSubscriptionUserHandle_withoutPermission() throws Exception {
         testInsertSim();
-        enableGetSubscriptionUserHandle();
         /* Get SUB ID */
         int[] subIds = mSubscriptionControllerUT.getActiveSubIdList(/*visibleOnly*/false);
         assertTrue(subIds != null && subIds.length != 0);
@@ -2204,9 +2205,8 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
     @Test
-    public void setGetSubscriptionUserHandle_userHandleNull() {
+    public void setGetSubscriptionUserHandle_userHandleNull() throws Exception {
         testInsertSim();
-        enableGetSubscriptionUserHandle();
         /* Get SUB ID */
         int[] subIds = mSubscriptionControllerUT.getActiveSubIdList(/*visibleOnly*/false);
         assertTrue(subIds != null && subIds.length != 0);
@@ -2219,9 +2219,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
     @Test
-    public void setSubscriptionUserHandle_invalidSubId() {
-        enableGetSubscriptionUserHandle();
-
+    public void setSubscriptionUserHandle_invalidSubId() throws Exception {
         assertThrows(IllegalArgumentException.class,
                 () -> mSubscriptionControllerUT.setSubscriptionUserHandle(
                         UserHandle.of(UserHandle.USER_SYSTEM),
@@ -2229,9 +2227,8 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
     @Test
-    public void setGetSubscriptionUserHandle_withValidUserHandleAndSubId() {
+    public void setGetSubscriptionUserHandle_withValidUserHandleAndSubId() throws Exception {
         testInsertSim();
-        enableGetSubscriptionUserHandle();
         /* Get SUB ID */
         int[] subIds = mSubscriptionControllerUT.getActiveSubIdList(/*visibleOnly*/false);
         assertTrue(subIds != null && subIds.length != 0);
@@ -2245,9 +2242,8 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
     @Test
-    public void getSubscriptionUserHandle_withoutPermission() {
+    public void getSubscriptionUserHandle_withoutPermission() throws Exception {
         testInsertSim();
-        enableGetSubscriptionUserHandle();
         /* Get SUB ID */
         int[] subIds = mSubscriptionControllerUT.getActiveSubIdList(/*visibleOnly*/false);
         assertTrue(subIds != null && subIds.length != 0);
@@ -2259,9 +2255,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
     @Test
-    public void getSubscriptionUserHandle_invalidSubId() {
-        enableGetSubscriptionUserHandle();
-
+    public void getSubscriptionUserHandle_invalidSubId() throws Exception {
         assertThrows(IllegalArgumentException.class,
                 () -> mSubscriptionControllerUT.getSubscriptionUserHandle(
                         SubscriptionManager.DEFAULT_SUBSCRIPTION_ID));
@@ -2277,7 +2271,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
     @Test
-    public void isSubscriptionAssociatedWithUser_noSubscription() {
+    public void isSubscriptionAssociatedWithUser_noSubscription() throws Exception {
         // isSubscriptionAssociatedWithUser should return true if there are no active subscriptions.
         assertThat(mSubscriptionControllerUT.isSubscriptionAssociatedWithUser(1,
                 UserHandle.of(UserHandle.USER_SYSTEM))).isEqualTo(true);
@@ -2296,7 +2290,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
     @Test
-    public void isSubscriptionAssociatedWithUser_userAssociatedWithSubscription() {
+    public void isSubscriptionAssociatedWithUser_userAssociatedWithSubscription() throws Exception {
         testInsertSim();
         /* Get SUB ID */
         int[] subIds = mSubscriptionControllerUT.getActiveSubIdList(/*visibleOnly*/false);
@@ -2311,9 +2305,9 @@ public class SubscriptionControllerTest extends TelephonyTest {
     }
 
     @Test
-    public void isSubscriptionAssociatedWithUser_userNotAssociatedWithSubscription() {
+    public void isSubscriptionAssociatedWithUser_userNotAssociatedWithSubscription()
+            throws Exception {
         testInsertSim();
-        enableGetSubscriptionUserHandle();
         /* Get SUB ID */
         int[] subIds = mSubscriptionControllerUT.getActiveSubIdList(/*visibleOnly*/false);
         assertTrue(subIds != null && subIds.length != 0);
@@ -2341,12 +2335,5 @@ public class SubscriptionControllerTest extends TelephonyTest {
         List<SubscriptionInfo> associatedSubInfoList = mSubscriptionControllerUT
                 .getSubscriptionInfoListAssociatedWithUser(UserHandle.of(UserHandle.USER_SYSTEM));
         assertThat(associatedSubInfoList.size()).isEqualTo(0);
-    }
-
-    private void enableGetSubscriptionUserHandle() {
-        Resources mResources = mock(Resources.class);
-        doReturn(true).when(mResources).getBoolean(
-                eq(com.android.internal.R.bool.config_enable_get_subscription_user_handle));
-        doReturn(mResources).when(mContext).getResources();
     }
 }

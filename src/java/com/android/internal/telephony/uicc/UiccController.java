@@ -1099,6 +1099,14 @@ public class UiccController extends Handler {
             return;
         }
 
+        UiccPort port = card.getUiccPort(status.mSlotPortMapping.mPortIndex);
+        if (port == null) {
+            if (DBG) log("mUiccSlots[" + slotId + "] has no UiccPort with index["
+                    + status.mSlotPortMapping.mPortIndex + "]. Notifying IccChangedRegistrants");
+            mIccChangedRegistrants.notifyRegistrants(new AsyncResult(null, index, null));
+            return;
+        }
+
         String cardString = null;
         boolean isEuicc = mUiccSlots[slotId].isEuicc();
         if (isEuicc) {
