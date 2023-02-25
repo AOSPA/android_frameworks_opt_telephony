@@ -578,33 +578,35 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         }
     }
 
+    private CarrierConfigManager.CarrierConfigChangeListener mCarrierConfigChangeListener =
+            new CarrierConfigManager.CarrierConfigChangeListener() {
+                @Override
+                public void onCarrierConfigChanged(int slotIndex, int subId, int carrierId,
+                        int specificCarrierId) {
+                    if (mPhone.getPhoneId() != slotIndex) {
+                        log("onReceive: Skipping indication for other phoneId: " + slotIndex);
+                        return;
+                    }
+
+                    PersistableBundle carrierConfig = getCarrierConfigBundle(subId);
+                    mCarrierConfigForSubId = new Pair<>(subId, carrierConfig);
+                    if (!mCurrentlyConnectedSubId.isEmpty()
+                            && subId == mCurrentlyConnectedSubId.get()) {
+                        log("onReceive: Applying carrier config for subId: " + subId);
+                        updateCarrierConfiguration(subId, carrierConfig);
+                    } else {
+                        // cache the latest config update until ImsService connects for this subId.
+                        // Once it has connected, startListeningForCalls will apply the config.
+                        log("onReceive: caching carrier config until ImsService connects for "
+                                + "subId: " + subId);
+                    }
+                }
+            };
+
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (intent.getAction().equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED) ||
-                    intent.getAction().equals(
-                    CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED)) {
-                int subId = intent.getIntExtra(CarrierConfigManager.EXTRA_SUBSCRIPTION_INDEX,
-                        SubscriptionManager.INVALID_SUBSCRIPTION_ID);
-                int phoneId = intent.getIntExtra(CarrierConfigManager.EXTRA_SLOT_INDEX,
-                        SubscriptionManager.INVALID_PHONE_INDEX);
-                if (mPhone.getPhoneId() != phoneId) {
-                    log("onReceive: Skipping indication for other phoneId: " + phoneId);
-                    return;
-                }
-                PersistableBundle carrierConfig = getCarrierConfigBundle(subId);
-                mCarrierConfigForSubId = new Pair<>(subId, carrierConfig);
-                if (!mCurrentlyConnectedSubId.isEmpty()
-                        && subId == mCurrentlyConnectedSubId.get()) {
-                    log("onReceive: Applying carrier config for subId: " + subId);
-                    updateCarrierConfiguration(subId, carrierConfig);
-                } else {
-                    // cache the latest config update until ImsService connects for this subId.
-                    // Once it has connected, startListeningForCalls will apply the config.
-                    log("onReceive: caching carrier config until ImsService connects for subId: "
-                            + subId);
-                }
-            } else if (TelecomManager.ACTION_DEFAULT_DIALER_CHANGED.equals(intent.getAction())) {
+            if (TelecomManager.ACTION_DEFAULT_DIALER_CHANGED.equals(intent.getAction())) {
                 mDefaultDialerUid.set(getPackageUid(context, intent.getStringExtra(
                         TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME)));
             }
@@ -1281,11 +1283,23 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         mMetrics = TelephonyMetrics.getInstance();
 
         IntentFilter intentfilter = new IntentFilter();
-        intentfilter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
+
         intentfilter.addAction(CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED);
+
         intentfilter.addAction(TelecomManager.ACTION_DEFAULT_DIALER_CHANGED);
         mPhone.getContext().registerReceiver(mReceiver, intentfilter);
-        updateCarrierConfiguration(mPhone.getSubId(), getCarrierConfigBundle(mPhone.getSubId()));
+
+        CarrierConfigManager ccm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
+        // Callback of listener directly access global states which are limited on main thread.
+        // The callback can only be executed on main thread.
+        if (ccm != null) {
+            ccm.registerCarrierConfigChangeListener(
+                    mPhone.getContext().getMainExecutor(), mCarrierConfigChangeListener);
+            updateCarrierConfiguration(
+                    mPhone.getSubId(), getCarrierConfigBundle(mPhone.getSubId()));
+        } else {
+            loge("CarrierConfigManager is not available.");
+        }
 
         mSettingsCallback = new DataSettingsManager.DataSettingsManagerCallback(this::post) {
                 @Override
@@ -1572,6 +1586,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
 
         clearDisconnected();
         mPhone.getContext().unregisterReceiver(mReceiver);
+        CarrierConfigManager ccm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
+        if (ccm != null && mCarrierConfigChangeListener != null) {
+            ccm.unregisterCarrierConfigChangeListener(mCarrierConfigChangeListener);
+        }
         mPhone.getDefaultPhone().getDataSettingsManager().unregisterCallback(mSettingsCallback);
         mImsManagerConnector.disconnect();
 
@@ -2271,6 +2289,11 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                             ImsExternalCallTracker.EXTRA_IMS_EXTERNAL_CALL_ID);
                     conn.setIsPulledCall(true);
                     conn.setPulledDialogId(dialogId);
+                }
+
+                if (intentExtras.containsKey(ImsCallProfile.EXTRA_CALL_RAT_TYPE)) {
+                    logi("dialInternal containing EXTRA_CALL_RAT_TYPE, "
+                            +  intentExtras.getString(ImsCallProfile.EXTRA_CALL_RAT_TYPE));
                 }
 
                 // Pack the OEM-specific call extras.
@@ -6607,6 +6630,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     @VisibleForTesting
     public SrvccConnection[] convertToSrvccConnectionInfo(List<SrvccCall> profileList) {
         if (mSrvccTypeSupported.isEmpty() || profileList == null || profileList.isEmpty()) {
+            loge("convertToSrvccConnectionInfo empty list");
             return null;
         }
 
@@ -6615,9 +6639,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             if (isCallProfileSupported(profile)) {
                 addConnection(connList,
                         profile, findConnection(profile.getCallId()));
+            } else {
+                logi("convertToSrvccConnectionInfo not supported"
+                        + " state=" + profile.getPreciseCallState());
             }
         }
 
+        logi("convertToSrvccConnectionInfo size=" + connList.size());
         if (connList.isEmpty()) return null;
         return connList.toArray(new SrvccConnection[0]);
     }
@@ -6647,9 +6675,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     }
 
     private boolean isCallProfileSupported(SrvccCall profile) {
-        if (profile == null) return false;
+        if (profile == null) {
+            loge("isCallProfileSupported null profile");
+            return false;
+        }
 
-        switch(profile.getPreciseCallState()) {
+        switch (profile.getPreciseCallState()) {
             case PRECISE_CALL_STATE_ACTIVE:
                 return mSrvccTypeSupported.contains(BASIC_SRVCC_SUPPORT);
             case PRECISE_CALL_STATE_HOLDING:
@@ -6665,6 +6696,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             case PRECISE_CALL_STATE_INCOMING_SETUP:
                 return mSrvccTypeSupported.contains(PREALERTING_SRVCC_SUPPORT);
             default:
+                loge("isCallProfileSupported invalid state="
+                        + profile.getPreciseCallState());
                 break;
         }
         return false;
@@ -6697,7 +6730,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         if (profile == null) return;
 
         int preciseCallState = profile.getPreciseCallState();
-        if (!isAlive(preciseCallState)) return;
+        if (!isAlive(preciseCallState)) {
+            Rlog.i(LOG_TAG, "addConnection not alive, " + preciseCallState);
+            return;
+        }
 
         List<ConferenceParticipant> participants = getConferenceParticipants(c);
         if (participants != null) {
@@ -6707,11 +6743,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     continue;
                 }
                 SrvccConnection srvccConnection = new SrvccConnection(cp, preciseCallState);
+                Rlog.i(LOG_TAG, "addConnection " + srvccConnection);
                 destList.add(srvccConnection);
             }
         } else {
             SrvccConnection srvccConnection =
                     new SrvccConnection(profile.getImsCallProfile(), c, preciseCallState);
+            Rlog.i(LOG_TAG, "addConnection " + srvccConnection);
             destList.add(srvccConnection);
         }
     }

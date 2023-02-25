@@ -1322,6 +1322,11 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
+    public void iccCloseLogicalChannel(int channel, boolean isEs10, Message response) {
+
+    }
+
+    @Override
     public void iccTransmitApduLogicalChannel(int channel, int cla, int instruction, int p1,
                                               int p2, int p3, String data, Message response) {
 

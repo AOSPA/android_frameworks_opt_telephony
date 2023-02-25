@@ -45,29 +45,15 @@ public class RadioSimProxy extends RadioServiceProxy {
      * @return updated HAL version
      */
     public HalVersion setAidl(HalVersion halVersion, android.hardware.radio.sim.IRadioSim sim) {
-        mHalVersion = halVersion;
-        mSimProxy = sim;
-        mIsAidl = true;
-
+        HalVersion version = halVersion;
         try {
-            HalVersion newHalVersion;
-            int version = sim.getInterfaceVersion();
-            switch(version) {
-                case 2:
-                    newHalVersion = RIL.RADIO_HAL_VERSION_2_1;
-                    break;
-                default:
-                    newHalVersion = RIL.RADIO_HAL_VERSION_2_0;
-                    break;
-            }
-            Rlog.d(TAG, "AIDL version=" + version + ", halVersion=" + newHalVersion);
-
-            if (mHalVersion.less(newHalVersion)) {
-                mHalVersion = newHalVersion;
-            }
+            version = RIL.getServiceHalVersion(sim.getInterfaceVersion());
         } catch (RemoteException e) {
             Rlog.e(TAG, "setAidl: " + e);
         }
+        mHalVersion = version;
+        mSimProxy = sim;
+        mIsAidl = true;
 
         Rlog.d(TAG, "AIDL initialized mHalVersion=" + mHalVersion);
         return mHalVersion;
@@ -286,14 +272,27 @@ public class RadioSimProxy extends RadioServiceProxy {
     }
 
     /**
-     * Call IRadioSim#iccCloseLogicalChannel
+     * Call IRadioSim#iccCloseLogicalChannelWithSessionInfo
      * @param serial Serial number of request
      * @param channelId Channel ID of the channel to be closed
+     * @param isEs10 Whether the logical channel is opened for performing ES10 operations.
      * @throws RemoteException
      */
-    public void iccCloseLogicalChannel(int serial, int channelId) throws RemoteException {
+    public void iccCloseLogicalChannel(int serial,
+            int channelId, boolean isEs10) throws RemoteException {
         if (isEmpty()) return;
         if (isAidl()) {
+            if (mHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_2_1)) {
+                // TODO: [MEP-A1] Use iccCloseLogicalChannelWithSessionInfo API once vendor
+                //  changes are completed.
+                //android.hardware.radio.sim.SessionInfo info =
+                //        new android.hardware.radio.sim.SessionInfo();
+                //info.sessionId = channelId;
+                //info.isEs10 = isEs10;
+                //mSimProxy.iccCloseLogicalChannelWithSessionInfo(serial, info);
+                mSimProxy.iccCloseLogicalChannel(serial, channelId);
+                return;
+            }
             mSimProxy.iccCloseLogicalChannel(serial, channelId);
         } else {
             mRadioProxy.iccCloseLogicalChannel(serial, channelId);

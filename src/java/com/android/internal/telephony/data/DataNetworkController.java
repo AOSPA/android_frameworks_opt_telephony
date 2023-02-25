@@ -2396,7 +2396,7 @@ public class DataNetworkController extends Handler {
     /** Called when subscription info changed. */
     protected void onSubscriptionChanged() {
         if (mSubId != mPhone.getSubId()) {
-            log("onDataConfigUpdated: mSubId changed from " + mSubId + " to "
+            log("onSubscriptionChanged: mSubId changed from " + mSubId + " to "
                     + mPhone.getSubId());
             if (isImsGracefulTearDownSupported()) {
                 if (SubscriptionManager.isValidSubscriptionId(mPhone.getSubId())) {

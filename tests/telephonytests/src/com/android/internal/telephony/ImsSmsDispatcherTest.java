@@ -249,7 +249,7 @@ public class ImsSmsDispatcherTest extends TelephonyTest {
                                 .KEY_SMS_OVER_IMS_SEND_RETRY_DELAY_MILLIS_INT,
                                 2000);
         mContextFixture.getCarrierConfigBundle().putInt(CarrierConfigManager.ImsSms
-                                                .KEY_SMS_MAX_RETRY_COUNT_OVER_IMS_INT, 3);
+                                                .KEY_SMS_MAX_RETRY_OVER_IMS_COUNT_INT, 3);
         mContextFixture.getCarrierConfigBundle().putInt(CarrierConfigManager.ImsSms
                                                 .KEY_SMS_MAX_RETRY_COUNT_INT, 3);
         mTrackerData.put("pdu", com.android.internal.telephony.gsm.SmsMessage.getSubmitPdu(null,
@@ -373,7 +373,7 @@ public class ImsSmsDispatcherTest extends TelephonyTest {
                                                 .KEY_SMS_OVER_IMS_SEND_RETRY_DELAY_MILLIS_INT,
                                                 2000);
         mContextFixture.getCarrierConfigBundle().putInt(CarrierConfigManager.ImsSms
-                                                .KEY_SMS_MAX_RETRY_COUNT_OVER_IMS_INT, 3);
+                                                .KEY_SMS_MAX_RETRY_OVER_IMS_COUNT_INT, 3);
         mContextFixture.getCarrierConfigBundle().putInt(CarrierConfigManager.ImsSms
                                                 .KEY_SMS_MAX_RETRY_COUNT_INT, 3);
         when(mImsManager.getSmsFormat()).thenReturn(SmsMessage.FORMAT_3GPP);
@@ -409,7 +409,7 @@ public class ImsSmsDispatcherTest extends TelephonyTest {
                                                 .KEY_SMS_OVER_IMS_SEND_RETRY_DELAY_MILLIS_INT,
                                                 3000);
         mContextFixture.getCarrierConfigBundle().putInt(CarrierConfigManager.ImsSms
-                                                .KEY_SMS_MAX_RETRY_COUNT_OVER_IMS_INT, 2);
+                                                .KEY_SMS_MAX_RETRY_OVER_IMS_COUNT_INT, 2);
         mContextFixture.getCarrierConfigBundle().putInt(CarrierConfigManager.ImsSms
                                                 .KEY_SMS_MAX_RETRY_COUNT_INT, 3);
         when(mImsManager.getSmsFormat()).thenReturn(SmsMessage.FORMAT_3GPP);
