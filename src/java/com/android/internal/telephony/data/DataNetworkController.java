@@ -867,6 +867,12 @@ public class DataNetworkController extends Handler {
                                                 ? EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS
                                                 : EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
                                         DataEvaluationReason.DATA_ENABLED_OVERRIDE_CHANGED));
+
+                                // Attempt to evaluate if smart temporay DDS switch needs to work.
+                                if (policy == TelephonyManager
+                                        .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL) {
+                                    onDataDuringVoiceCallChanged(enabled);
+                                }
                             }
                             @Override
                             public void onDataRoamingEnabledChanged(boolean enabled) {
