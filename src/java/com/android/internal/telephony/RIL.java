@@ -4147,6 +4147,11 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
     @Override
     public void iccCloseLogicalChannel(int channel, Message result) {
+        iccCloseLogicalChannel(channel, false, result);
+    }
+
+    @Override
+    public void iccCloseLogicalChannel(int channel, boolean isEs10, Message result) {
         RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class, result);
         if (!simProxy.isEmpty()) {
             RILRequest rr = obtainRequest(RIL_REQUEST_SIM_CLOSE_CHANNEL, result,
@@ -4154,11 +4159,10 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
             if (RILJ_LOGD) {
                 riljLog(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest)
-                        + " channel = " + channel);
+                        + " channel = " + channel + " isEs10 = " + isEs10);
             }
-
             try {
-                simProxy.iccCloseLogicalChannel(rr.mSerial, channel);
+                simProxy.iccCloseLogicalChannel(rr.mSerial, channel, isEs10);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(HAL_SERVICE_SIM, "iccCloseLogicalChannel", e);
             }
@@ -6180,6 +6184,25 @@ public class RIL extends BaseCommands implements CommandsInterface {
     }
 
     /**
+     * Check whether satellite modem is supported by the device.
+     *
+     * @param result Message that will be sent back to the requester.
+     */
+    @Override
+    public void isSatelliteSupported(Message result) {
+        if (result != null) {
+            AsyncResult.forMessage(result, null,
+                    CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
+            result.sendToTarget();
+        }
+        /**
+         * TODO: when adding implementation of this method, we need to return successful result
+         * with satellite support set to false if radioSatelliteProxy.isEmpty() is true or
+         * mHalVersion.get(HAL_SERVICE_SATELLITE).greaterOrEqual(RADIO_HAL_VERSION_2_0) is false.
+         */
+    }
+
+    /**
      * User started pointing to the satellite. Modem should continue to update the ponting input
      * as user moves device.
      *
@@ -6311,6 +6334,25 @@ public class RIL extends BaseCommands implements CommandsInterface {
                         CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
                 result.sendToTarget();
             }
+        }
+    }
+
+    /**
+     * Get whether satellite communication is allowed for the current location
+     *
+     * @param result Message that will be sent back to the requester.
+     */
+    @Override
+    public void isSatelliteCommunicationAllowedForCurrentLocation(Message result) {
+        // TODO: link to HAL implementation
+        if (RILJ_LOGD) {
+            Rlog.d(RILJ_LOG_TAG,
+                    "stopSendingSatellitePointingInfo: REQUEST_NOT_SUPPORTED");
+        }
+        if (result != null) {
+            AsyncResult.forMessage(result, null,
+                    CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
+            result.sendToTarget();
         }
     }
 
@@ -7253,6 +7295,19 @@ public class RIL extends BaseCommands implements CommandsInterface {
             }
         }
         return halVersion;
+    }
+
+    /**
+     * Get the HAL version corresponding to the interface version of a IRadioService module.
+     * @param interfaceVersion The interface version, from IRadioService#getInterfaceVersion().
+     * @return The corresponding HalVersion.
+     */
+    public static HalVersion getServiceHalVersion(int interfaceVersion) {
+        switch (interfaceVersion) {
+            case 1: return RADIO_HAL_VERSION_2_0;
+            case 2: return RADIO_HAL_VERSION_2_1;
+            default: return RADIO_HAL_VERSION_UNKNOWN;
+        }
     }
 
     private static String serviceToString(@HalService int service) {

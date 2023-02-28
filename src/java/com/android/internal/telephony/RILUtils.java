@@ -378,7 +378,6 @@ import android.telephony.ims.stub.ImsRegistrationImplBase.ImsDeregistrationReaso
 import android.telephony.satellite.PointingInfo;
 import android.telephony.satellite.SatelliteCapabilities;
 import android.telephony.satellite.SatelliteManager;
-import android.telephony.satellite.stub.SatelliteImplBase;
 import android.text.TextUtils;
 import android.util.ArraySet;
 import android.util.SparseArray;
@@ -5951,35 +5950,8 @@ public class RILUtils {
                 supportedRadioTechnologies.add(technology);
             }
         }
-
-        Set<Integer> supportedFeatures = new HashSet<>();
-        if (capabilities.supportedFeatures != null
-                && capabilities.supportedFeatures.length > 0) {
-            for (int feature : capabilities.supportedFeatures) {
-                supportedFeatures.add(feature);
-            }
-        }
         return new SatelliteCapabilities(supportedRadioTechnologies, capabilities.isAlwaysOn,
-                capabilities.needsPointingToSatellite, supportedFeatures,
-                capabilities.needsSeparateSimProfile);
-    }
-
-    /**
-     * Convert from android.hardware.radio.satellite.Feature to
-     * android.telephony.satellite.stub.SatelliteImplBase.Feature
-     */
-    public static int convertHalSatelliteFeature(int feature) {
-        switch (feature) {
-            case android.hardware.radio.satellite.SatelliteFeature.SOS_SMS:
-                return SatelliteImplBase.FEATURE_SOS_SMS;
-            case android.hardware.radio.satellite.SatelliteFeature.EMERGENCY_SMS:
-                return SatelliteImplBase.FEATURE_EMERGENCY_SMS;
-            case android.hardware.radio.satellite.SatelliteFeature.SMS:
-                return SatelliteImplBase.FEATURE_SMS;
-            case android.hardware.radio.satellite.SatelliteFeature.LOCATION_SHARING:
-                return SatelliteImplBase.FEATURE_LOCATION_SHARING;
-            default: return SatelliteImplBase.FEATURE_UNKNOWN;
-        }
+                capabilities.needsPointingToSatellite, capabilities.needsSeparateSimProfile);
     }
 
     /**
@@ -5991,18 +5963,6 @@ public class RILUtils {
         return new PointingInfo(pointingInfo.satelliteAzimuthDegrees,
                 pointingInfo.satelliteElevationDegrees, pointingInfo.antennaAzimuthDegrees,
                 pointingInfo.antennaPitchDegrees, pointingInfo.antennaRollDegrees);
-    }
-
-    /**
-     * Convert array of android.hardware.radio.satellite.Feature to
-     * array of android.telephony.satellite.stub.SatelliteImplBase.Feature
-     */
-    public static int[] convertHalSatelliteFeatures(int[] features) {
-        int[] convertedFeatrures = new int[features.length];
-        for (int i = 0; i < features.length; i++) {
-            convertedFeatrures[i] = convertHalSatelliteFeature(features[i]);
-        }
-        return convertedFeatrures;
     }
 
     /**
@@ -6027,35 +5987,44 @@ public class RILUtils {
      * @param error The satellite error.
      * @return The converted SatelliteServiceResult.
      */
-    @SatelliteManager.SatelliteServiceResult public static int convertToSatelliteError(
+    @SatelliteManager.SatelliteError
+    public static int convertToSatelliteError(
             CommandException.Error error) {
         switch (error) {
             case INTERNAL_ERR:
-                return SatelliteManager.SATELLITE_SERVICE_INTERNAL_ERROR;
+                //fallthrough to SYSTEM_ERR
             case MODEM_ERR:
-                return SatelliteManager.SATELLITE_SERVICE_MODEM_ERROR;
+                //fallthrough to SYSTEM_ERR
             case SYSTEM_ERR:
-                return SatelliteManager.SATELLITE_SERVICE_SYSTEM_ERROR;
+                return SatelliteManager.SATELLITE_MODEM_ERROR;
             case INVALID_ARGUMENTS:
-                return SatelliteManager.SATELLITE_SERVICE_INVALID_ARGUMENTS;
+                return SatelliteManager.SATELLITE_INVALID_ARGUMENTS;
             case INVALID_MODEM_STATE:
-                return SatelliteManager.SATELLITE_SERVICE_INVALID_MODEM_STATE;
-            case INVALID_SIM_STATE:
-                return SatelliteManager.SATELLITE_SERVICE_INVALID_SIM_STATE;
-            case INVALID_STATE:
-                return SatelliteManager.SATELLITE_SERVICE_INVALID_STATE;
+                return SatelliteManager.SATELLITE_INVALID_MODEM_STATE;
             case RADIO_NOT_AVAILABLE:
-                return SatelliteManager.SATELLITE_SERVICE_NOT_AVAILABLE;
+                return SatelliteManager.SATELLITE_RADIO_NOT_AVAILABLE;
             case REQUEST_NOT_SUPPORTED:
-                return SatelliteManager.SATELLITE_SERVICE_NOT_SUPPORTED;
-            case REQUEST_RATE_LIMITED:
-                return SatelliteManager.SATELLITE_SERVICE_RATE_LIMITED;
+                return SatelliteManager.SATELLITE_REQUEST_NOT_SUPPORTED;
             case NO_MEMORY:
-                return SatelliteManager.SATELLITE_SERVICE_NO_MEMORY;
+                //fallthrough to NO_RESOURCES
             case NO_RESOURCES:
-                return SatelliteManager.SATELLITE_SERVICE_NO_RESOURCES;
+                return SatelliteManager.SATELLITE_NO_RESOURCES;
+            case NETWORK_ERR:
+                return SatelliteManager.SATELLITE_NETWORK_ERROR;
+            case NETWORK_TIMEOUT:
+                return SatelliteManager.SATELLITE_NETWORK_TIMEOUT;
+            case NO_NETWORK_FOUND:
+                //fallthrough to NO_SATELLITE_SIGNAL
+            case NO_SATELLITE_SIGNAL:
+                return SatelliteManager.SATELLITE_NOT_REACHABLE;
+            case ABORTED:
+                return SatelliteManager.SATELLITE_REQUEST_ABORTED;
+            case ACCESS_BARRED:
+                return SatelliteManager.SATELLITE_ACCESS_BARRED;
+            case SUBSCRIBER_NOT_AUTHORIZED:
+                return SatelliteManager.SATELLITE_NOT_AUTHORIZED;
             default:
-                return SatelliteManager.SATELLITE_SERVICE_ERROR;
+                return SatelliteManager.SATELLITE_ERROR;
         }
     }
 

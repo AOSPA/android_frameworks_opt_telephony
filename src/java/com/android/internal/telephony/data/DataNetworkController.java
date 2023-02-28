@@ -867,6 +867,12 @@ public class DataNetworkController extends Handler {
                                                 ? EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS
                                                 : EVENT_REEVALUATE_EXISTING_DATA_NETWORKS,
                                         DataEvaluationReason.DATA_ENABLED_OVERRIDE_CHANGED));
+
+                                // Attempt to evaluate if smart temporay DDS switch needs to work.
+                                if (policy == TelephonyManager
+                                        .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL) {
+                                    onDataDuringVoiceCallChanged(enabled);
+                                }
                             }
                             @Override
                             public void onDataRoamingEnabledChanged(boolean enabled) {
@@ -2396,7 +2402,7 @@ public class DataNetworkController extends Handler {
     /** Called when subscription info changed. */
     protected void onSubscriptionChanged() {
         if (mSubId != mPhone.getSubId()) {
-            log("onDataConfigUpdated: mSubId changed from " + mSubId + " to "
+            log("onSubscriptionChanged: mSubId changed from " + mSubId + " to "
                     + mPhone.getSubId());
             if (isImsGracefulTearDownSupported()) {
                 if (SubscriptionManager.isValidSubscriptionId(mPhone.getSubId())) {
