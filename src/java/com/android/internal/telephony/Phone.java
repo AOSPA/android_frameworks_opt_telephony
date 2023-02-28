@@ -99,7 +99,6 @@ import com.android.internal.telephony.data.DataNetworkController;
 import com.android.internal.telephony.data.DataSettingsManager;
 import com.android.internal.telephony.data.LinkBandwidthEstimator;
 import com.android.internal.telephony.domainselection.DomainSelectionResolver;
-import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.EcbmHandler;
 import com.android.internal.telephony.emergency.EmergencyConstants;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
@@ -375,7 +374,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected DeviceStateMonitor mDeviceStateMonitor;
     protected DisplayInfoController mDisplayInfoController;
     protected AccessNetworksManager mAccessNetworksManager;
-    protected DataEnabledSettings mDataEnabledSettings;
     // Used for identify the carrier of current subscription
     protected CarrierResolver mCarrierResolver;
     protected SignalStrengthController mSignalStrengthController;
@@ -4720,10 +4718,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     public boolean updateCurrentCarrierInProvider() {
         return false;
-    }
-
-    public DataEnabledSettings getDataEnabledSettings() {
-        return mDataEnabledSettings;
     }
 
     @UnsupportedAppUsage
