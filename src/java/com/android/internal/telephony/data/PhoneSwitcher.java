@@ -577,10 +577,14 @@ public class PhoneSwitcher extends Handler {
                 mDataSettingsManagerCallbacks.computeIfAbsent(phoneId,
                         v -> new DataSettingsManagerCallback(this::post) {
                             @Override
-                            public void onDataDuringCallChanged(boolean enabled) {
-                                evaluateIfImmediateDataSwitchIsNeeded(
-                                        "EVENT_DATA_DURING_CALL_ENABLED_CHANGED",
-                                        DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
+                            public void onDataEnabledOverrideChanged(boolean enabled,
+                                    @TelephonyManager.MobileDataPolicy int policy) {
+                                if (policy == TelephonyManager
+                                        .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL) {
+                                    evaluateIfImmediateDataSwitchIsNeeded(
+                                            "EVENT_DATA_DURING_CALL_ENABLED_CHANGED",
+                                            DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
+                                }
                             }
 
                             @Override
