@@ -150,6 +150,8 @@ public abstract class SMSDispatcher extends Handler {
     /** New status report received. */
     protected static final int EVENT_NEW_SMS_STATUS_REPORT = 10;
 
+    /** Retry Sending RP-SMMA Notification */
+    protected static final int EVENT_RETRY_SMMA = 11;
     // other
     protected static final int EVENT_NEW_ICC_SMS = 14;
     protected static final int EVENT_ICC_CHANGED = 15;
@@ -187,6 +189,14 @@ public abstract class SMSDispatcher extends Handler {
 
     /** Maximum number of times to retry sending a failed SMS. */
     protected static final int MAX_SEND_RETRIES = 3;
+
+    /** Retransmitted Flag as specified in section 6.3.1.2 in TS 124011
+     * true:  RP-SMMA Retried once and no more transmissions are permitted
+     * false: not retried at all and at least another transmission of the RP-SMMA message
+     * is currently permitted
+     */
+    protected boolean mRPSmmaRetried = false;
+
     /** Delay before next send attempt on a failed SMS, in milliseconds. */
     @VisibleForTesting
     public static final int SEND_RETRY_DELAY = 2000;
@@ -315,6 +325,26 @@ public abstract class SMSDispatcher extends Handler {
      * @return the format of the message PDU
      */
     protected abstract String getFormat();
+
+    /**
+     * Gets the maximum number of times the SMS can be retried upon Failure,
+     * from the {@link android.telephony.CarrierConfigManager}
+     *
+     * @return the default maximum number of times SMS can be sent
+     */
+    protected int getMaxSmsRetryCount() {
+        return MAX_SEND_RETRIES;
+    }
+
+    /**
+     * Gets the Time delay before next send attempt on a failed SMS,
+     * from the {@link android.telephony.CarrierConfigManager}
+     *
+     * @return the Time in miiliseconds for delay before next send attempt on a failed SMS
+     */
+    protected int getSmsRetryDelayValue() {
+        return SEND_RETRY_DELAY;
+    }
 
     /**
      * Called when a status report is received. This should correspond to a previously successful
@@ -1015,7 +1045,7 @@ public abstract class SMSDispatcher extends Handler {
                 // This is retry after failure over IMS but voice is not available.
                 // Set retry to max allowed, so no retry is sent and cause
                 // SmsManager.RESULT_ERROR_GENERIC_FAILURE to be returned to app.
-                tracker.mRetryCount = MAX_SEND_RETRIES;
+                tracker.mRetryCount = getMaxSmsRetryCount();
 
                 Rlog.d(TAG, "handleSendComplete: Skipping retry: "
                         + " isIms()=" + isIms()
@@ -1041,7 +1071,7 @@ public abstract class SMSDispatcher extends Handler {
                         tracker.isFromDefaultSmsApplication(mContext),
                         tracker.getInterval());
             } else if (error == SmsManager.RESULT_RIL_SMS_SEND_FAIL_RETRY
-                    && tracker.mRetryCount < MAX_SEND_RETRIES) {
+                    && tracker.mRetryCount < getMaxSmsRetryCount()) {
                 // Retry after a delay if needed.
                 // TODO: According to TS 23.040, 9.2.3.6, we should resend
                 //       with the same TP-MR as the failed message, and
@@ -1053,7 +1083,7 @@ public abstract class SMSDispatcher extends Handler {
                 tracker.mRetryCount++;
                 int errorCode = (smsResponse != null) ? smsResponse.mErrorCode : NO_ERROR_CODE;
                 Message retryMsg = obtainMessage(EVENT_SEND_RETRY, tracker);
-                sendMessageDelayed(retryMsg, SEND_RETRY_DELAY);
+                sendMessageDelayed(retryMsg, getSmsRetryDelayValue());
                 mPhone.getSmsStats().onOutgoingSms(
                         tracker.mImsRetry > 0 /* isOverIms */,
                         SmsConstants.FORMAT_3GPP2.equals(getFormat()),

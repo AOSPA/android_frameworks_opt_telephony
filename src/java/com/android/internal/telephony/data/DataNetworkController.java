@@ -82,7 +82,6 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.SlidingWindowEventCounter;
-import com.android.internal.telephony.SubscriptionInfoUpdater;
 import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.data.AccessNetworksManager.AccessNetworksManagerCallback;
 import com.android.internal.telephony.data.DataConfigManager.DataConfigManagerCallback;
@@ -813,17 +812,12 @@ public class DataNetworkController extends Handler {
         log("DataNetworkController created.");
 
         mAccessNetworksManager = phone.getAccessNetworksManager();
-        mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
-                TelephonyComponentFactory.getInstance()
-                        .inject(DataServiceManager.class.getName())
-                        .makeDataServiceManager(phone, looper,
-                                AccessNetworkConstants.TRANSPORT_TYPE_WWAN));
-        if (!mAccessNetworksManager.isInLegacyMode()) {
-            mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
+        for (int transport : mAccessNetworksManager.getAvailableTransports()) {
+            mDataServiceManagers.put(transport,
                     TelephonyComponentFactory.getInstance()
                             .inject(DataServiceManager.class.getName())
                             .makeDataServiceManager(phone, looper,
-                                    AccessNetworkConstants.TRANSPORT_TYPE_WLAN));
+                                    transport));
         }
         mDataConfigManager = TelephonyComponentFactory.getInstance().inject(
                 DataConfigManager.class.getName())
@@ -1015,12 +1009,10 @@ public class DataNetworkController extends Handler {
         mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
                 .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
 
-        if (!mAccessNetworksManager.isInLegacyMode()) {
-            mPhone.getServiceStateTracker().registerForServiceStateChanged(this,
-                    EVENT_SERVICE_STATE_CHANGED, null);
-            mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
-                    .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
-        }
+        mPhone.getServiceStateTracker().registerForServiceStateChanged(this,
+                EVENT_SERVICE_STATE_CHANGED, null);
+        mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
+                .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
 
         mPhone.getContext().getSystemService(TelephonyRegistryManager.class)
                 .addOnSubscriptionsChangedListener(new OnSubscriptionsChangedListener() {
@@ -1552,7 +1544,6 @@ public class DataNetworkController extends Handler {
         // to setup data network when radio power is about to be turned off.
         // Besides, in legacy IWLAN mode, data should be allowed.
         if (transport == AccessNetworkConstants.TRANSPORT_TYPE_WWAN
-                && !mAccessNetworksManager.isInLegacyMode()
                 && getDataNetworkType(transport) != TelephonyManager.NETWORK_TYPE_IWLAN
                 && (!mPhone.getServiceStateTracker().getDesiredPowerState()
                 || mPhone.mCi.getRadioState() != TelephonyManager.RADIO_POWER_ON)) {
@@ -1933,7 +1924,7 @@ public class DataNetworkController extends Handler {
             }
         }
 
-        log("Evaluated " + dataNetwork + ", " + evaluation.toString());
+        log("Evaluated " + dataNetwork + ", " + evaluation);
         return evaluation;
     }
 
@@ -2127,7 +2118,7 @@ public class DataNetworkController extends Handler {
                     return DataNetwork.TEAR_DOWN_REASON_ONLY_ALLOWED_SINGLE_NETWORK;
             }
         }
-        return 0;
+        return DataNetwork.TEAR_DOWN_REASON_NONE;
     }
 
     /**
@@ -2408,10 +2399,9 @@ public class DataNetworkController extends Handler {
         log("onCarrierConfigUpdated: config is "
                 + (mDataConfigManager.isConfigCarrierSpecific() ? "" : "not ")
                 + "carrier specific. mSimState="
-                + SubscriptionInfoUpdater.simStateString(mSimState));
+                + TelephonyManager.simStateToString(mSimState));
         updateNetworkRequestsPriority();
-        sendMessage(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
-                DataEvaluationReason.DATA_CONFIG_CHANGED));
+        onReevaluateUnsatisfiedNetworkRequests(DataEvaluationReason.DATA_CONFIG_CHANGED);
     }
 
     /**
@@ -2570,9 +2560,9 @@ public class DataNetworkController extends Handler {
 
                     @Override
                     public void onDisconnected(@NonNull DataNetwork dataNetwork,
-                            @DataFailureCause int cause) {
+                            @DataFailureCause int cause, @TearDownReason int tearDownReason) {
                         DataNetworkController.this.onDataNetworkDisconnected(
-                                dataNetwork, cause);
+                                dataNetwork, cause, tearDownReason);
                     }
 
                     @Override
@@ -2894,11 +2884,13 @@ public class DataNetworkController extends Handler {
      *
      * @param dataNetwork The data network.
      * @param cause The disconnect cause.
+     * @param tearDownReason The reason the network was torn down
      */
     protected void onDataNetworkDisconnected(@NonNull DataNetwork dataNetwork,
-            @DataFailureCause int cause) {
+            @DataFailureCause int cause, @TearDownReason int tearDownReason) {
         logl("onDataNetworkDisconnected: " + dataNetwork + ", cause="
-                + DataFailCause.toString(cause) + "(" + cause + ")");
+                + DataFailCause.toString(cause) + "(" + cause + "), tearDownReason="
+                + DataNetwork.tearDownReasonToString(tearDownReason));
         mDataNetworkList.remove(dataNetwork);
         mPendingImsDeregDataNetworks.remove(dataNetwork);
         mDataRetryManager.cancelPendingHandoverRetry(dataNetwork);
@@ -2919,11 +2911,13 @@ public class DataNetworkController extends Handler {
                     () -> callback.onAnyDataNetworkExistingChanged(mAnyDataNetworkExisting)));
         }
 
+        // Immediately reestablish on target transport if network was torn down due to policy
+        long delayMillis = tearDownReason == DataNetwork.TEAR_DOWN_REASON_HANDOVER_NOT_ALLOWED
+                ? 0 : mDataConfigManager.getRetrySetupAfterDisconnectMillis();
         // Sometimes network was unsolicitedly reported lost for reasons. We should re-evaluate
         // and see if data network can be re-established again.
         sendMessageDelayed(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
-                DataEvaluationReason.RETRY_AFTER_DISCONNECTED),
-                mDataConfigManager.getRetrySetupAfterDisconnectMillis());
+                        DataEvaluationReason.RETRY_AFTER_DISCONNECTED), delayMillis);
     }
 
     /**
@@ -3067,7 +3061,7 @@ public class DataNetworkController extends Handler {
      * @param simState SIM state. (Note this is mixed with card state and application state.)
      */
     protected void onSimStateChanged(@SimState int simState) {
-        log("onSimStateChanged: state=" + SubscriptionInfoUpdater.simStateString(simState));
+        log("onSimStateChanged: state=" + TelephonyManager.simStateToString(simState));
         if (mSimState != simState) {
             mSimState = simState;
             if (simState == TelephonyManager.SIM_STATE_ABSENT) {
@@ -3250,6 +3244,12 @@ public class DataNetworkController extends Handler {
             log("Found more network requests that can be satisfied. " + networkRequestList);
             dataNetwork.attachNetworkRequests(networkRequestList);
         }
+
+        if (dataNetwork.getNetworkCapabilities().hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+            // Update because DataNetwork#isInternetSupported might have changed with capabilities.
+            updateOverallInternetDataState();
+        }
     }
 
     /**
@@ -3400,9 +3400,9 @@ public class DataNetworkController extends Handler {
     }
 
     /**
-     * Update the internet data network state. For now only {@link TelephonyManager#DATA_CONNECTED}
-     * , {@link TelephonyManager#DATA_SUSPENDED}, and
-     * {@link TelephonyManager#DATA_DISCONNECTED} are supported.
+     * Update the internet data network state. For now only {@link TelephonyManager#DATA_CONNECTED},
+     * {@link TelephonyManager#DATA_SUSPENDED}, and {@link TelephonyManager#DATA_DISCONNECTED}
+     * are supported.
      */
     private void updateOverallInternetDataState() {
         boolean anyInternetConnected = mDataNetworkList.stream()
@@ -3679,8 +3679,8 @@ public class DataNetworkController extends Handler {
 
     /**
      * Get the internet data network state. Note that this is the best effort if more than one
-     * data network supports internet. For now only {@link TelephonyManager#DATA_CONNECTED}
-     * , {@link TelephonyManager#DATA_SUSPENDED}, and {@link TelephonyManager#DATA_DISCONNECTED}
+     * data network supports internet. For now only {@link TelephonyManager#DATA_CONNECTED},
+     * {@link TelephonyManager#DATA_SUSPENDED}, and {@link TelephonyManager#DATA_DISCONNECTED}
      * are supported.
      *
      * @return The data network state.
@@ -3790,7 +3790,7 @@ public class DataNetworkController extends Handler {
         pw.println("mImsDataNetworkState="
                 + TelephonyUtils.dataStateToString(mImsDataNetworkState));
         pw.println("mDataServiceBound=" + mDataServiceBound);
-        pw.println("mSimState=" + SubscriptionInfoUpdater.simStateString(mSimState));
+        pw.println("mSimState=" + TelephonyManager.simStateToString(mSimState));
         pw.println("mDataNetworkControllerCallbacks=" + mDataNetworkControllerCallbacks);
         pw.println("Subscription plans:");
         pw.increaseIndent();

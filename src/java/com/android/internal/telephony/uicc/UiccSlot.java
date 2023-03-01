@@ -41,6 +41,7 @@ import com.android.internal.telephony.IccCardConstants;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
+import com.android.internal.telephony.uicc.IccSlotStatus.MultipleEnabledProfilesMode;
 import com.android.internal.telephony.uicc.euicc.EuiccCard;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
@@ -87,6 +88,8 @@ public class UiccSlot extends Handler {
     private String mEid;
     private AnswerToReset mAtr;
     private boolean mIsRemovable;
+    private MultipleEnabledProfilesMode mSupportedMepMode;
+
     // Map each available portIdx to phoneId
     private HashMap<Integer, Integer> mPortIdxToPhoneId = new HashMap<>();
     //Map each available portIdx with old radio state for state checking
@@ -102,6 +105,7 @@ public class UiccSlot extends Handler {
         mContext = c;
         mActive = isActive;
         mCardState = null;
+        mSupportedMepMode = MultipleEnabledProfilesMode.NONE;
     }
 
     /**
@@ -115,6 +119,10 @@ public class UiccSlot extends Handler {
             mIccIds.put(ics.mSlotPortMapping.mPortIndex, ics.iccid);
             parseAtr(ics.atr);
             mIsRemovable = isSlotRemovable(slotIndex);
+            // Update supported MEP mode in IccCardStatus if the CardState is present.
+            if (ics.mCardState.isCardPresent()) {
+                mSupportedMepMode = ics.mSupportedMepMode;
+            }
 
             int radioState = ci.getRadioState();
             if (DBG) {
@@ -147,7 +155,8 @@ public class UiccSlot extends Handler {
 
                 if (!mIsEuicc) {
                     // Uicc does not support MEP, passing false by default.
-                    mUiccCard = new UiccCard(mContext, ci, ics, phoneId, mLock, false);
+                    mUiccCard = new UiccCard(mContext, ci, ics, phoneId, mLock, false,
+                            MultipleEnabledProfilesMode.NONE);
                 } else {
                     // The EID should be reported with the card status, but in case it's not we want
                     // to catch that here
@@ -156,7 +165,7 @@ public class UiccSlot extends Handler {
                                 + Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, ics.eid));
                     }
                     mUiccCard = new EuiccCard(mContext, ci, ics, phoneId, mLock,
-                            isMultipleEnabledProfileSupported());
+                            isMultipleEnabledProfileSupported(), getSupportedMepMode());
                 }
             } else {
                 if (mUiccCard != null) {
@@ -178,6 +187,7 @@ public class UiccSlot extends Handler {
             mCardState = iss.cardState;
             mEid = iss.eid;
             mIsRemovable = isSlotRemovable(slotIndex);
+            mSupportedMepMode = iss.mSupportedMepMode;
 
             for (int i = 0; i < simPortInfos.length; i++) {
                 int phoneId = iss.mSimPortInfos[i].mLogicalSlotIndex;
@@ -185,9 +195,15 @@ public class UiccSlot extends Handler {
                 if (!iss.mSimPortInfos[i].mPortActive) {
                     // TODO: (b/79432584) evaluate whether should broadcast card state change
                     // even if it's inactive.
-                    UiccController.updateInternalIccStateForInactivePort(mContext,
-                            mPortIdxToPhoneId.getOrDefault(i, INVALID_PHONE_ID),
-                            iss.mSimPortInfos[i].mIccId);
+                    if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+                        UiccController.getInstance().updateSimStateForInactivePort(
+                                mPortIdxToPhoneId.getOrDefault(i, INVALID_PHONE_ID),
+                                iss.mSimPortInfos[i].mIccId);
+                    } else {
+                        UiccController.updateInternalIccStateForInactivePort(mContext,
+                                mPortIdxToPhoneId.getOrDefault(i, INVALID_PHONE_ID),
+                                iss.mSimPortInfos[i].mIccId);
+                    }
                     mLastRadioState.put(i, TelephonyManager.RADIO_POWER_UNAVAILABLE);
                     if (mUiccCard != null) {
                         // Dispose the port
@@ -224,7 +240,8 @@ public class UiccSlot extends Handler {
             // Since the MEP capability is related with number ports reported, thus need to
             // update the flag after UiccCard creation.
             if (mUiccCard != null) {
-                mUiccCard.updateSupportMultipleEnabledProfile(isMultipleEnabledProfileSupported());
+                mUiccCard.updateSupportMepProperties(isMultipleEnabledProfileSupported(),
+                        getSupportedMepMode());
             }
         }
     }
@@ -319,8 +336,14 @@ public class UiccSlot extends Handler {
             if (DBG) log("update: notify card removed");
             sendMessage(obtainMessage(EVENT_CARD_REMOVED, null));
         }
-        UiccController.updateInternalIccState(mContext, IccCardConstants.State.ABSENT,
-                null, phoneId);
+
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            UiccController.getInstance().updateSimState(phoneId, IccCardConstants.State.ABSENT,
+                    null);
+        } else {
+            UiccController.updateInternalIccState(mContext, IccCardConstants.State.ABSENT,
+                    null, phoneId);
+        }
         // no card present in the slot now; dispose card and make mUiccCard null
         nullifyUiccCard(false /* sim state is not unknown */);
         mLastRadioState.put(portIndex, TelephonyManager.RADIO_POWER_UNAVAILABLE);
@@ -567,14 +590,27 @@ public class UiccSlot extends Handler {
     }
 
     /**
+     * Returns the supported MEP mode.
+     */
+    public MultipleEnabledProfilesMode getSupportedMepMode() {
+        synchronized (mLock) {
+            return mSupportedMepMode;
+        }
+    }
+    /**
      * Processes radio state unavailable event
      */
     public void onRadioStateUnavailable(int phoneId) {
         nullifyUiccCard(true /* sim state is unknown */);
 
         if (phoneId != INVALID_PHONE_ID) {
-            UiccController.updateInternalIccState(
-                    mContext, IccCardConstants.State.UNKNOWN, null, phoneId);
+            if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+                UiccController.getInstance().updateSimState(phoneId,
+                        IccCardConstants.State.UNKNOWN, null);
+            } else {
+                UiccController.updateInternalIccState(
+                        mContext, IccCardConstants.State.UNKNOWN, null, phoneId);
+            }
             mLastRadioState.put(getPortIndexFromPhoneId(phoneId),
                     TelephonyManager.RADIO_POWER_UNAVAILABLE);
         }
@@ -612,6 +648,7 @@ public class UiccSlot extends Handler {
         pw.println(" mPortIdxToPhoneId=" + mPortIdxToPhoneId);
         pw.println(" mEid=" + Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, mEid));
         pw.println(" mCardState=" + mCardState);
+        pw.println(" mSupportedMepMode=" + mSupportedMepMode);
         if (mUiccCard != null) {
             pw.println(" mUiccCard=" + mUiccCard);
             mUiccCard.dump(fd, pw, args);

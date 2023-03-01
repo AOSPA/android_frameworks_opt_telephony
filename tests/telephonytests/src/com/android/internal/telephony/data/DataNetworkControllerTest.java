@@ -43,7 +43,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.annotation.NonNull;
-import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.InetAddresses;
 import android.net.LinkAddress;
@@ -75,6 +74,7 @@ import android.telephony.NetworkRegistrationInfo.RegistrationState;
 import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.telephony.SubscriptionPlan;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
@@ -165,6 +165,7 @@ public class DataNetworkControllerTest extends TelephonyTest {
     private final SparseArray<RegistrantList> mDataCallListChangedRegistrants = new SparseArray<>();
     private DataNetworkController mDataNetworkControllerUT;
     private PersistableBundle mCarrierConfig;
+    private CarrierConfigManager.CarrierConfigChangeListener mCarrierConfigChangeListener;
 
     private AccessNetworksManagerCallback mAccessNetworksManagerCallback;
     private LinkBandwidthEstimatorCallback mLinkBandwidthEstimatorCallback;
@@ -471,9 +472,10 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
     private void carrierConfigChanged() {
         // Trigger carrier config reloading
-        Intent intent = new Intent(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
-        intent.putExtra(CarrierConfigManager.EXTRA_SLOT_INDEX, 0);
-        mContext.sendBroadcast(intent);
+        mCarrierConfigChangeListener.onCarrierConfigChanged(0 /* logicalSlotIndex */,
+                SubscriptionManager.INVALID_SUBSCRIPTION_ID,
+                TelephonyManager.UNKNOWN_CARRIER_ID, TelephonyManager.UNKNOWN_CARRIER_ID);
+
         processAllMessages();
     }
 
@@ -509,9 +511,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
     private void serviceStateChanged(@NetworkType int networkType,
             @RegistrationState int regState) {
-        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED));
+        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED))
+                .build();
 
         serviceStateChanged(networkType, regState, regState,
                 NetworkRegistrationInfo.REGISTRATION_STATE_HOME, dsri);
@@ -541,9 +547,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
             @RegistrationState int dataRegState, @RegistrationState int voiceRegState,
             @RegistrationState int iwlanRegState, DataSpecificRegistrationInfo dsri) {
         if (dsri == null) {
-            dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                    new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
-                            LteVopsSupportInfo.LTE_STATUS_SUPPORTED));
+            dsri = new DataSpecificRegistrationInfo.Builder(8)
+                    .setNrAvailable(true)
+                    .setEnDcAvailable(true)
+                    .setVopsSupportInfo(new LteVopsSupportInfo(
+                            LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
+                            LteVopsSupportInfo.LTE_STATUS_SUPPORTED))
+                    .build();
         }
 
         ServiceState ss = new ServiceState();
@@ -768,6 +778,9 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
         doReturn(-1).when(mPhone).getSubId();
 
+        // Capture listener to emulate the carrier config change notification used later
+        ArgumentCaptor<CarrierConfigManager.CarrierConfigChangeListener> listenerArgumentCaptor =
+                ArgumentCaptor.forClass(CarrierConfigManager.CarrierConfigChangeListener.class);
         // Note that creating a "real" data network controller will also result in creating
         // real DataRetryManager, DataConfigManager, etc...Normally in unit test we should isolate
         // other modules and make them mocked, but only focusing on testing the unit we would like
@@ -775,6 +788,10 @@ public class DataNetworkControllerTest extends TelephonyTest {
         // between DataNetworkController and its sub-modules, we intend to make those modules "real"
         // as well, except some modules below we replaced with mocks.
         mDataNetworkControllerUT = new DataNetworkController(mPhone, Looper.myLooper());
+        verify(mCarrierConfigManager).registerCarrierConfigChangeListener(any(),
+                listenerArgumentCaptor.capture());
+        mCarrierConfigChangeListener = listenerArgumentCaptor.getAllValues().get(0);
+        assertThat(mCarrierConfigChangeListener).isNotNull();
         doReturn(mDataNetworkControllerUT).when(mPhone).getDataNetworkController();
 
         doReturn(1).when(mPhone).getSubId();
@@ -1198,16 +1215,32 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
     @Test
     public void testDataNetworkControllerCallback() throws Exception {
+        Field field = DataNetworkController.class.getDeclaredField(
+                "mDataNetworkControllerCallbacks");
+        field.setAccessible(true);
+        Set<DataNetworkControllerCallback> dataNetworkControllerCallbacks =
+                (Set<DataNetworkControllerCallback>) field.get(mDataNetworkControllerUT);
+
+        // Verify register callback
         mDataNetworkControllerUT.registerDataNetworkControllerCallback(
                 mMockedDataNetworkControllerCallback);
+        TelephonyNetworkRequest request = createNetworkRequest(
+                NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        mDataNetworkControllerUT.addNetworkRequest(request);
         processAllMessages();
-        testSetupDataNetwork();
         verify(mMockedDataNetworkControllerCallback).onAnyDataNetworkExistingChanged(eq(true));
         verify(mMockedDataNetworkControllerCallback).onInternetDataNetworkConnected(any());
 
-        mDataNetworkControllerUT.unregisterDataNetworkControllerCallback(
-                mMockedDataNetworkControllerCallback);
+        int countOfCallbacks = dataNetworkControllerCallbacks.size();
+
+        // Verify unregister callback
+        mDataNetworkControllerUT.removeNetworkRequest(request);
         processAllMessages();
+        getDataNetworks().get(0).tearDown(DataNetwork
+                .TEAR_DOWN_REASON_CONNECTIVITY_SERVICE_UNWANTED);
+        processAllFutureMessages();
+
+        assertEquals(countOfCallbacks - 1, dataNetworkControllerCallbacks.size());
     }
 
     @Test
@@ -1907,7 +1940,7 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
         // Change data network type to NR
         doReturn(new TelephonyDisplayInfo(TelephonyManager.NETWORK_TYPE_NR,
-                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE))
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE, false))
                 .when(mDisplayInfoController).getTelephonyDisplayInfo();
         dataNetwork.sendMessage(13/*EVENT_DISPLAY_INFO_CHANGED*/);
         processAllMessages();
@@ -1950,7 +1983,7 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
         // Change data network type to NR
         doReturn(new TelephonyDisplayInfo(TelephonyManager.NETWORK_TYPE_NR,
-                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE))
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE, false))
                 .when(mDisplayInfoController).getTelephonyDisplayInfo();
         dataNetwork.sendMessage(13/*EVENT_DISPLAY_INFO_CHANGED*/);
         processAllMessages();
@@ -2006,7 +2039,7 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
         // Change data network type to NR
         doReturn(new TelephonyDisplayInfo(TelephonyManager.NETWORK_TYPE_NR,
-                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE))
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE, false))
                 .when(mDisplayInfoController).getTelephonyDisplayInfo();
         dataNetwork.sendMessage(13/*EVENT_DISPLAY_INFO_CHANGED*/);
         processAllMessages();
@@ -3030,9 +3063,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
     @Test
     public void testNonVoPSNoIMSSetup() throws Exception {
-        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED));
+        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED))
+                .build();
         serviceStateChanged(TelephonyManager.NETWORK_TYPE_LTE,
                 NetworkRegistrationInfo.REGISTRATION_STATE_HOME, dsri);
 
@@ -3052,9 +3089,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
         carrierConfigChanged();
 
         // VOPS not supported
-        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED));
+        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED))
+                .build();
         serviceStateChanged(TelephonyManager.NETWORK_TYPE_LTE,
                 NetworkRegistrationInfo.REGISTRATION_STATE_HOME, dsri);
 
@@ -3065,9 +3106,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
         verifyNoConnectedNetworkHasCapability(NetworkCapabilities.NET_CAPABILITY_IMS);
 
         // VoPS supported
-        dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED));
+        dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED))
+                .build();
         serviceStateChanged(TelephonyManager.NETWORK_TYPE_LTE,
                 NetworkRegistrationInfo.REGISTRATION_STATE_HOME, dsri);
 
@@ -3442,7 +3487,7 @@ public class DataNetworkControllerTest extends TelephonyTest {
     @Test
     public void testHandoverDataNetworkSourceOos() throws Exception {
         testSetupImsDataNetwork();
-        // Configured handover is allowed from OOS to 4G/5G/IWLAN.
+        // Configured handover is disallowed from OOS to 4G/5G/IWLAN.
         mCarrierConfig.putStringArray(
                 CarrierConfigManager.KEY_IWLAN_HANDOVER_POLICY_STRING_ARRAY,
                 new String[]{
@@ -3507,9 +3552,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
     public void testHandoverDataNetworkNonVops() throws Exception {
         ServiceState ss = new ServiceState();
 
-        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED));
+        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED))
+                .build();
 
         ss.addNetworkRegistrationInfo(new NetworkRegistrationInfo.Builder()
                 .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
@@ -3570,9 +3619,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
         ServiceState ss = new ServiceState();
 
-        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED));
+        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED))
+                .build();
 
         ss.addNetworkRegistrationInfo(new NetworkRegistrationInfo.Builder()
                 .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
@@ -3630,9 +3683,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
     public void testNonMmtelImsHandoverDataNetworkNonVops() throws Exception {
         ServiceState ss = new ServiceState();
 
-        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED));
+        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED))
+                .build();
 
         ss.addNetworkRegistrationInfo(new NetworkRegistrationInfo.Builder()
                 .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
@@ -3698,9 +3755,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
         ServiceState ss = new ServiceState();
 
         // VoPS network
-        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED));
+        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED))
+                .build();
 
         ss.addNetworkRegistrationInfo(new NetworkRegistrationInfo.Builder()
                 .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
@@ -3745,9 +3806,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
         ss = new ServiceState();
         // Non VoPS network
-        dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED));
+        dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED))
+                .build();
 
         ss.addNetworkRegistrationInfo(new NetworkRegistrationInfo.Builder()
                 .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
@@ -3799,9 +3864,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
         carrierConfigChanged();
 
         // VoPS supported
-        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED));
+        DataSpecificRegistrationInfo dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_SUPPORTED))
+                .build();
         serviceStateChanged(TelephonyManager.NETWORK_TYPE_LTE,
                 NetworkRegistrationInfo.REGISTRATION_STATE_HOME, dsri);
 
@@ -3813,9 +3882,13 @@ public class DataNetworkControllerTest extends TelephonyTest {
 
         doReturn(PhoneConstants.State.OFFHOOK).when(mCT).getState();
 
-        dsri = new DataSpecificRegistrationInfo(8, false, true, true,
-                new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
-                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED));
+        dsri = new DataSpecificRegistrationInfo.Builder(8)
+                .setNrAvailable(true)
+                .setEnDcAvailable(true)
+                .setVopsSupportInfo(new LteVopsSupportInfo(
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED,
+                        LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED))
+                .build();
         serviceStateChanged(TelephonyManager.NETWORK_TYPE_LTE,
                 NetworkRegistrationInfo.REGISTRATION_STATE_HOME, dsri);
 

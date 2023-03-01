@@ -111,6 +111,7 @@ import com.android.internal.telephony.imsphone.ImsPhoneCallTracker;
 import com.android.internal.telephony.metrics.ImsStats;
 import com.android.internal.telephony.metrics.MetricsCollector;
 import com.android.internal.telephony.metrics.PersistAtomsStorage;
+import com.android.internal.telephony.metrics.ServiceStateStats;
 import com.android.internal.telephony.metrics.SmsStats;
 import com.android.internal.telephony.metrics.VoiceCallSessionStats;
 import com.android.internal.telephony.test.SimulatedCommands;
@@ -261,7 +262,7 @@ public abstract class TelephonyTest {
     protected CellLocation mCellLocation;
     protected DataServiceManager mMockedWwanDataServiceManager;
     protected DataServiceManager mMockedWlanDataServiceManager;
-    protected SsDomainController mSsDomainController;
+    protected ServiceStateStats mServiceStateStats;
 
     // Initialized classes
     protected ActivityManager mActivityManager;
@@ -492,7 +493,7 @@ public abstract class TelephonyTest {
         mCellLocation = Mockito.mock(CellLocation.class);
         mMockedWwanDataServiceManager = Mockito.mock(DataServiceManager.class);
         mMockedWlanDataServiceManager = Mockito.mock(DataServiceManager.class);
-        mSsDomainController = Mockito.mock(SsDomainController.class);
+        mServiceStateStats = Mockito.mock(ServiceStateStats.class);
 
         TelephonyManager.disableServiceHandleCaching();
         PropertyInvalidatedCache.disableForTestMode();
@@ -696,7 +697,7 @@ public abstract class TelephonyTest {
         doReturn(ServiceState.RIL_RADIO_TECHNOLOGY_LTE).when(mServiceState)
                 .getRilDataRadioTechnology();
         doReturn(new TelephonyDisplayInfo(TelephonyManager.NETWORK_TYPE_LTE,
-                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE))
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE, false))
                 .when(mDisplayInfoController).getTelephonyDisplayInfo();
         doReturn(mPhone).when(mCT).getPhone();
         doReturn(mImsEcbm).when(mImsManager).getEcbmInterface();
@@ -712,15 +713,13 @@ public abstract class TelephonyTest {
 
         doReturn(TelephonyManager.PHONE_TYPE_GSM).when(mTelephonyManager).getPhoneType();
         doReturn(mServiceState).when(mSST).getServiceState();
+        doReturn(mServiceStateStats).when(mSST).getServiceStateStats();
         mSST.mSS = mServiceState;
         mSST.mRestrictedState = mRestrictedState;
         mServiceManagerMockedServices.put("connectivity_metrics_logger", mConnMetLoggerBinder);
         mServiceManagerMockedServices.put("package", mMockPackageManager);
         mServiceManagerMockedServices.put("legacy_permission", mMockLegacyPermissionManager);
         logd("mMockLegacyPermissionManager replaced");
-        doReturn(new int[]{AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
-                AccessNetworkConstants.TRANSPORT_TYPE_WLAN})
-                .when(mAccessNetworksManager).getAvailableTransports();
         doReturn(new int[]{AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
                 AccessNetworkConstants.TRANSPORT_TYPE_WLAN})
                 .when(mAccessNetworksManager).getAvailableTransports();
@@ -1142,7 +1141,7 @@ public abstract class TelephonyTest {
      * Remove a TestableLooper from the list of monitored loopers
      * @param looper removed if it does exist
      */
-    public void unmonitorTestableLooper(TestableLooper looper) {
+    private void unmonitorTestableLooper(TestableLooper looper) {
         if (mTestableLoopers.contains(looper)) {
             mTestableLoopers.remove(looper);
         }

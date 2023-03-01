@@ -74,6 +74,7 @@ import android.telephony.ims.RegistrationManager;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
 import android.util.ArrayMap;
 import android.util.LocalLog;
+import android.util.Log;
 
 import com.android.ims.ImsException;
 import com.android.ims.ImsManager;
@@ -121,7 +122,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class PhoneSwitcher extends Handler {
     protected static final String LOG_TAG = "PhoneSwitcher";
-    protected static final boolean VDBG = false;
+    protected static final boolean VDBG = Rlog.isLoggable(LOG_TAG, Log.VERBOSE);
 
     /** Fragment "key" argument passed thru {@link #SETTINGS_EXTRA_SHOW_FRAGMENT_ARGUMENTS} */
     private static final String SETTINGS_EXTRA_FRAGMENT_ARG_KEY = ":settings:fragment_args_key";
@@ -477,36 +478,14 @@ public class PhoneSwitcher extends Handler {
         return sPhoneSwitcher;
     }
 
-    /**
-     * Whether this phone IMS registration is on its original network. This result impacts
-     * whether we want to do DDS switch to the phone having voice call.
-     * If it's registered on IWLAN or cross SIM in multi-SIM case, return false. Otherwise,
-     * return true.
-     */
-    private boolean isImsOnOriginalNetwork(Phone phone) {
-        if (phone == null) return false;
-        int phoneId = phone.getPhoneId();
-        if (!SubscriptionManager.isValidPhoneId(phoneId)) return false;
-
-        int imsRegTech = mImsRegTechProvider.get(mContext, phoneId);
-        // If IMS is registered on IWLAN or cross SIM, return false.
-        boolean isOnOriginalNetwork = (imsRegTech != REGISTRATION_TECH_IWLAN)
-                && (imsRegTech != REGISTRATION_TECH_CROSS_SIM);
-        if (!isOnOriginalNetwork) {
-            logl("IMS call on IWLAN or cross SIM. Call will be ignored for DDS switch");
-        }
-        return isOnOriginalNetwork;
-    }
-
-    private boolean isPhoneInVoiceCallChanged() {
+    private boolean updatesIfPhoneInVoiceCallChanged() {
         int oldPhoneIdInVoiceCall = mPhoneIdInVoiceCall;
         // If there's no active call, the value will become INVALID_PHONE_INDEX
         // and internet data will be switched back to system selected or user selected
         // subscription.
         mPhoneIdInVoiceCall = SubscriptionManager.INVALID_PHONE_INDEX;
         for (Phone phone : PhoneFactory.getPhones()) {
-            if (isPhoneInVoiceCall(phone) || (isPhoneInVoiceCall(phone.getImsPhone())
-                    && isImsOnOriginalNetwork(phone))) {
+            if (isPhoneInVoiceCall(phone) || isPhoneInVoiceCall(phone.getImsPhone())) {
                 mPhoneIdInVoiceCall = phone.getPhoneId();
                 break;
             }
@@ -565,8 +544,14 @@ public class PhoneSwitcher extends Handler {
         mMaxDataAttachModemCount = maxActivePhones;
         mLocalLog = new LocalLog(MAX_LOCAL_LOG_LINES);
 
-        mSubscriptionController = SubscriptionController.getInstance();
-        mSubscriptionManagerService = SubscriptionManagerService.getInstance();
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            mSubscriptionManagerService = SubscriptionManagerService.getInstance();
+            mSubscriptionController = null;
+        } else {
+            mSubscriptionController = SubscriptionController.getInstance();
+            mSubscriptionManagerService = null;
+        }
+
         mRadioConfig = RadioConfig.getInstance();
         mValidator = CellularNetworkValidator.getInstance();
 
@@ -602,8 +587,7 @@ public class PhoneSwitcher extends Handler {
                             public void onDataEnabledChanged(boolean enabled,
                                     @TelephonyManager.DataEnabledChangedReason int reason,
                                     @NonNull String callingPackage) {
-                                logl("user changed data settings");
-                                evaluateIfAutoSwitchIsNeeded();
+                                PhoneSwitcher.this.onDataEnabledChanged();
                             }
 
                             @Override
@@ -816,7 +800,7 @@ public class PhoneSwitcher extends Handler {
                 onEvaluate(REQUESTS_UNCHANGED, EVALUATION_REASON_RADIO_ON);
                 break;
             }
-            case EVENT_IMS_RADIO_TECH_CHANGED:
+            case EVENT_IMS_RADIO_TECH_CHANGED: {
                 // register for radio tech change to listen to radio tech handover in case previous
                 // attempt was not successful
                 registerForImsRadioTechChange();
@@ -824,14 +808,14 @@ public class PhoneSwitcher extends Handler {
                     log("EVENT_IMS_RADIO_TECH_CHANGED reevaluate after call");
                     break;
                 }
-                // If the phoneId in voice call didn't change, do nothing.
-                if (!isPhoneInVoiceCallChanged()) {
-                    break;
+                // if voice call state changes or in voice call didn't change
+                // but RAT changes(e.g. Iwlan -> cross sim), reevaluate for data switch.
+                if (updatesIfPhoneInVoiceCallChanged() || isAnyVoiceCallActiveOnDevice()) {
+                    evaluateIfImmediateDataSwitchIsNeeded("Ims radio tech changed",
+                            DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
                 }
-                evaluateIfImmediateDataSwitchIsNeeded("Ims radio tech changed",
-                        DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
                 break;
-
+            }
             case EVENT_PRECISE_CALL_STATE_CHANGED: {
                 // register for radio tech change to listen to radio tech handover in case previous
                 // attempt was not successful
@@ -840,9 +824,9 @@ public class PhoneSwitcher extends Handler {
                 // When smart temp dds is enabled, need to identify whether emergency override is
                 // taking effective, otherwise, if the phoneId in voice call didn't change,
                 // do nothing.
-                if (shouldEvaluateAfterCallStateChange && !isPhoneInVoiceCallChanged()) {
+                if (shouldEvaluateAfterCallStateChange && !updatesIfPhoneInVoiceCallChanged()) {
                     break;
-                } else if (isNddsPhoneIdle() && isPhoneInVoiceCallChanged()) {
+                } else if (isNddsPhoneIdle() && updatesIfPhoneInVoiceCallChanged()) {
                     // When smart temp dds is enabled & DDS sub is PIN-1 enabled, modem would not
                     // send recommendation on voice call end if DDS sub is hot-swapped and PIN-1
                     // is not entered while call was active.  Re-evaluate voice call phoneid once
@@ -880,6 +864,10 @@ public class PhoneSwitcher extends Handler {
                 if (shouldEvaluateAfterCallStateChange) {
                     evaluateIfImmediateDataSwitchIsNeeded("precise call state changed",
                             DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
+                    if (!isAnyVoiceCallActiveOnDevice()) {
+                        // consider auto switch on hang up all voice call
+                        evaluateIfAutoSwitchIsNeeded();
+                    }
                 }
                 break;
             }
@@ -1057,10 +1045,7 @@ public class PhoneSwitcher extends Handler {
                         public void onDataEnabledChanged(boolean enabled,
                                 @TelephonyManager.DataEnabledChangedReason int reason,
                                 @NonNull String callingPackage) {
-                            logl("user changed data settings");
-                            evaluateIfImmediateDataSwitchIsNeeded("user changed data settings",
-                                    DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
-                            evaluateIfAutoSwitchIsNeeded();
+                            PhoneSwitcher.this.onDataEnabledChanged();
                         }
                     });
             phone.getDataSettingsManager().registerCallback(
@@ -1071,6 +1056,23 @@ public class PhoneSwitcher extends Handler {
             Set<CommandException.Error> ddsFailure = new HashSet<CommandException.Error>();
             mCurrentDdsSwitchFailure.add(ddsFailure);
             registerForImsRadioTechChange(mContext, phoneId);
+        }
+    }
+
+    /**
+     * Called when
+     * 1. user changed mobile data settings
+     * 2. OR user changed auto data switch feature
+     */
+    private void onDataEnabledChanged() {
+        logl("user changed data related settings");
+        if (isAnyVoiceCallActiveOnDevice()) {
+            // user changed data related settings during call, switch or turn off immediately
+            evaluateIfImmediateDataSwitchIsNeeded(
+                    "user changed data settings during call",
+                    DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
+        } else {
+            evaluateIfAutoSwitchIsNeeded();
         }
     }
 
@@ -1171,7 +1173,7 @@ public class PhoneSwitcher extends Handler {
                     .getRegistrationState();
             if (newRegState != mPhoneStates[phoneId].dataRegState) {
                 mPhoneStates[phoneId].dataRegState = newRegState;
-                logl("onServiceStateChanged:phoneId:" + phoneId + " dataReg-> "
+                logl("onServiceStateChanged: phoneId:" + phoneId + " dataReg-> "
                         + NetworkRegistrationInfo.registrationStateToString(newRegState));
                 if (!hasMessages(EVENT_EVALUATE_AUTO_SWITCH)) {
                     sendEmptyMessage(EVENT_EVALUATE_AUTO_SWITCH);
@@ -1214,14 +1216,6 @@ public class PhoneSwitcher extends Handler {
         if (mPreferredDataPhoneId == primaryPhoneId) {
             // on primary data sub
 
-            if (isAnyVoiceCallActiveOnDevice()) {
-                // if on voice call, switch immediately
-                evaluateIfImmediateDataSwitchIsNeeded(
-                        "user updates data settings during voice call",
-                        DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
-                return;
-            }
-
             int candidateSubId = getAutoSwitchTargetSubIdIfExists();
             if (candidateSubId != INVALID_SUBSCRIPTION_ID) {
                 startAutoDataSwitchStabilityCheck(candidateSubId, true);
@@ -1244,7 +1238,7 @@ public class PhoneSwitcher extends Handler {
                     .getNetworkCapabilities(mConnectivityManager.getActiveNetwork());
             if (defaultNetworkCapabilities != null && !defaultNetworkCapabilities
                     .hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
-                log("evaluateIfAutoSwitchIsNeeded:"
+                log("evaluateIfAutoSwitchIsNeeded: "
                         + "Default network is active on non-cellular transport");
                 startAutoDataSwitchStabilityCheck(DEFAULT_SUBSCRIPTION_ID, false);
                 return;
@@ -1440,7 +1434,7 @@ public class PhoneSwitcher extends Handler {
         if (hasAnyActiveSubscription) updatePreferredDataPhoneId();
 
         if (oldPreferredDataPhoneId != mPreferredDataPhoneId) {
-            sb.append(" preferred phoneId ").append(oldPreferredDataPhoneId)
+            sb.append(" preferred data phoneId ").append(oldPreferredDataPhoneId)
                     .append("->").append(mPreferredDataPhoneId);
             diffDetected = true;
         } else if (oldPreferredDataSubId != mPreferredDataSubId.get()) {
@@ -1693,61 +1687,9 @@ public class PhoneSwitcher extends Handler {
         }
     }
 
-    private int getSubIdForDefaultNetworkRequests() {
-        if (isActiveSubId(mAutoSelectedDataSubId)) {
-            return mAutoSelectedDataSubId;
-        } else {
-            return mPrimaryDataSubId;
-        }
-    }
-
     // This updates mPreferredDataPhoneId which decides which phone should handle default network
     // requests.
     protected void updatePreferredDataPhoneId() {
-        log("updatePreferredDataPhoneId+");
-        Phone voicePhone = findPhoneById(mPhoneIdInVoiceCall);
-        // check user enabled data on the default phone
-        Phone defaultDataPhone = getPhoneBySubId(mPrimaryDataSubId);
-        boolean isDataAllowedOnVoiceCallSub = false;
-        if (voicePhone != null && defaultDataPhone != null
-                && defaultDataPhone.isUserDataEnabled()) {
-            // check voice during call feature is enabled
-            isDataAllowedOnVoiceCallSub = voicePhone.isDataAllowed();
-        }
-
-        if (mPhoneIdInVoiceCall != mPreferredDataPhoneId) {
-            Phone preferredDataPhone = findPhoneById(mPreferredDataPhoneId);
-            if (preferredDataPhone != null) {
-
-                // when DDS mobile data setting is turned off, do not trigger temp DDS switch
-                isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
-                        && preferredDataPhone.getDataSettingsManager().isDataEnabled();
-                log("data enabled on DDS: " + isDataAllowedOnVoiceCallSub);
-
-                // when DDS is in roaming, and data roaming for DDS is turned off,
-                // do not trigger temp DDS switch
-                try {
-                    if (preferredDataPhone.getServiceState().getDataRoaming()) {
-                        isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
-                                && preferredDataPhone.getDataRoamingEnabled();
-                    }
-                } catch (NullPointerException e) {
-                    Rlog.e(LOG_TAG, "Exception while checking roaming state for DDS", e);
-                }
-            }
-            // As per customizations, the data of nDDS SUB is no longer disabled, so the API
-            // isDataEnabled(apn) can't control "data during call" individually.
-            // Here it is not intended to change the logic for the API, but only consider the
-            // option "data during call" separately once again, and when data is off, data still
-            // works as long as the "data during call" is enabled in case of nDDS voice call.
-            if (voicePhone != null) {
-                isDataAllowedOnVoiceCallSub = isDataAllowedOnVoiceCallSub
-                        && voicePhone.getDataSettingsManager().isMobileDataPolicyEnabled(TelephonyManager
-                        .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL);
-            }
-        }
-        log("updatePreferredDataPhoneId isDataAllowedOnVoiceCallSub: "
-                + isDataAllowedOnVoiceCallSub);
         if (mEmergencyOverride != null && findPhoneById(mEmergencyOverride.mPhoneId) != null) {
             // Override DDS for emergency even if user data is not enabled, since it is an
             // emergency.
@@ -1757,29 +1699,54 @@ public class PhoneSwitcher extends Handler {
                     + " phoneId = " + mEmergencyOverride.mPhoneId);
             mPreferredDataPhoneId = mEmergencyOverride.mPhoneId;
             mLastSwitchPreferredDataReason = DataSwitch.Reason.DATA_SWITCH_REASON_UNKNOWN;
-        } else if (isDataAllowedOnVoiceCallSub) {
-            // If a phone is in call and user enabled its mobile data, we
-            // should switch internet connection to it. Because the other modem
-            // will lose data connection anyway.
-            mPreferredDataPhoneId = mPhoneIdInVoiceCall;
-            mLastSwitchPreferredDataReason = DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL;
         } else {
-            int subId = getSubIdForDefaultNetworkRequests();
-            int phoneId = SubscriptionManager.INVALID_PHONE_INDEX;
-
-            if (SubscriptionManager.isUsableSubIdValue(subId)) {
-                for (int i = 0; i < mActiveModemCount; i++) {
-                    if (mPhoneSubscriptions[i] == subId) {
-                        phoneId = i;
-                        break;
-                    }
+            int imsRegTech = mImsRegTechProvider.get(mContext, mPhoneIdInVoiceCall);
+            if (isAnyVoiceCallActiveOnDevice() && imsRegTech != REGISTRATION_TECH_IWLAN) {
+                if (imsRegTech != REGISTRATION_TECH_CROSS_SIM) {
+                    mPreferredDataPhoneId = shouldSwitchDataDueToInCall()
+                            ? mPhoneIdInVoiceCall : getFallbackDataPhoneIdForInternetRequests();
+                } else {
+                    logl("IMS call on cross-SIM, skip switching data to phone "
+                            + mPhoneIdInVoiceCall);
                 }
+            } else {
+                mPreferredDataPhoneId = getFallbackDataPhoneIdForInternetRequests();
             }
-
-            mPreferredDataPhoneId = phoneId;
         }
 
         mPreferredDataSubId.set(SubscriptionManager.getSubscriptionId(mPreferredDataPhoneId));
+    }
+
+    /**
+     * @return the default data phone Id (or auto selected phone Id in auto data switch/CBRS case)
+     */
+    private int getFallbackDataPhoneIdForInternetRequests() {
+        int fallbackSubId = isActiveSubId(mAutoSelectedDataSubId)
+                ? mAutoSelectedDataSubId : mPrimaryDataSubId;
+
+        if (SubscriptionManager.isUsableSubIdValue(fallbackSubId)) {
+            for (int phoneId = 0; phoneId < mActiveModemCount; phoneId++) {
+                if (mPhoneSubscriptions[phoneId] == fallbackSubId) {
+                    return phoneId;
+                }
+            }
+        }
+        return SubscriptionManager.INVALID_PHONE_INDEX;
+    }
+
+    /**
+     * If a phone is in call and user enabled its mobile data and auto data switch feature, we
+     * should switch internet connection to it because the other modem will lose data connection
+     * anyway.
+     * @return {@code true} if should switch data to the phone in voice call
+     */
+    private boolean shouldSwitchDataDueToInCall() {
+        Phone voicePhone = findPhoneById(mPhoneIdInVoiceCall);
+        Phone defaultDataPhone = getPhoneBySubId(mPrimaryDataSubId);
+        return defaultDataPhone != null // check user enabled data
+                && defaultDataPhone.isUserDataEnabled()
+                && voicePhone != null // check user enabled voice during call feature
+                && voicePhone.isDataAllowed();
     }
 
     protected void transitionToEmergencyPhone() {
@@ -2341,7 +2308,7 @@ public class PhoneSwitcher extends Handler {
             subInfo = mSubscriptionController.getSubscriptionInfo(mAutoSelectedDataSubId);
         }
         if (subInfo == null || subInfo.isOpportunistic()) {
-            loge("displayAutoDataSwitchNotification:mAutoSelectedDataSubId="
+            loge("displayAutoDataSwitchNotification: mAutoSelectedDataSubId="
                     + mAutoSelectedDataSubId + " unexpected subInfo " + subInfo);
             return;
         }

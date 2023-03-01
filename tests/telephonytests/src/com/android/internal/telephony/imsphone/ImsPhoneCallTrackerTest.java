@@ -33,8 +33,11 @@ import static android.telephony.TelephonyManager.SRVCC_STATE_HANDOVER_CANCELED;
 import static android.telephony.TelephonyManager.SRVCC_STATE_HANDOVER_COMPLETED;
 import static android.telephony.TelephonyManager.SRVCC_STATE_HANDOVER_FAILED;
 import static android.telephony.TelephonyManager.SRVCC_STATE_HANDOVER_STARTED;
+import static android.telephony.emergency.EmergencyNumber.EMERGENCY_SERVICE_CATEGORY_AMBULANCE;
 import static android.telephony.ims.ImsStreamMediaProfile.DIRECTION_INACTIVE;
 import static android.telephony.ims.ImsStreamMediaProfile.DIRECTION_SEND_RECEIVE;
+import static android.telephony.ims.feature.MmTelFeature.IMS_TRAFFIC_DIRECTION_INCOMING;
+import static android.telephony.ims.feature.MmTelFeature.IMS_TRAFFIC_DIRECTION_OUTGOING;
 
 import static com.android.testutils.NetworkStatsUtilsKt.assertNetworkStatsEquals;
 
@@ -79,11 +82,13 @@ import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
 import android.telecom.VideoProfile;
+import android.telephony.AccessNetworkConstants;
 import android.telephony.CarrierConfigManager;
 import android.telephony.DisconnectCause;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
+import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.ImsCallSession;
 import android.telephony.ims.ImsConferenceState;
@@ -92,6 +97,7 @@ import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsStreamMediaProfile;
 import android.telephony.ims.RtpHeaderExtensionType;
 import android.telephony.ims.SrvccCall;
+import android.telephony.ims.aidl.IImsTrafficSessionCallback;
 import android.telephony.ims.aidl.ISrvccStartedCallback;
 import android.telephony.ims.feature.ImsFeature;
 import android.telephony.ims.feature.MmTelFeature;
@@ -115,6 +121,7 @@ import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.IccCardConstants;
+import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.SrvccConnection;
 import com.android.internal.telephony.TelephonyTest;
@@ -128,6 +135,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
@@ -162,6 +170,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     private ImsPhoneConnection mImsPhoneConnection;
     private INetworkStatsProviderCallback mVtDataUsageProviderCb;
     private ImsPhoneCallTracker.ConnectorFactory mConnectorFactory;
+    private CommandsInterface mMockCi;
 
     private final Executor mExecutor = Runnable::run;
 
@@ -233,6 +242,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         mSecondImsCall = spy(new ImsCall(mContext, mImsCallProfile));
         mImsPhoneConnectionListener = mock(ImsPhoneConnection.Listener.class);
         mImsPhoneConnection = mock(ImsPhoneConnection.class);
+        mMockCi = mock(CommandsInterface.class);
         imsCallMocking(mImsCall);
         imsCallMocking(mSecondImsCall);
         doReturn(ImsFeature.STATE_READY).when(mImsManager).getImsServiceState();
@@ -565,7 +575,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         assertEquals(PhoneConstants.State.IDLE, mCTUT.getState());
         assertFalse(mCTUT.mRingingCall.isRinging());
         // mock a MT call
-        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), Bundle.EMPTY);
+        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), null, Bundle.EMPTY);
         verify(mImsPhone, times(1)).notifyNewRingingConnection((Connection) any());
         verify(mImsPhone, times(1)).notifyIncomingRing();
         assertEquals(PhoneConstants.State.RINGING, mCTUT.getState());
@@ -718,7 +728,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
             ex.printStackTrace();
             Assert.fail("unexpected exception thrown" + ex.getMessage());
         }
-        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), Bundle.EMPTY);
+        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), null, Bundle.EMPTY);
 
         verify(mImsPhone, times(2)).notifyNewRingingConnection((Connection) any());
         verify(mImsPhone, times(2)).notifyIncomingRing();
@@ -756,7 +766,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
             ex.printStackTrace();
             Assert.fail("unexpected exception thrown" + ex.getMessage());
         }
-        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), Bundle.EMPTY);
+        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), null, Bundle.EMPTY);
 
         verify(mImsPhone, times(2)).notifyNewRingingConnection((Connection) any());
         verify(mImsPhone, times(2)).notifyIncomingRing();
@@ -948,7 +958,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         try {
             doReturn(mSecondImsCall).when(mImsManager).takeCall(any(IImsCallSession.class),
                     any(ImsCall.Listener.class));
-            mMmTelListener.onIncomingCall(mock(IImsCallSession.class), Bundle.EMPTY);
+            mMmTelListener.onIncomingCall(mock(IImsCallSession.class), null, Bundle.EMPTY);
             mCTUT.acceptCall(ImsCallProfile.CALL_TYPE_VOICE);
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -1463,6 +1473,45 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         verify(mImsPhone, never()).startOnHoldTone(nullable(Connection.class));
     }
 
+    @Test
+    @SmallTest
+    public void testSendAnbrQuery() throws Exception {
+        logd("ImsPhoneCallTracker testSendAnbrQuery");
+
+        replaceInstance(Phone.class, "mCi", mPhone, mMockCi);
+        //establish a MT call
+        testImsMTCallAccept();
+
+        ImsPhoneConnection connection = mCTUT.mForegroundCall.getFirstConnection();
+        ImsCall imsCall = connection.getImsCall();
+        imsCall.getImsCallSessionListenerProxy().callSessionSendAnbrQuery(1, 1, 24400);
+
+        verify(mMockCi, times(1)).sendAnbrQuery(eq(1), eq(1), eq(24400), any());
+
+        // Disconnecting and then Disconnected
+        mCTUT.hangup(connection);
+        mImsCallListener.onCallTerminated(imsCall,
+                new ImsReasonInfo(ImsReasonInfo.CODE_USER_TERMINATED, 0));
+    }
+
+    @Test
+    @SmallTest
+    public void testTriggerNotifyAnbr() throws Exception {
+        logd("ImsPhoneCallTracker testTriggerNotifyAnbr");
+
+        testImsMTCallAccept();
+        ImsPhoneConnection connection = mCTUT.mForegroundCall.getFirstConnection();
+        ImsCall imsCall = connection.getImsCall();
+
+        mCTUT.triggerNotifyAnbr(1, 1, 24400);
+        verify(mImsCall, times(1)).callSessionNotifyAnbr(eq(1), eq(1), eq(24400));
+
+        // Disconnecting and then Disconnected
+        mCTUT.hangup(connection);
+        mImsCallListener.onCallTerminated(imsCall,
+                new ImsReasonInfo(ImsReasonInfo.CODE_USER_TERMINATED, 0));
+    }
+
     /**
      * Verifies that a remote hold tone is played when the call is remotely held and the media
      * direction is inactive (i.e. the audio stream is not playing, so we should play the tone).
@@ -1778,7 +1827,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         assertEquals(PhoneConstants.State.IDLE, mCTUT.getState());
         assertFalse(mCTUT.mRingingCall.isRinging());
         // mock a MT call
-        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), Bundle.EMPTY);
+        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), null, Bundle.EMPTY);
         verify(mImsPhone, times(1)).notifyNewRingingConnection((Connection) any());
         verify(mImsPhone, times(1)).notifyIncomingRing();
         assertEquals(PhoneConstants.State.RINGING, mCTUT.getState());
@@ -1816,7 +1865,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         assertEquals(PhoneConstants.State.IDLE, mCTUT.getState());
         assertFalse(mCTUT.mRingingCall.isRinging());
         // mock a MT call
-        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), Bundle.EMPTY);
+        mMmTelListener.onIncomingCall(mock(IImsCallSession.class), null, Bundle.EMPTY);
         verify(mImsPhone, times(1)).notifyNewRingingConnection((Connection) any());
         verify(mImsPhone, times(1)).notifyIncomingRing();
         assertEquals(PhoneConstants.State.RINGING, mCTUT.getState());
@@ -2338,6 +2387,204 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         assertTrue(srvccConnections[1].isMultiParty());
         assertFalse(srvccConnections[1].isIncoming());
         assertEquals("5678", srvccConnections[1].getNumber());
+    }
+
+    /**
+     * Verifies that the expected access network tech and IMS features are notified
+     * to ImsPhone when capabilities are changed.
+     */
+    @Test
+    @SmallTest
+    public void testUpdateImsRegistrationInfo() {
+        // LTE is registered.
+        doReturn(ImsRegistrationImplBase.REGISTRATION_TECH_LTE).when(
+                mImsManager).getRegistrationTech();
+
+        // enable Voice and Video
+        MmTelFeature.MmTelCapabilities caps = new MmTelFeature.MmTelCapabilities();
+        caps.addCapabilities(MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE);
+        caps.addCapabilities(MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO);
+        mCapabilityCallback.onCapabilitiesStatusChanged(caps);
+        processAllMessages();
+
+        verify(mImsPhone, times(1)).updateImsRegistrationInfo(
+                eq(CommandsInterface.IMS_MMTEL_CAPABILITY_VOICE
+                        | CommandsInterface.IMS_MMTEL_CAPABILITY_VIDEO));
+
+        // enable SMS
+        caps = new MmTelFeature.MmTelCapabilities();
+        caps.addCapabilities(MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_SMS);
+        mCapabilityCallback.onCapabilitiesStatusChanged(caps);
+        processAllMessages();
+
+        verify(mImsPhone, times(1)).updateImsRegistrationInfo(
+                eq(CommandsInterface.IMS_MMTEL_CAPABILITY_SMS));
+    }
+
+    @Test
+    @SmallTest
+    public void testDomainSelectionAlternateService() {
+        startOutgoingCall();
+        ImsPhoneConnection c = mCTUT.mForegroundCall.getFirstConnection();
+        mImsCallProfile.setEmergencyServiceCategories(EMERGENCY_SERVICE_CATEGORY_AMBULANCE);
+        mImsCallListener.onCallStartFailed(mSecondImsCall,
+                new ImsReasonInfo(ImsReasonInfo.CODE_SIP_ALTERNATE_EMERGENCY_CALL, -1));
+        processAllMessages();
+        EmergencyNumber emergencyNumber = c.getEmergencyNumberInfo();
+        assertNotNull(emergencyNumber);
+        assertEquals(EMERGENCY_SERVICE_CATEGORY_AMBULANCE,
+                emergencyNumber.getEmergencyServiceCategoryBitmask());
+    }
+
+    @Test
+    public void testUpdateImsCallStatusIncoming() throws Exception {
+        // Incoming call
+        ImsPhoneConnection connection = setupRingingConnection();
+
+        verify(mImsPhone, times(1)).updateImsCallStatus(any(), any());
+
+        // Disconnect the call
+        mImsCallListener.onCallTerminated(connection.getImsCall(),
+                new ImsReasonInfo(ImsReasonInfo.CODE_USER_TERMINATED_BY_REMOTE, 0));
+
+        verify(mImsPhone, times(2)).updateImsCallStatus(any(), any());
+    }
+
+    @Test
+    public void testUpdateImsCallStatus() throws Exception {
+        // Dialing
+        ImsPhoneConnection connection = placeCall();
+
+        verify(mImsPhone, times(1)).updateImsCallStatus(any(), any());
+
+        // Alerting
+        ImsCall imsCall = connection.getImsCall();
+        imsCall.getImsCallSessionListenerProxy().callSessionProgressing(imsCall.getSession(),
+                new ImsStreamMediaProfile());
+
+        verify(mImsPhone, times(2)).updateImsCallStatus(any(), any());
+
+        // Active
+        imsCall.getImsCallSessionListenerProxy().callSessionStarted(imsCall.getSession(),
+                new ImsCallProfile());
+
+        verify(mImsPhone, times(3)).updateImsCallStatus(any(), any());
+
+        // Held by remote
+        mCTUT.onCallHoldReceived(imsCall);
+
+        verify(mImsPhone, times(4)).updateImsCallStatus(any(), any());
+
+        // Resumed by remote
+        mImsCallListener.onCallResumeReceived(imsCall);
+
+        verify(mImsPhone, times(5)).updateImsCallStatus(any(), any());
+
+        // Disconnecting and then Disconnected
+        mCTUT.hangup(connection);
+        mImsCallListener.onCallTerminated(imsCall,
+                new ImsReasonInfo(ImsReasonInfo.CODE_USER_TERMINATED, 0));
+
+        verify(mImsPhone, times(7)).updateImsCallStatus(any(), any());
+    }
+
+    @Test
+    public void testUpdateImsCallStatusSrvccCompleted() throws Exception {
+        // Incoming call
+        setupRingingConnection();
+
+        verify(mImsPhone, times(1)).updateImsCallStatus(any(), any());
+
+        // no interaction when SRVCC has started, failed, or canceled.
+        mCTUT.notifySrvccState(SRVCC_STATE_HANDOVER_STARTED);
+
+        verify(mImsPhone, times(1)).updateImsCallStatus(any(), any());
+
+        mCTUT.notifySrvccState(SRVCC_STATE_HANDOVER_FAILED);
+
+        verify(mImsPhone, times(1)).updateImsCallStatus(any(), any());
+
+        mCTUT.notifySrvccState(SRVCC_STATE_HANDOVER_CANCELED);
+
+        verify(mImsPhone, times(1)).updateImsCallStatus(any(), any());
+
+        // interaction when SRVCC has completed
+        mCTUT.notifySrvccState(SRVCC_STATE_HANDOVER_COMPLETED);
+
+        verify(mImsPhone, times(2)).updateImsCallStatus(any(), any());
+    }
+
+    @Test
+    public void testClearAllOrphanedConnectionInfo() throws Exception {
+        verify(mImsPhone, times(0)).updateImsCallStatus(any(), any());
+
+        mConnectorListener.connectionUnavailable(FeatureConnector.UNAVAILABLE_REASON_DISCONNECTED);
+
+        verify(mImsPhone, times(1)).updateImsCallStatus(any(), any());
+    }
+
+    /** Verifies that the request from ImsService is passed to ImsPhone as expected. */
+    @Test
+    @SmallTest
+    public void testStartAndStopImsTrafficSession() {
+        IImsTrafficSessionCallback binder = Mockito.mock(IImsTrafficSessionCallback.class);
+        mMmTelListener.onStartImsTrafficSession(1, MmTelFeature.IMS_TRAFFIC_TYPE_EMERGENCY,
+                AccessNetworkConstants.AccessNetworkType.EUTRAN,
+                IMS_TRAFFIC_DIRECTION_OUTGOING, binder);
+        verify(mImsPhone, times(1)).startImsTraffic(eq(1),
+                eq(MmTelFeature.IMS_TRAFFIC_TYPE_EMERGENCY),
+                eq(AccessNetworkConstants.AccessNetworkType.EUTRAN),
+                eq(IMS_TRAFFIC_DIRECTION_OUTGOING), any());
+
+        mMmTelListener.onStopImsTrafficSession(1);
+        verify(mImsPhone, times(1)).stopImsTraffic(eq(1), any());
+
+        mMmTelListener.onStartImsTrafficSession(2, MmTelFeature.IMS_TRAFFIC_TYPE_EMERGENCY_SMS,
+                AccessNetworkConstants.AccessNetworkType.IWLAN,
+                IMS_TRAFFIC_DIRECTION_OUTGOING, binder);
+        verify(mImsPhone, times(1)).startImsTraffic(eq(2),
+                eq(MmTelFeature.IMS_TRAFFIC_TYPE_EMERGENCY_SMS),
+                eq(AccessNetworkConstants.AccessNetworkType.IWLAN),
+                eq(IMS_TRAFFIC_DIRECTION_OUTGOING), any());
+
+        mMmTelListener.onStartImsTrafficSession(3, MmTelFeature.IMS_TRAFFIC_TYPE_VOICE,
+                AccessNetworkConstants.AccessNetworkType.EUTRAN,
+                IMS_TRAFFIC_DIRECTION_INCOMING, binder);
+        verify(mImsPhone, times(1)).startImsTraffic(eq(3),
+                eq(MmTelFeature.IMS_TRAFFIC_TYPE_VOICE),
+                eq(AccessNetworkConstants.AccessNetworkType.EUTRAN),
+                eq(IMS_TRAFFIC_DIRECTION_INCOMING), any());
+
+        mMmTelListener.onStartImsTrafficSession(4, MmTelFeature.IMS_TRAFFIC_TYPE_VIDEO,
+                AccessNetworkConstants.AccessNetworkType.EUTRAN,
+                IMS_TRAFFIC_DIRECTION_OUTGOING, binder);
+        verify(mImsPhone, times(1)).startImsTraffic(eq(4),
+                eq(MmTelFeature.IMS_TRAFFIC_TYPE_VIDEO),
+                eq(AccessNetworkConstants.AccessNetworkType.EUTRAN),
+                eq(IMS_TRAFFIC_DIRECTION_OUTGOING), any());
+
+        mMmTelListener.onStartImsTrafficSession(5, MmTelFeature.IMS_TRAFFIC_TYPE_SMS,
+                AccessNetworkConstants.AccessNetworkType.EUTRAN,
+                IMS_TRAFFIC_DIRECTION_OUTGOING, binder);
+        verify(mImsPhone, times(1)).startImsTraffic(eq(5),
+                eq(MmTelFeature.IMS_TRAFFIC_TYPE_SMS),
+                eq(AccessNetworkConstants.AccessNetworkType.EUTRAN),
+                eq(IMS_TRAFFIC_DIRECTION_OUTGOING), any());
+
+        mMmTelListener.onStartImsTrafficSession(6, MmTelFeature.IMS_TRAFFIC_TYPE_REGISTRATION,
+                AccessNetworkConstants.AccessNetworkType.EUTRAN,
+                IMS_TRAFFIC_DIRECTION_OUTGOING, binder);
+        verify(mImsPhone, times(1)).startImsTraffic(eq(6),
+                eq(MmTelFeature.IMS_TRAFFIC_TYPE_REGISTRATION),
+                eq(AccessNetworkConstants.AccessNetworkType.EUTRAN),
+                eq(IMS_TRAFFIC_DIRECTION_OUTGOING), any());
+
+        mMmTelListener.onModifyImsTrafficSession(6,
+                AccessNetworkConstants.AccessNetworkType.IWLAN);
+        verify(mImsPhone, times(1)).startImsTraffic(eq(6),
+                eq(MmTelFeature.IMS_TRAFFIC_TYPE_REGISTRATION),
+                eq(AccessNetworkConstants.AccessNetworkType.IWLAN),
+                eq(IMS_TRAFFIC_DIRECTION_OUTGOING), any());
     }
 
     private void sendCarrierConfigChanged() {

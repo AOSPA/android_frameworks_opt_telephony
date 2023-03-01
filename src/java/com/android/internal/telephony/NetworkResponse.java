@@ -478,6 +478,30 @@ public class NetworkResponse extends IRadioNetworkResponse.Stub {
     }
 
     /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void setNullCipherAndIntegrityEnabledResponse(RadioResponseInfo responseInfo) {
+        RadioResponse.responseVoid(HAL_SERVICE_NETWORK, mRil, responseInfo);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error.
+     * @param isEnabled Indicates whether null cipher and integrity is enabled, indicating
+     *                  potentially unencrypted communication
+     */
+    public void isNullCipherAndIntegrityEnabledResponse(RadioResponseInfo responseInfo,
+                    boolean isEnabled) {
+        RILRequest rr = mRil.processResponse(HAL_SERVICE_NETWORK, responseInfo);
+
+        if (rr != null) {
+            if (responseInfo.error == RadioError.NONE) {
+                RadioResponse.sendMessageResponse(rr.mResult, isEnabled);
+            }
+            mRil.processResponseDone(rr, responseInfo, isEnabled);
+        }
+    }
+
+    /**
      * @param responseInfo Response info struct containing response type, serial no. and error.
      * @param isEnabled Indicates whether N1 mode is enabled or not.
      */
@@ -499,22 +523,6 @@ public class NetworkResponse extends IRadioNetworkResponse.Stub {
         RadioResponse.responseVoid(HAL_SERVICE_NETWORK, mRil, responseInfo);
     }
 
-    /**
-     * @param responseInfo Response info struct containing response type, serial no. and error
-     */
-    public void setLocationPrivacySettingResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(HAL_SERVICE_NETWORK, mRil, responseInfo);
-    }
-
-    /**
-     * @param responseInfo Response info struct containing response type, serial no. and error.
-     * @param shareLocation Indicates whether the location sharing is allowed or not.
-     */
-    public void getLocationPrivacySettingResponse(
-            RadioResponseInfo responseInfo, boolean shareLocation) {
-        RadioResponse.responseInts(HAL_SERVICE_NETWORK, mRil, responseInfo, shareLocation ? 1 : 0);
-    }
-
     @Override
     public String getInterfaceHash() {
         return IRadioNetworkResponse.HASH;
@@ -523,13 +531,6 @@ public class NetworkResponse extends IRadioNetworkResponse.Stub {
     @Override
     public int getInterfaceVersion() {
         return IRadioNetworkResponse.VERSION;
-    }
-
-    /**
-     * @param responseInfo Response info struct containing response type, serial no. and error
-     */
-    public void setNullCipherAndIntegrityEnabledResponse(RadioResponseInfo responseInfo) {
-        RadioResponse.responseVoid(HAL_SERVICE_NETWORK, mRil, responseInfo);
     }
 
 }
