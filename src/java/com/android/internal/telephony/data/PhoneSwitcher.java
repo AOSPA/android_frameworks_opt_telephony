@@ -161,7 +161,7 @@ public class PhoneSwitcher extends Handler {
      */
     protected static final class EmergencyOverrideRequest {
         /* The Phone ID that the DDS should be set to. */
-        int mPhoneId = INVALID_PHONE_INDEX;
+        public int mPhoneId = INVALID_PHONE_INDEX;
         /* The time after the emergency call ends that the DDS should be overridden for. */
         int mGnssOverrideTimeMs = -1;
         /* A callback to the requester notifying them if the initial call to the modem to override
@@ -1728,7 +1728,7 @@ public class PhoneSwitcher extends Handler {
     /**
      * @return the default data phone Id (or auto selected phone Id in auto data switch/CBRS case)
      */
-    private int getFallbackDataPhoneIdForInternetRequests() {
+    protected int getFallbackDataPhoneIdForInternetRequests() {
         int fallbackSubId = isActiveSubId(mAutoSelectedDataSubId)
                 ? mAutoSelectedDataSubId : mPrimaryDataSubId;
 
@@ -1782,7 +1782,7 @@ public class PhoneSwitcher extends Handler {
         }
     }
 
-    private Phone findPhoneById(final int phoneId) {
+    protected Phone findPhoneById(final int phoneId) {
         if (!SubscriptionManager.isValidPhoneId(phoneId)) {
             return null;
         }
