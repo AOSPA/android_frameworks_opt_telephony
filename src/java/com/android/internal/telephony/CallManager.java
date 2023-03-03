@@ -786,7 +786,7 @@ public class CallManager {
                 throw new CallStateException("cannot dial in current state");
             }
         }
-        if (TelephonyManager.isConcurrentCallsPossible()) {
+        if (isDsdaOrDsdsTransitionMode()) {
             for (Phone p : mPhones) {
                 int otherSubId = p.getSubId();
                 if (subId != otherSubId) {
@@ -2043,11 +2043,11 @@ public class CallManager {
     /**
      * @return true if more than maximum allowed ringing calls exist.
      * Maximum ringing calls in case of SS/DSDS is one and two in case of
-     * DSDA (one per active sub).
+     * DSDA/DSDS transition mode (one per active sub).
      */
     private boolean hasMoreThanMaxRingingCalls() {
         int count = 0;
-        int maxAllowedRingingCalls = TelephonyManager.isConcurrentCallsPossible()
+        int maxAllowedRingingCalls = isDsdaOrDsdsTransitionMode()
                 ? 2 /* DSDA */: 1 /* SS/DSDS */;
         HashSet<Integer> ringingSubs = new HashSet<Integer>();
         for (Call call : mRingingCalls) {
@@ -2102,6 +2102,11 @@ public class CallManager {
             }
         }
         return false;
+    }
+
+    private boolean isDsdaOrDsdsTransitionMode() {
+        TelephonyManager telephony = TelephonyManager.from(getContext());
+        return telephony.isDsdaOrDsdsTransitionMode();
     }
 
     private class CallManagerHandler extends Handler {
