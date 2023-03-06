@@ -2005,8 +2005,13 @@ public class ImsPhone extends ImsPhoneBase {
             case EVENT_SET_CALL_FORWARD_DONE:
                 if (ar.exception == null && ss != null &&
                     (ss.mCfReason == CF_REASON_UNCONDITIONAL)) {
-                    setVoiceCallForwardingFlag(getIccRecords(), 1, isCfEnable(ss.mCfAction),
-                                               ss.mDialingNumber);
+                    if (ss.mServiceClass == (SERVICE_CLASS_DATA_SYNC + SERVICE_CLASS_PACKET)) {
+                        setVideoCallForwardingPreference(isCfEnable(ss.mCfAction));
+                        notifyCallForwardingIndicator();
+                    } else {
+                        setVoiceCallForwardingFlag(getIccRecords(), 1, isCfEnable(ss.mCfAction),
+                                                   ss.mDialingNumber);
+                    }
                 }
                 if (ss != null) {
                     sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, null);
