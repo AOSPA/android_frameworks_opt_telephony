@@ -58,6 +58,7 @@ import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCallTracker;
 import com.android.internal.telephony.nitz.NitzStateMachineImpl;
 import com.android.internal.telephony.SubscriptionController;
+import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.uicc.IccCardStatus;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccProfile;
@@ -609,5 +610,11 @@ public class TelephonyComponentFactory {
             PhoneSwitcher phoneSwitcher) {
         Rlog.i(TAG, "make TelephonyNetworkFactory");
         return new TelephonyNetworkFactory(looper, phone, phoneSwitcher);
+    }
+
+    public SubscriptionManagerService makeSubscriptionManagerService(
+            @NonNull Context context, @NonNull Looper looper) {
+        Rlog.i(TAG, "make SubscriptionManagerService");
+        return new SubscriptionManagerService(context, looper);
     }
 }
