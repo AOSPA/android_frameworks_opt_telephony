@@ -195,7 +195,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected static final int EVENT_RADIO_ON                    = 5;
     protected static final int EVENT_GET_BASEBAND_VERSION_DONE   = 6;
     protected static final int EVENT_USSD                        = 7;
-    protected static final int EVENT_RADIO_OFF_OR_NOT_AVAILABLE  = 8;
+    @VisibleForTesting
+    public static final int EVENT_RADIO_OFF_OR_NOT_AVAILABLE  = 8;
     private static final int EVENT_GET_SIM_STATUS_DONE           = 11;
     protected static final int EVENT_SET_CALL_FORWARD_DONE       = 12;
     protected static final int EVENT_GET_CALL_FORWARD_DONE       = 13;
@@ -5433,8 +5434,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
-    public void registerForSatellitePointingInfoChanged(@NonNull Handler h,
+    public void registerForSatellitePositionInfoChanged(@NonNull Handler h,
             int what, @Nullable Object obj) {
+        //TODO: Rename CommandsInterface and other modules when updating HAL APIs.
         mCi.registerForSatellitePointingInfoChanged(h, what, obj);
     }
 
@@ -5443,28 +5445,31 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      *
      * @param h Handler to be removed from the registrant list.
      */
-    public void unregisterForSatellitePointingInfoChanged(@NonNull Handler h) {
+    public void unregisterForSatellitePositionInfoChanged(@NonNull Handler h) {
+        //TODO: Rename CommandsInterface and other modules when updating HAL APIs.
         mCi.unregisterForSatellitePointingInfoChanged(h);
     }
 
     /**
-     * Registers for messages transfer complete from satellite modem.
+     * Registers for datagrams delivered events from satellite modem.
      *
      * @param h Handler for notification message.
      * @param what User-defined message code.
      * @param obj User object.
      */
-    public void registerForSatelliteMessagesTransferComplete(@NonNull Handler h,
+    public void registerForSatelliteDatagramsDelivered(@NonNull Handler h,
             int what, @Nullable Object obj) {
+        //TODO: Remove.
         mCi.registerForSatelliteMessagesTransferComplete(h, what, obj);
     }
 
     /**
-     * Unregisters for messages transfer complete from satellite modem.
+     * Unregisters for datagrams delivered events from satellite modem.
      *
      * @param h Handler to be removed from the registrant list.
      */
-    public void unregisterForSatelliteMessagesTransferComplete(@NonNull Handler h) {
+    public void unregisterForSatelliteDatagramsDelivered(@NonNull Handler h) {
+        //TODO: Remove.
         mCi.unregisterForSatelliteMessagesTransferComplete(h);
     }
 
@@ -5525,43 +5530,44 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     * Registers for satellite state change from satellite modem.
+     * Registers for satellite state changed from satellite modem.
      *
      * @param h Handler for notification message.
      * @param what User-defined message code.
      * @param obj User object.
      */
-    public void registerForSatelliteModemStateChange(@NonNull Handler h, int what,
+    public void registerForSatelliteModemStateChanged(@NonNull Handler h, int what,
             @Nullable Object obj) {
         mCi.registerForSatelliteModeChanged(h, what, obj);
     }
 
     /**
-     * Unregisters for satellite state changes from satellite modem.
+     * Unregisters for satellite state changed from satellite modem.
      *
      * @param h Handler to be removed from registrant list.
      */
-    public void unregisterForSatelliteModemStateChange(@NonNull Handler h) {
+    public void unregisterForSatelliteModemStateChanged(@NonNull Handler h) {
         mCi.unregisterForSatelliteModeChanged(h);
     }
 
     /**
-     * Registers for pending message count info from satellite modem.
+     * Registers for pending datagram count info from satellite modem.
      *
      * @param h Handler for notification message.
      * @param what User-defined message code.
      * @param obj User object.
      */
-    public void registerForPendingMessageCount(@NonNull Handler h, int what, @Nullable Object obj) {
+    public void registerForPendingDatagramCount(@NonNull Handler h, int what,
+            @Nullable Object obj) {
         mCi.registerForPendingSatelliteMessageCount(h, what, obj);
     }
 
     /**
-     * Unregisters for pending message count info from satellite modem.
+     * Unregisters for pending datagram count info from satellite modem.
      *
      * @param h Handler to be removed from registrant list.
      */
-    public void unregisterForPendingMessageCount(@NonNull Handler h) {
+    public void unregisterForPendingDatagramCount(@NonNull Handler h) {
         mCi.unregisterForPendingSatelliteMessageCount(h);
     }
 
@@ -5572,23 +5578,24 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
-    public void registerForNewSatelliteDatagram(@NonNull Handler h, int what,
+    public void registerForSatelliteDatagramsReceived(@NonNull Handler h, int what,
             @Nullable Object obj) {
-        //mCi.registerForNewSatelliteDatagram(h, what, obj);
+        // TODO: rename
+        mCi.registerForNewSatelliteMessages(h, what, obj);
     }
-
 
     /**
      * Unregister to stop receiving incoming datagrams over satellite.
      *
      * @param h Handler to be removed from registrant list.
      */
-    public void unregisterForNewSatelliteDatagram(@NonNull Handler h) {
-        //mCi.unregisterForNewSatelliteDatagram(h);
+    public void unregisterForSatelliteDatagramsReceived(@NonNull Handler h) {
+        // TODO: rename
+        mCi.unregisterForNewSatelliteMessages(h);
     }
 
     /**
-     * Poll pending satellite datagrams over satellite.
+     * Poll pending datagrams over satellite.
      * @param result The Message to send the result of the operation to.
      */
     public void pollPendingSatelliteDatagrams(Message result) {
@@ -5599,9 +5606,12 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * Send datagram over satellite.
      * @param result The Message to send the result of the operation to.
      * @param datagram Datagram to send over satellite.
+     * @param needFullScreenPointingUI this is used to indicate pointingUI app to open in
+     *                                 full screen mode.
      */
-    public void sendSatelliteDatagram(Message result, SatelliteDatagram datagram) {
-        //mCi.sendSatelliteDatagram(result, datagram, longitude, latitude);
+    public void sendSatelliteDatagram(Message result, SatelliteDatagram datagram,
+            boolean needFullScreenPointingUI) {
+        //mCi.sendSatelliteDatagram(result, datagram);
     }
 
     /**
@@ -5613,11 +5623,31 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     * Get the time after which the satellite will next be visible.
+     * Get the time after which the satellite will be visible.
      * @param result The Message to send the result of the operation to.
      */
     public void requestTimeForNextSatelliteVisibility(Message result) {
         mCi.getTimeForNextSatelliteVisibility(result);
+    }
+
+    /**
+     * Start callback mode
+     * @param type for callback mode entry.
+     */
+    public void startCallbackMode(@TelephonyManager.EmergencyCallbackModeType int type) {
+        Rlog.d(LOG_TAG, "startCallbackMode:type=" + type);
+        mNotifier.notifyCallbackModeStarted(this, type);
+    }
+
+    /**
+     * Stop callback mode
+     * @param type for callback mode exit.
+     * @param reason for stopping callback mode.
+     */
+    public void stopCallbackMode(@TelephonyManager.EmergencyCallbackModeType int type,
+            @TelephonyManager.EmergencyCallbackModeStopReason int reason) {
+        Rlog.d(LOG_TAG, "stopCallbackMode:type=" + type + ", reason=" + reason);
+        mNotifier.notifyCallbackModeStopped(this, type, reason);
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {

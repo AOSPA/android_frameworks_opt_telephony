@@ -51,6 +51,7 @@ import android.telephony.UiccAccessRule;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+import android.util.IndentingPrintWriter;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CarrierAppUtils;
@@ -1615,9 +1616,9 @@ public class UiccProfile extends IccCard {
     /**
      * Exposes {@link CommandsInterface#iccCloseLogicalChannel}
      */
-    public void iccCloseLogicalChannel(int channel, Message response) {
+    public void iccCloseLogicalChannel(int channel, boolean isEs10, Message response) {
         logWithLocalLog("iccCloseLogicalChannel: " + channel);
-        mCi.iccCloseLogicalChannel(channel,
+        mCi.iccCloseLogicalChannel(channel, isEs10,
                 mHandler.obtainMessage(EVENT_CLOSE_LOGICAL_CHANNEL_DONE, response));
     }
 
@@ -1625,9 +1626,9 @@ public class UiccProfile extends IccCard {
      * Exposes {@link CommandsInterface#iccTransmitApduLogicalChannel}
      */
     public void iccTransmitApduLogicalChannel(int channel, int cla, int command,
-            int p1, int p2, int p3, String data, Message response) {
-        mCi.iccTransmitApduLogicalChannel(channel, cla, command, p1, p2, p3,
-                data, mHandler.obtainMessage(EVENT_TRANSMIT_APDU_LOGICAL_CHANNEL_DONE, response));
+            int p1, int p2, int p3, String data, boolean isEs10Command, Message response) {
+        mCi.iccTransmitApduLogicalChannel(channel, cla, command, p1, p2, p3, data, isEs10Command,
+                mHandler.obtainMessage(EVENT_TRANSMIT_APDU_LOGICAL_CHANNEL_DONE, response));
     }
 
     /**
@@ -1863,27 +1864,29 @@ public class UiccProfile extends IccCard {
     /**
      * Dump
      */
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println("UiccProfile:");
-        pw.println(" mCi=" + mCi);
-        pw.println(" mCatService=" + mCatService);
+    public void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
+        IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
+        pw.increaseIndent();
+        pw.println("mCatService=" + mCatService);
         for (int i = 0; i < mOperatorBrandOverrideRegistrants.size(); i++) {
-            pw.println("  mOperatorBrandOverrideRegistrants[" + i + "]="
+            pw.println("mOperatorBrandOverrideRegistrants[" + i + "]="
                     + ((Registrant) mOperatorBrandOverrideRegistrants.get(i)).getHandler());
         }
-        pw.println(" mUniversalPinState=" + mUniversalPinState);
-        pw.println(" mGsmUmtsSubscriptionAppIndex=" + mGsmUmtsSubscriptionAppIndex);
-        pw.println(" mCdmaSubscriptionAppIndex=" + mCdmaSubscriptionAppIndex);
-        pw.println(" mImsSubscriptionAppIndex=" + mImsSubscriptionAppIndex);
-        pw.println(" mUiccApplications: length=" + mUiccApplications.length);
+        pw.println("mUniversalPinState=" + mUniversalPinState);
+        pw.println("mGsmUmtsSubscriptionAppIndex=" + mGsmUmtsSubscriptionAppIndex);
+        pw.println("mCdmaSubscriptionAppIndex=" + mCdmaSubscriptionAppIndex);
+        pw.println("mImsSubscriptionAppIndex=" + mImsSubscriptionAppIndex);
+        pw.println("mUiccApplications: length=" + mUiccApplications.length);
+        pw.increaseIndent();
         for (int i = 0; i < mUiccApplications.length; i++) {
             if (mUiccApplications[i] == null) {
-                pw.println("  mUiccApplications[" + i + "]=" + null);
+                pw.println("mUiccApplications[" + i + "]=" + null);
             } else {
-                pw.println("  mUiccApplications[" + i + "]="
+                pw.println("mUiccApplications[" + i + "]="
                         + mUiccApplications[i].getType() + " " + mUiccApplications[i]);
             }
         }
+        pw.decreaseIndent();
         pw.println();
         // Print details of all applications
         for (UiccCardApplication app : mUiccApplications) {
@@ -1904,28 +1907,31 @@ public class UiccProfile extends IccCard {
         }
         // Print UiccCarrierPrivilegeRules and registrants.
         if (mCarrierPrivilegeRules == null) {
-            pw.println(" mCarrierPrivilegeRules: null");
+            pw.println("mCarrierPrivilegeRules: null");
         } else {
-            pw.println(" mCarrierPrivilegeRules: " + mCarrierPrivilegeRules);
+            pw.println("mCarrierPrivilegeRules: ");
+            pw.increaseIndent();
             mCarrierPrivilegeRules.dump(fd, pw, args);
+            pw.decreaseIndent();
         }
         if (mTestOverrideCarrierPrivilegeRules != null) {
-            pw.println(" mTestOverrideCarrierPrivilegeRules: "
+            pw.println("mTestOverrideCarrierPrivilegeRules: "
                     + mTestOverrideCarrierPrivilegeRules);
             mTestOverrideCarrierPrivilegeRules.dump(fd, pw, args);
         }
         pw.flush();
 
-        pw.println(" mNetworkLockedRegistrants: size=" + mNetworkLockedRegistrants.size());
+        pw.println("mNetworkLockedRegistrants: size=" + mNetworkLockedRegistrants.size());
         for (int i = 0; i < mNetworkLockedRegistrants.size(); i++) {
             pw.println("  mNetworkLockedRegistrants[" + i + "]="
                     + ((Registrant) mNetworkLockedRegistrants.get(i)).getHandler());
         }
-        pw.println(" mCurrentAppType=" + mCurrentAppType);
-        pw.println(" mUiccCard=" + mUiccCard);
-        pw.println(" mUiccApplication=" + mUiccApplication);
-        pw.println(" mIccRecords=" + mIccRecords);
-        pw.println(" mExternalState=" + mExternalState);
+        pw.println("mCurrentAppType=" + mCurrentAppType);
+        pw.println("mUiccCard=" + mUiccCard);
+        pw.println("mUiccApplication=" + mUiccApplication);
+        pw.println("mIccRecords=" + mIccRecords);
+        pw.println("mExternalState=" + mExternalState);
+        pw.decreaseIndent();
         pw.flush();
     }
 }

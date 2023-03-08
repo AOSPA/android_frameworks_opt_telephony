@@ -34,12 +34,12 @@ import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
-import android.os.Registrant;
 import android.os.RegistrantList;
 import android.preference.PreferenceManager;
 import android.sysprop.TelephonyProperties;
 import android.telephony.AnomalyReporter;
 import android.telephony.CarrierConfigManager;
+import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.TelephonyManager.SimState;
@@ -48,6 +48,7 @@ import android.telephony.UiccPortInfo;
 import android.telephony.UiccSlotMapping;
 import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
+import android.util.IndentingPrintWriter;
 import android.util.LocalLog;
 import android.util.Log;
 
@@ -67,6 +68,7 @@ import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.uicc.euicc.EuiccCard;
+import com.android.internal.telephony.util.ArrayUtils;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
 
@@ -76,6 +78,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -1799,35 +1802,40 @@ public class UiccController extends Handler {
         sLocalLog.log(data);
     }
 
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println("UiccController: " + this);
-        pw.println(" mContext=" + mContext);
-        pw.println(" mInstance=" + mInstance);
-        pw.println(" mIccChangedRegistrants: size=" + mIccChangedRegistrants.size());
-        for (int i = 0; i < mIccChangedRegistrants.size(); i++) {
-            pw.println("  mIccChangedRegistrants[" + i + "]="
-                    + ((Registrant)mIccChangedRegistrants.get(i)).getHandler());
+    private List<String> getPrintableCardStrings() {
+        if (!ArrayUtils.isEmpty(mCardStrings)) {
+            return mCardStrings.stream().map(SubscriptionInfo::givePrintableIccid).collect(
+                    Collectors.toList());
         }
-        pw.println();
-        pw.flush();
-        pw.println(" mIsCdmaSupported=" + isCdmaSupported(mContext));
-        pw.println(" mHasBuiltInEuicc=" + mHasBuiltInEuicc);
-        pw.println(" mHasActiveBuiltInEuicc=" + mHasActiveBuiltInEuicc);
-        pw.println(" mCardStrings=" + Rlog.pii(LOG_TAG, mCardStrings));
-        pw.println(" mDefaultEuiccCardId=" + mDefaultEuiccCardId);
-        pw.println(" mPhoneIdToSlotId=" + Arrays.toString(mPhoneIdToSlotId));
-        pw.println(" mUseRemovableEsimAsDefault=" + mUseRemovableEsimAsDefault);
-        pw.println(" mUiccSlots: size=" + mUiccSlots.length);
+        return mCardStrings;
+    }
+
+    public void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
+        IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
+        pw.println("mIsCdmaSupported=" + isCdmaSupported(mContext));
+        pw.println("mHasBuiltInEuicc=" + mHasBuiltInEuicc);
+        pw.println("mHasActiveBuiltInEuicc=" + mHasActiveBuiltInEuicc);
+        pw.println("mCardStrings=" + getPrintableCardStrings());
+        pw.println("mDefaultEuiccCardId=" + mDefaultEuiccCardId);
+        pw.println("mPhoneIdToSlotId=" + Arrays.toString(mPhoneIdToSlotId));
+        pw.println("mUseRemovableEsimAsDefault=" + mUseRemovableEsimAsDefault);
+        pw.println("mUiccSlots: size=" + mUiccSlots.length);
+        pw.increaseIndent();
         for (int i = 0; i < mUiccSlots.length; i++) {
             if (mUiccSlots[i] == null) {
-                pw.println("  mUiccSlots[" + i + "]=null");
+                pw.println("mUiccSlots[" + i + "]=null");
             } else {
-                pw.println("  mUiccSlots[" + i + "]=" + mUiccSlots[i]);
+                pw.println("mUiccSlots[" + i + "]:");
+                pw.increaseIndent();
                 mUiccSlots[i].dump(fd, pw, args);
+                pw.decreaseIndent();
             }
         }
-        pw.println(" sLocalLog= ");
-        sLocalLog.dump(fd, pw, args);
+        pw.decreaseIndent();
+        pw.println();
+        pw.println("sLocalLog= ");
+        pw.increaseIndent();
         mPinStorage.dump(fd, pw, args);
+        sLocalLog.dump(fd, pw, args);
     }
 }

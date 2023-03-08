@@ -21,12 +21,14 @@ import android.content.Context;
 import android.os.Build;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+import android.util.IndentingPrintWriter;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
 import com.android.internal.telephony.uicc.IccSlotStatus.MultipleEnabledProfilesMode;
 import com.android.internal.telephony.uicc.euicc.EuiccCard;
 import com.android.internal.telephony.uicc.euicc.EuiccPort;
+import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -51,19 +53,16 @@ public class UiccCard {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private CardState mCardState;
     protected String mCardId;
-    protected boolean mIsSupportsMultipleEnabledProfiles;
     protected MultipleEnabledProfilesMode mSupportedMepMode;
 
     protected LinkedHashMap<Integer, UiccPort> mUiccPorts = new LinkedHashMap<>();
     private HashMap<Integer, Integer> mPhoneIdToPortIdx = new HashMap<>();
 
     public UiccCard(Context c, CommandsInterface ci, IccCardStatus ics, int phoneId, Object lock,
-            boolean isSupportsMultipleEnabledProfiles,
             MultipleEnabledProfilesMode supportedMepMode) {
         if (DBG) log("Creating");
         mCardState = ics.mCardState;
         mLock = lock;
-        mIsSupportsMultipleEnabledProfiles = isSupportsMultipleEnabledProfiles;
         mSupportedMepMode = supportedMepMode;
         update(c, ci, ics, phoneId);
     }
@@ -114,7 +113,7 @@ public class UiccCard {
                 if (port == null) {
                     if (this instanceof EuiccCard) {
                         port = new EuiccPort(c, ci, ics, phoneId, mLock, this,
-                                mIsSupportsMultipleEnabledProfiles, mSupportedMepMode); // eSim
+                                mSupportedMepMode); // eSim
                     } else {
                         port = new UiccPort(c, ci, ics, phoneId, mLock, this); // pSim
                     }
@@ -148,15 +147,12 @@ public class UiccCard {
 
 
     /**
-     * Updates MEP(Multiple Enabled Profile) support and supported mode flags.
+     * Updates MEP(Multiple Enabled Profile) supported mode flag.
      *
      * <p>If IccSlotStatus comes later, the number of ports reported is only known after the
      * UiccCard creation which will impact UICC MEP capability.
      */
-    public void updateSupportMepProperties(boolean supported,
-            MultipleEnabledProfilesMode supportedMepMode) {
-        // TODO(b/262449536): Handle with single MEP flag to avoid inconsistency.
-        mIsSupportsMultipleEnabledProfiles = supported;
+    public void updateSupportedMepMode(MultipleEnabledProfilesMode supportedMepMode) {
         mSupportedMepMode = supportedMepMode;
     }
 
@@ -175,8 +171,11 @@ public class UiccCard {
         if (!TextUtils.isEmpty(mCardId)) {
             return mCardId;
         } else {
-            UiccProfile uiccProfile = mUiccPorts.get(TelephonyManager.DEFAULT_PORT_INDEX)
-                    .getUiccProfile();
+            UiccPort uiccPort = mUiccPorts.get(TelephonyManager.DEFAULT_PORT_INDEX);
+            if (uiccPort == null) {
+                return null;
+            }
+            UiccProfile uiccProfile = uiccPort.getUiccProfile();
             return uiccProfile == null ? null : uiccProfile.getIccId();
         }
     }
@@ -218,15 +217,20 @@ public class UiccCard {
         Rlog.e(LOG_TAG, msg);
     }
 
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+    public void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
+        IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
         pw.println("UiccCard:");
-        pw.println(" mCardState=" + mCardState);
-        pw.println(" mCardId=" + Rlog.pii(LOG_TAG, mCardId));
-        pw.println(" mNumberOfPorts=" + mUiccPorts.size());
-        pw.println( "mIsSupportsMultipleEnabledProfiles=" + mIsSupportsMultipleEnabledProfiles);
-        pw.println();
+        pw.increaseIndent();
+        pw.println("mCardState=" + mCardState);
+        pw.println("mCardId=" + Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, mCardId));
+        pw.println("mNumberOfPorts=" + mUiccPorts.size());
+        pw.println("mSupportedMepMode=" + mSupportedMepMode);
+        pw.println("mUiccPorts= size=" + mUiccPorts.size());
+        pw.increaseIndent();
         for (UiccPort uiccPort : mUiccPorts.values()) {
             uiccPort.dump(fd, pw, args);
         }
+        pw.decreaseIndent();
+        pw.decreaseIndent();
     }
 }

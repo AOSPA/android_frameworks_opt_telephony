@@ -76,7 +76,6 @@ import com.android.internal.telephony.RILUtils;
 import com.android.internal.telephony.RadioCapability;
 import com.android.internal.telephony.SmsResponse;
 import com.android.internal.telephony.SrvccConnection;
-import com.android.internal.telephony.test.SimulatedCommandsVerifier;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
@@ -1938,8 +1937,8 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void setCdmaBroadcastActivation(boolean activate, Message response) {
-        unimplemented(response);
-
+        SimulatedCommandsVerifier.getInstance().setCdmaBroadcastActivation(activate, response);
+        resultSuccess(response, null);
     }
 
     @Override
@@ -1950,7 +1949,8 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void setCdmaBroadcastConfig(CdmaSmsBroadcastConfigInfo[] configs, Message response) {
-        unimplemented(response);
+        SimulatedCommandsVerifier.getInstance().setCdmaBroadcastConfig(configs, response);
+        resultSuccess(response, null);
     }
 
     public void forceDataDormancy(Message response) {
@@ -1960,7 +1960,8 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void setGsmBroadcastActivation(boolean activate, Message response) {
-        unimplemented(response);
+        SimulatedCommandsVerifier.getInstance().setGsmBroadcastActivation(activate, response);
+        resultSuccess(response, null);
     }
 
 
@@ -1968,7 +1969,7 @@ public class SimulatedCommands extends BaseCommands
     public void setGsmBroadcastConfig(SmsBroadcastConfigInfo[] config, Message response) {
         SimulatedCommandsVerifier.getInstance().setGsmBroadcastConfig(config, response);
         if (mSendSetGsmBroadcastConfigResponse) {
-            unimplemented(response);
+            resultSuccess(response, null);
         }
     }
 
@@ -2182,31 +2183,20 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
-    public void iccCloseLogicalChannel(int channel, Message response) {
-        unimplemented(response);
-    }
-
-    @Override
     public void iccCloseLogicalChannel(int channel, boolean isEs10, Message response) {
         unimplemented(response);
     }
 
     @Override
     public void iccTransmitApduLogicalChannel(int channel, int cla, int instruction,
-                                              int p1, int p2, int p3, String data,
-                                              Message response) {
+            int p1, int p2, int p3, String data, boolean isEs10Command, Message response) {
         SimulatedCommandsVerifier.getInstance().iccTransmitApduLogicalChannel(channel, cla,
-                instruction, p1, p2, p3, data, response);
-        if(mIccIoResultForApduLogicalChannel!=null) {
+                instruction, p1, p2, p3, data, isEs10Command, response);
+        if (mIccIoResultForApduLogicalChannel != null) {
             resultSuccess(response, mIccIoResultForApduLogicalChannel);
-        }else {
+        } else {
             resultFail(response, null, new RuntimeException("IccIoResult not set"));
         }
-    }
-
-    @Override
-    public void iccTransmitApduLogicalChannel(int channel, int cla, int instruction,
-            int p1, int p2, int p3, String data, boolean isEs10Command, Message response) {
     }
 
     @Override
