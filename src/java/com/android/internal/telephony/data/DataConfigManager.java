@@ -1013,7 +1013,7 @@ public class DataConfigManager extends Handler {
      * @return {@code true} if tearing down IMS data network should be delayed until the voice call
      * ends.
      */
-    public boolean isImsDelayTearDownEnabled() {
+    public boolean isImsDelayTearDownUntilVoiceCallEndEnabled() {
         return mCarrierConfig.getBoolean(
                 CarrierConfigManager.KEY_DELAY_IMS_TEAR_DOWN_UNTIL_CALL_END_BOOL);
     }
@@ -1381,7 +1381,8 @@ public class DataConfigManager extends Handler {
                 + shouldPersistIwlanDataNetworksWhenDataServiceRestarted());
         pw.println("Bandwidth estimation source=" + mResources.getString(
                 com.android.internal.R.string.config_bandwidthEstimateSource));
-        pw.println("isDelayTearDownImsEnabled=" + isImsDelayTearDownEnabled());
+        pw.println("isImsDelayTearDownUntilVoiceCallEndEnabled="
+                + isImsDelayTearDownUntilVoiceCallEndEnabled());
         pw.println("isEnhancedIwlanHandoverCheckEnabled=" + isEnhancedIwlanHandoverCheckEnabled());
         pw.println("isTetheringProfileDisabledForRoaming="
                 + isTetheringProfileDisabledForRoaming());
