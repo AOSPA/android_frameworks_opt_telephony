@@ -279,7 +279,6 @@ public class ServiceStateTracker extends Handler {
     protected static final int EVENT_RADIO_POWER_OFF_DONE              = 54;
     protected static final int EVENT_PHYSICAL_CHANNEL_CONFIG           = 55;
     protected static final int EVENT_CELL_LOCATION_RESPONSE            = 56;
-    protected static final int EVENT_CARRIER_CONFIG_CHANGED            = 57;
     private static final int EVENT_POLL_STATE_REQUEST                  = 58;
     // Timeout event used when delaying radio power off to wait for IMS deregistration to happen.
     private static final int EVENT_POWER_OFF_RADIO_IMS_DEREG_TIMEOUT   = 62;
@@ -558,13 +557,7 @@ public class ServiceStateTracker extends Handler {
         @Override
         public void onReceive(Context context, Intent intent) {
             final String action = intent.getAction();
-            if (action.equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
-                int phoneId = intent.getExtras().getInt(CarrierConfigManager.EXTRA_SLOT_INDEX);
-                // Ignore the carrier config changed if the phoneId is not matched.
-                if (phoneId == mPhone.getPhoneId()) {
-                    sendEmptyMessage(EVENT_CARRIER_CONFIG_CHANGED);
-                }
-            } else if (action.equals(Intent.ACTION_LOCALE_CHANGED)) {
+            if (action.equals(Intent.ACTION_LOCALE_CHANGED)) {
                 // Update emergency string or operator name, polling service state.
                 pollState();
             } else if (action.equals(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED)) {
@@ -576,6 +569,10 @@ public class ServiceStateTracker extends Handler {
             }
         }
     };
+
+    private final CarrierConfigManager.CarrierConfigChangeListener mCarrierConfigChangeListener =
+            (slotIndex, subId, carrierId, specificCarrierId) ->
+                    onCarrierConfigurationChanged(slotIndex);
 
     //CDMA
     // Min values used to by getOtasp()
@@ -663,7 +660,11 @@ public class ServiceStateTracker extends Handler {
         mSubscriptionManager.addOnSubscriptionsChangedListener(
                 new android.os.HandlerExecutor(this), mOnSubscriptionsChangedListener);
         mRestrictedState = new RestrictedState();
+
         mCarrierConfig = getCarrierConfig();
+        CarrierConfigManager ccm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
+        // Callback which directly handle config change should be executed in handler thread
+        ccm.registerCarrierConfigChangeListener(this::post, mCarrierConfigChangeListener);
 
         mAccessNetworksManager = mPhone.getAccessNetworksManager();
         mOutOfServiceSS = new ServiceState();
@@ -702,7 +703,6 @@ public class ServiceStateTracker extends Handler {
         Context context = mPhone.getContext();
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_LOCALE_CHANGED);
-        filter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         filter.addAction(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED);
         context.registerReceiver(mIntentReceiver, filter);
 
@@ -864,6 +864,10 @@ public class ServiceStateTracker extends Handler {
         mPhone.getCarrierActionAgent().unregisterForCarrierAction(this,
                 CARRIER_ACTION_SET_RADIO_ENABLED);
         mPhone.getContext().unregisterReceiver(mIntentReceiver);
+        CarrierConfigManager ccm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
+        if (ccm != null && mCarrierConfigChangeListener != null) {
+            ccm.unregisterCarrierConfigChangeListener(mCarrierConfigChangeListener);
+        }
         if (mCSST != null) {
             mCSST.dispose();
             mCSST = null;
@@ -1737,10 +1741,6 @@ public class ServiceStateTracker extends Handler {
                 Message rspRspMsg = (Message) ar.userObj;
                 AsyncResult.forMessage(rspRspMsg, getCellIdentity(), ar.exception);
                 rspRspMsg.sendToTarget();
-                break;
-
-            case EVENT_CARRIER_CONFIG_CHANGED:
-                onCarrierConfigChanged();
                 break;
 
             case EVENT_POLL_STATE_REQUEST:
@@ -5076,7 +5076,9 @@ public class ServiceStateTracker extends Handler {
         }
     }
 
-    private void onCarrierConfigChanged() {
+    private void onCarrierConfigurationChanged(int slotIndex) {
+        if (slotIndex != mPhone.getPhoneId()) return;
+
         mCarrierConfig = getCarrierConfig();
         log("CarrierConfigChange " + mCarrierConfig);
 

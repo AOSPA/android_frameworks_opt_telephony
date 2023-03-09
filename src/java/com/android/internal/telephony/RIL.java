@@ -395,11 +395,11 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
                 case EVENT_AIDL_PROXY_DEAD:
                     int aidlService = msg.arg1;
-                    AtomicLong obj = (AtomicLong) msg.obj;
-                    riljLog("handleMessage: EVENT_AIDL_PROXY_DEAD cookie = " + msg.obj
+                    long msgCookie = (long) msg.obj;
+                    riljLog("handleMessage: EVENT_AIDL_PROXY_DEAD cookie = " + msgCookie
                             + ", service = " + serviceToString(aidlService) + ", cookie = "
                             + mServiceCookies.get(aidlService));
-                    if (obj.get() == mServiceCookies.get(aidlService).get()) {
+                    if (msgCookie == mServiceCookies.get(aidlService).get()) {
                         mIsRadioProxyInitialized = false;
                         resetProxyAndRequestList(aidlService);
                     }
@@ -481,7 +481,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         public void binderDied() {
             riljLog("Service " + serviceToString(mService) + " has died.");
             mRilHandler.sendMessage(mRilHandler.obtainMessage(EVENT_AIDL_PROXY_DEAD, mService,
-                    0 /* ignored arg2 */, mServiceCookies.get(mService)));
+                    0 /* ignored arg2 */, mServiceCookies.get(mService).get()));
             unlinkToDeath();
         }
     }
@@ -1084,7 +1084,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
                         if (!mIsRadioProxyInitialized) {
                             mIsRadioProxyInitialized = true;
                             serviceProxy.getHidl().linkToDeath(mRadioProxyDeathRecipient,
-                                    mServiceCookies.get(service).incrementAndGet());
+                                    mServiceCookies.get(HAL_SERVICE_RADIO).incrementAndGet());
                             serviceProxy.getHidl().setResponseFunctions(
                                     mRadioResponse, mRadioIndication);
                         }
@@ -4146,11 +4146,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void iccCloseLogicalChannel(int channel, Message result) {
-        iccCloseLogicalChannel(channel, false, result);
-    }
-
-    @Override
     public void iccCloseLogicalChannel(int channel, boolean isEs10, Message result) {
         RadioSimProxy simProxy = getRadioServiceProxy(RadioSimProxy.class, result);
         if (!simProxy.isEmpty()) {
@@ -4167,12 +4162,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 handleRadioProxyExceptionForRR(HAL_SERVICE_SIM, "iccCloseLogicalChannel", e);
             }
         }
-    }
-
-    @Override
-    public void iccTransmitApduLogicalChannel(int channel, int cla, int instruction, int p1, int p2,
-            int p3, String data, Message result) {
-        iccTransmitApduLogicalChannel(channel, cla, instruction, p1, p2, p3, data, false, result);
     }
 
     @Override
