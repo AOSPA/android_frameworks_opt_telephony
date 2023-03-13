@@ -126,6 +126,8 @@ public class UiccProfile extends IccCard {
     private final int mPhoneId;
     private final PinStorage mPinStorage;
 
+    private final CarrierConfigManager mCarrierConfigManager;
+
     private static final int EVENT_RADIO_OFF_OR_UNAVAILABLE = 1;
     private static final int EVENT_ICC_LOCKED = 2;
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
@@ -186,14 +188,19 @@ public class UiccProfile extends IccCard {
     };
     private boolean mUserUnlockReceiverRegistered;
 
-    private final BroadcastReceiver mCarrierConfigChangedReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent.getAction().equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
-                mHandler.sendMessage(mHandler.obtainMessage(EVENT_CARRIER_CONFIG_CHANGED));
-            }
-        }
-    };
+    private final CarrierConfigManager.CarrierConfigChangeListener mCarrierConfigChangeListener =
+            new CarrierConfigManager.CarrierConfigChangeListener() {
+                @Override
+                public void onCarrierConfigChanged(int logicalSlotIndex, int subscriptionId,
+                        int carrierId, int specificCarrierId) {
+                    if (logicalSlotIndex == mPhoneId) {
+                        log("onCarrierConfigChanged: slotIndex=" + logicalSlotIndex
+                                + ", subId=" + subscriptionId + ", carrierId=" + carrierId);
+                        handleCarrierNameOverride();
+                        handleSimCountryIsoOverride();
+                    }
+                }
+            };
 
     @VisibleForTesting
     public final Handler mHandler = new Handler() {
@@ -343,9 +350,10 @@ public class UiccProfile extends IccCard {
         resetProperties();
         updateIccAvailability(false);
 
-        IntentFilter intentfilter = new IntentFilter();
-        intentfilter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
-        c.registerReceiver(mCarrierConfigChangedReceiver, intentfilter);
+        mCarrierConfigManager = c.getSystemService(CarrierConfigManager.class);
+        // Listener callback directly handles config change and thus runs on handler thread
+        mCarrierConfigManager.registerCarrierConfigChangeListener(mHandler::post,
+                mCarrierConfigChangeListener);
     }
 
     /**
@@ -378,7 +386,11 @@ public class UiccProfile extends IccCard {
             InstallCarrierAppUtils.unregisterPackageInstallReceiver(mContext);
 
             mCi.unregisterForOffOrNotAvailable(mHandler);
-            mContext.unregisterReceiver(mCarrierConfigChangedReceiver);
+
+            if (mCarrierConfigManager != null && mCarrierConfigChangeListener != null) {
+                mCarrierConfigManager.unregisterCarrierConfigChangeListener(
+                        mCarrierConfigChangeListener);
+            }
 
             if (mCatService != null) mCatService.dispose();
             for (UiccCardApplication app : mUiccApplications) {
@@ -450,7 +462,16 @@ public class UiccProfile extends IccCard {
             return;
         }
 
-        PersistableBundle config = configLoader.getConfigForSubId(subId);
+        PersistableBundle config =
+                CarrierConfigManager.getCarrierConfigSubset(
+                        mContext,
+                        subId,
+                        CarrierConfigManager.KEY_CARRIER_NAME_OVERRIDE_BOOL,
+                        CarrierConfigManager.KEY_CARRIER_NAME_STRING);
+        if (config.isEmpty()) {
+            loge("handleCarrierNameOverride: fail to get carrier configs.");
+            return;
+        }
         boolean preferCcName = config.getBoolean(
                 CarrierConfigManager.KEY_CARRIER_NAME_OVERRIDE_BOOL, false);
         String ccName = config.getString(CarrierConfigManager.KEY_CARRIER_NAME_STRING);
@@ -514,7 +535,13 @@ public class UiccProfile extends IccCard {
             return;
         }
 
-        PersistableBundle config = configLoader.getConfigForSubId(subId);
+        PersistableBundle config =
+                CarrierConfigManager.getCarrierConfigSubset(
+                        mContext, subId, CarrierConfigManager.KEY_SIM_COUNTRY_ISO_OVERRIDE_STRING);
+        if (config.isEmpty()) {
+            loge("handleSimCountryIsoOverride: fail to get carrier configs.");
+            return;
+        }
         String iso = config.getString(CarrierConfigManager.KEY_SIM_COUNTRY_ISO_OVERRIDE_STRING);
         if (!TextUtils.isEmpty(iso)
                 && !iso.equals(TelephonyManager.getSimCountryIsoForPhone(mPhoneId))) {

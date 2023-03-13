@@ -26,6 +26,7 @@ import static android.telephony.UiccSlotInfo.CARD_STATE_INFO_PRESENT;
 import android.Manifest;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
 import android.app.compat.CompatChanges;
@@ -43,6 +44,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.ParcelUuid;
 import android.os.PersistableBundle;
@@ -80,6 +82,7 @@ import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
+import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
@@ -409,6 +412,8 @@ public class SubscriptionController extends ISub.Stub {
                         }
                     }
                 });
+
+        SubscriptionManager.invalidateSubscriptionManagerServiceEnabledCaches();
 
         if (DBG) logdl("[SubscriptionController] init by Context");
     }
@@ -3305,6 +3310,7 @@ public class SubscriptionController extends ISub.Stub {
             case SubscriptionManager.NR_ADVANCED_CALLING_ENABLED:
             case SubscriptionManager.USAGE_SETTING:
             case SubscriptionManager.USER_HANDLE:
+            case SubscriptionManager.SATELLITE_ENABLED:
                 value.put(propKey, Integer.parseInt(propValue));
                 break;
             case SubscriptionManager.ALLOWED_NETWORK_TYPES:
@@ -3402,6 +3408,7 @@ public class SubscriptionController extends ISub.Stub {
                         case SimInfo.COLUMN_PHONE_NUMBER_SOURCE_IMS:
                         case SubscriptionManager.USAGE_SETTING:
                         case SubscriptionManager.USER_HANDLE:
+                        case SubscriptionManager.SATELLITE_ENABLED:
                             resultValue = cursor.getString(0);
                             break;
                         default:
@@ -4920,8 +4927,7 @@ public class SubscriptionController extends ISub.Stub {
     public UserHandle getSubscriptionUserHandle(int subId) {
         enforceManageSubscriptionUserAssociation("getSubscriptionUserHandle");
 
-        if (!mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_enable_get_subscription_user_handle)) {
+        if (!SubscriptionInfoUpdater.isWorkProfileTelephonyEnabled()) {
             return null;
         }
 
@@ -4959,6 +4965,10 @@ public class SubscriptionController extends ISub.Stub {
     public boolean isSubscriptionAssociatedWithUser(int subscriptionId,
             @NonNull UserHandle userHandle) {
         enforceManageSubscriptionUserAssociation("isSubscriptionAssociatedWithUser");
+
+        if (!SubscriptionInfoUpdater.isWorkProfileTelephonyEnabled()) {
+            return true;
+        }
 
         long token = Binder.clearCallingIdentity();
         try {
@@ -5014,6 +5024,10 @@ public class SubscriptionController extends ISub.Stub {
                 return new ArrayList<>();
             }
 
+            if (!SubscriptionInfoUpdater.isWorkProfileTelephonyEnabled()) {
+                return subInfoList;
+            }
+
             List<SubscriptionInfo> subscriptionsAssociatedWithUser = new ArrayList<>();
             List<SubscriptionInfo> subscriptionsWithNoAssociation = new ArrayList<>();
             for (SubscriptionInfo subInfo : subInfoList) {
@@ -5030,6 +5044,48 @@ public class SubscriptionController extends ISub.Stub {
 
             return subscriptionsAssociatedWithUser.isEmpty() ?
                     subscriptionsWithNoAssociation : subscriptionsAssociatedWithUser;
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    /**
+     * @return {@code true} if using {@link SubscriptionManagerService} instead of
+     * {@link SubscriptionController}.
+     */
+    //TODO: Removed before U AOSP public release.
+    @Override
+    public boolean isSubscriptionManagerServiceEnabled() {
+        return false;
+    }
+
+    /**
+     * Called during setup wizard restore flow to attempt to restore the backed up sim-specific
+     * configs to device for all existing SIMs in the subscription database {@link SimInfo}.
+     * Internally, it will store the backup data in an internal file. This file will persist on
+     * device for device's lifetime and will be used later on when a SIM is inserted to restore that
+     * specific SIM's settings. End result is subscription database is modified to match any backed
+     * up configs for the appropriate inserted SIMs.
+     *
+     * <p>
+     * The {@link Uri} {@link SubscriptionManager#SIM_INFO_BACKUP_AND_RESTORE_CONTENT_URI} is
+     * notified if any {@link SimInfo} entry is updated as the result of this method call.
+     *
+     * @param data with the sim specific configs to be backed up.
+     */
+    @RequiresPermission(Manifest.permission.MODIFY_PHONE_STATE)
+    @Override
+    public void restoreAllSimSpecificSettingsFromBackup(@NonNull byte[] data) {
+        enforceModifyPhoneState("restoreAllSimSpecificSettingsFromBackup");
+
+        long token = Binder.clearCallingIdentity();
+        try {
+            Bundle bundle = new Bundle();
+            bundle.putByteArray(SubscriptionManager.KEY_SIM_SPECIFIC_SETTINGS_DATA, data);
+            mContext.getContentResolver().call(
+                    SubscriptionManager.SIM_INFO_BACKUP_AND_RESTORE_CONTENT_URI,
+                    SubscriptionManager.RESTORE_SIM_SPECIFIC_SETTINGS_METHOD_NAME,
+                    null, bundle);
         } finally {
             Binder.restoreCallingIdentity(token);
         }

@@ -184,6 +184,7 @@ public abstract class TelephonyTest {
     protected ImsPhoneCallTracker mImsCT;
     protected UiccController mUiccController;
     protected UiccProfile mUiccProfile;
+    protected UiccSlot mUiccSlot;
     protected CallManager mCallManager;
     protected PhoneNotifier mNotifier;
     protected TelephonyComponentFactory mTelephonyComponentFactory;
@@ -415,6 +416,7 @@ public abstract class TelephonyTest {
         mImsCT = Mockito.mock(ImsPhoneCallTracker.class);
         mUiccController = Mockito.mock(UiccController.class);
         mUiccProfile = Mockito.mock(UiccProfile.class);
+        mUiccSlot = Mockito.mock(UiccSlot.class);
         mCallManager = Mockito.mock(CallManager.class);
         mNotifier = Mockito.mock(PhoneNotifier.class);
         mTelephonyComponentFactory = Mockito.mock(TelephonyComponentFactory.class);
@@ -522,6 +524,8 @@ public abstract class TelephonyTest {
         mPhone.mCi = mSimulatedCommands;
         mCT.mCi = mSimulatedCommands;
         doReturn(mUiccCard).when(mPhone).getUiccCard();
+        doReturn(mUiccCard).when(mUiccSlot).getUiccCard();
+        doReturn(mUiccCard).when(mUiccController).getUiccCardForPhone(anyInt());
         doReturn(mUiccPort).when(mPhone).getUiccPort();
         doReturn(mUiccProfile).when(mUiccPort).getUiccProfile();
 
@@ -662,7 +666,8 @@ public abstract class TelephonyTest {
                 }
             }
         }).when(mUiccController).getIccRecords(anyInt(), anyInt());
-        doReturn(new UiccSlot[] {}).when(mUiccController).getUiccSlots();
+        doReturn(new UiccSlot[] {mUiccSlot}).when(mUiccController).getUiccSlots();
+        doReturn(mUiccSlot).when(mUiccController).getUiccSlotForPhone(anyInt());
         doReturn(mPinStorage).when(mUiccController).getPinStorage();
 
         //UiccCardApplication
@@ -939,14 +944,17 @@ public abstract class TelephonyTest {
         private static final String PROPERTY_DEVICE_IDENTIFIER_ACCESS_RESTRICTIONS_DISABLED =
                 DeviceConfig.NAMESPACE_PRIVACY + "/"
                         + "device_identifier_access_restrictions_disabled";
+        private HashMap<String, String> mFlags = new HashMap<>();
 
         @Override
         public Bundle call(String method, String arg, Bundle extras) {
+            logd("FakeSettingsConfigProvider: call called,  method: " + method +
+                    " request: " + arg + ", args=" + extras);
+            Bundle bundle = new Bundle();
             switch (method) {
                 case Settings.CALL_METHOD_GET_CONFIG: {
                     switch (arg) {
                         case PROPERTY_DEVICE_IDENTIFIER_ACCESS_RESTRICTIONS_DISABLED: {
-                            Bundle bundle = new Bundle();
                             bundle.putString(
                                     PROPERTY_DEVICE_IDENTIFIER_ACCESS_RESTRICTIONS_DISABLED,
                                     "0");
@@ -958,6 +966,18 @@ public abstract class TelephonyTest {
                     }
                     break;
                 }
+                case Settings.CALL_METHOD_LIST_CONFIG:
+                    logd("LIST_config: " + mFlags);
+                    Bundle result = new Bundle();
+                    result.putSerializable(Settings.NameValueTable.VALUE, mFlags);
+                    return result;
+                case Settings.CALL_METHOD_SET_ALL_CONFIG:
+                    mFlags = (extras != null)
+                            ? (HashMap) extras.getSerializable(Settings.CALL_METHOD_FLAGS_KEY)
+                            : new HashMap<>();
+                    bundle.putInt(Settings.KEY_CONFIG_SET_ALL_RETURN,
+                            Settings.SET_ALL_RESULT_SUCCESS);
+                    return bundle;
                 default:
                     fail("Method not expected: " + method);
             }

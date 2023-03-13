@@ -22,7 +22,6 @@ import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.res.Resources;
 import android.os.AsyncResult;
 import android.os.Environment;
@@ -161,12 +160,6 @@ public class EmergencyNumberTracker extends Handler {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent.getAction().equals(
-                    CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED) ||
-                    intent.getAction().equals(
-                    CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED)) {
-                onCarrierConfigChanged();
-                return;
-            } else if (intent.getAction().equals(
                     TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED)) {
                 int phoneId = intent.getIntExtra(PhoneConstants.PHONE_KEY, -1);
                 if (phoneId == mPhone.getPhoneId()) {
@@ -193,23 +186,22 @@ public class EmergencyNumberTracker extends Handler {
             CarrierConfigManager configMgr = (CarrierConfigManager)
                     mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
             if (configMgr != null) {
-                PersistableBundle b = configMgr.getConfigForSubId(mPhone.getSubId());
-                if (b != null) {
+                PersistableBundle b = CarrierConfigManager.getCarrierConfigSubset(
+                        mPhone.getContext(),
+                        mPhoneId,
+                        CarrierConfigManager.KEY_EMERGENCY_NUMBER_PREFIX_STRING_ARRAY);
+                if (!b.isEmpty()) {
                     mEmergencyNumberPrefix = b.getStringArray(
                             CarrierConfigManager.KEY_EMERGENCY_NUMBER_PREFIX_STRING_ARRAY);
                 }
+
+                // Callback which directly handle config change should be executed on handler thread
+                configMgr.registerCarrierConfigChangeListener(this::post,
+                        (slotIndex, subId, carrierId, specificCarrierId) ->
+                                onCarrierConfigUpdated(slotIndex));
             } else {
                 loge("CarrierConfigManager is null.");
             }
-
-            // Receive Carrier Config Changes
-            IntentFilter filter = new IntentFilter(
-                    CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
-            filter.addAction(CarrierConfigManager.ACTION_ESSENTIAL_RECORDS_LOADED);
-            // Receive Telephony Network Country Changes
-            filter.addAction(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED);
-
-            mPhone.getContext().registerReceiver(mIntentReceiver, filter);
 
             mIsHalVersionLessThan1Dot4 = mPhone.getHalVersion(HAL_SERVICE_VOICE)
                                                  .lessOrEqual(new HalVersion(1, 3));
@@ -360,23 +352,26 @@ public class EmergencyNumberTracker extends Handler {
         }
     }
 
-    private void onCarrierConfigChanged() {
+    private void onCarrierConfigUpdated(int slotIndex) {
         if (mPhone != null) {
-            CarrierConfigManager configMgr = (CarrierConfigManager)
-                    mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
-            if (configMgr != null) {
-                PersistableBundle b = configMgr.getConfigForSubId(mPhone.getSubId());
-                if (b != null) {
-                    String[] emergencyNumberPrefix = b.getStringArray(
+            if (slotIndex != mPhone.getPhoneId()) return;
+
+            PersistableBundle b =
+                    CarrierConfigManager.getCarrierConfigSubset(
+                            mPhone.getContext(),
+                            mPhone.getPhoneId(),
                             CarrierConfigManager.KEY_EMERGENCY_NUMBER_PREFIX_STRING_ARRAY);
-                    if (!Arrays.equals(mEmergencyNumberPrefix, emergencyNumberPrefix)) {
-                        this.obtainMessage(EVENT_UPDATE_EMERGENCY_NUMBER_PREFIX,
-                                emergencyNumberPrefix).sendToTarget();
-                    }
+            if (!b.isEmpty()) {
+                String[] emergencyNumberPrefix =
+                        b.getStringArray(
+                                CarrierConfigManager.KEY_EMERGENCY_NUMBER_PREFIX_STRING_ARRAY);
+                if (!Arrays.equals(mEmergencyNumberPrefix, emergencyNumberPrefix)) {
+                    this.obtainMessage(EVENT_UPDATE_EMERGENCY_NUMBER_PREFIX, emergencyNumberPrefix)
+                            .sendToTarget();
                 }
             }
         } else {
-            loge("onCarrierConfigChanged mPhone is null.");
+            loge("onCarrierConfigurationChanged mPhone is null.");
         }
     }
 

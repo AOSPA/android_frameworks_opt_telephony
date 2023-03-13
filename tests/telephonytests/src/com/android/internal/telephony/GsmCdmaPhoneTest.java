@@ -63,6 +63,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.Process;
+import android.os.UserManager;
 import android.os.WorkSource;
 import android.preference.PreferenceManager;
 import android.provider.DeviceConfig;
@@ -75,11 +76,13 @@ import android.telephony.CellIdentityCdma;
 import android.telephony.CellIdentityGsm;
 import android.telephony.LinkCapacityEstimate;
 import android.telephony.NetworkRegistrationInfo;
+import android.telephony.RadioAccessFamily;
 import android.telephony.ServiceState;
 import android.telephony.SmsCbMessage;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.testing.AndroidTestingRunner;
@@ -89,8 +92,10 @@ import android.util.Log;
 import androidx.test.filters.FlakyTest;
 
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
+import com.android.internal.telephony.domainselection.DomainSelectionResolver;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.imsphone.ImsPhone;
+import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.test.SimulatedCommands;
 import com.android.internal.telephony.test.SimulatedCommandsVerifier;
 import com.android.internal.telephony.uicc.AdnRecord;
@@ -129,6 +134,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     private UiccSlot mUiccSlot;
     private CommandsInterface mMockCi;
     private AdnRecordCache adnRecordCache;
+    private DomainSelectionResolver mDomainSelectionResolver;
 
     //mPhoneUnderTest
     private GsmCdmaPhone mPhoneUT;
@@ -168,8 +174,11 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         mUiccPort = Mockito.mock(UiccPort.class);
         mMockCi = Mockito.mock(CommandsInterface.class);
         adnRecordCache = Mockito.mock(AdnRecordCache.class);
+        mDomainSelectionResolver = Mockito.mock(DomainSelectionResolver.class);
         doReturn(false).when(mSST).isDeviceShuttingDown();
         doReturn(true).when(mImsManager).isVolteEnabledByPlatform();
+        doReturn(false).when(mDomainSelectionResolver).isDomainSelectionSupported();
+        DomainSelectionResolver.setDomainSelectionResolver(mDomainSelectionResolver);
 
         mPhoneUT = new GsmCdmaPhone(mContext, mSimulatedCommands, mNotifier, true, 0,
             PhoneConstants.PHONE_TYPE_GSM, mTelephonyComponentFactory, (c, p) -> mImsManager);
@@ -187,6 +196,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     public void tearDown() throws Exception {
         mPhoneUT.removeCallbacksAndMessages(null);
         mPhoneUT = null;
+        DomainSelectionResolver.setDomainSelectionResolver(null);
         try {
             DeviceConfig.setProperties(mPreTestProperties);
         } catch (DeviceConfig.BadConfigException e) {
@@ -1170,6 +1180,7 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
     @SmallTest
     public void testGetEmptyIccCard() {
         doReturn(null).when(mUiccController).getUiccProfileForPhone(anyInt());
+        doReturn(null).when(mUiccController).getUiccSlotForPhone(anyInt());
 
         IccCard iccCard = mPhoneUT.getIccCard();
 
@@ -1569,6 +1580,74 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         mPhoneUT.loadAllowedNetworksFromSubscriptionDatabase();
 
         assertEquals(false, mPhoneUT.isAllowedNetworkTypesLoadedFromDb());
+    }
+
+    @Test
+    public void testLoadAllowedNetworksFromSubscriptionDatabase_allValidData() {
+        int subId = 1;
+        doReturn(subId).when(mSubscriptionController).getSubId(anyInt());
+
+        // 13 == TelephonyManager.NETWORK_TYPE_LTE
+        // NR_BITMASK == 4096 == 1 << (13 - 1)
+        String validSerializedNetworkMap = "user=4096,power=4096,carrier=4096,enable_2g=4096";
+        doReturn(validSerializedNetworkMap).when(mSubscriptionController).getSubscriptionProperty(
+                anyInt(), eq(SubscriptionManager.ALLOWED_NETWORK_TYPES));
+
+        assertFalse(mPhoneUT.isAllowedNetworkTypesLoadedFromDb());
+        mPhoneUT.loadAllowedNetworksFromSubscriptionDatabase();
+        assertTrue(mPhoneUT.isAllowedNetworkTypesLoadedFromDb());
+
+        for (int i = 0; i < 4; ++i) {
+            assertEquals(TelephonyManager.NETWORK_TYPE_BITMASK_LTE,
+                    mPhoneUT.getAllowedNetworkTypes(i));
+        }
+    }
+
+    @Test
+    public void testLoadAllowedNetworksFromSubscriptionDatabase_invalidKeys() {
+        int subId = 1;
+        doReturn(subId).when(mSubscriptionController).getSubId(anyInt());
+
+        // 13 == TelephonyManager.NETWORK_TYPE_LTE
+        // NR_BITMASK == 4096 == 1 << (13 - 1)
+        String validSerializedNetworkMap =
+                "user=4096,power=4096,carrier=4096,enable_2g=4096,-1=4096";
+        doReturn(validSerializedNetworkMap).when(mSubscriptionController).getSubscriptionProperty(
+                anyInt(), eq(SubscriptionManager.ALLOWED_NETWORK_TYPES));
+
+        assertFalse(mPhoneUT.isAllowedNetworkTypesLoadedFromDb());
+        mPhoneUT.loadAllowedNetworksFromSubscriptionDatabase();
+        assertTrue(mPhoneUT.isAllowedNetworkTypesLoadedFromDb());
+
+        for (int i = 0; i < 4; ++i) {
+            assertEquals(TelephonyManager.NETWORK_TYPE_BITMASK_LTE,
+                    mPhoneUT.getAllowedNetworkTypes(i));
+        }
+    }
+
+    @Test
+    public void testLoadAllowedNetworksFromSubscriptionDatabase_invalidValues() {
+        int subId = 1;
+        doReturn(subId).when(mSubscriptionController).getSubId(anyInt());
+
+        // 19 == TelephonyManager.NETWORK_TYPE_NR
+        // NR_BITMASK == 524288 == 1 << 19
+        String validSerializedNetworkMap = "user=4096,power=4096,carrier=4096,enable_2g=-1";
+        doReturn(validSerializedNetworkMap).when(mSubscriptionController).getSubscriptionProperty(
+                anyInt(), eq(SubscriptionManager.ALLOWED_NETWORK_TYPES));
+
+        mPhoneUT.loadAllowedNetworksFromSubscriptionDatabase();
+
+        for (int i = 0; i < 3; ++i) {
+            assertEquals(TelephonyManager.NETWORK_TYPE_BITMASK_LTE,
+                    mPhoneUT.getAllowedNetworkTypes(i));
+        }
+
+        long defaultAllowedNetworkTypes = RadioAccessFamily.getRafFromNetworkType(
+                RILConstants.PREFERRED_NETWORK_MODE);
+        assertEquals(defaultAllowedNetworkTypes, mPhoneUT.getAllowedNetworkTypes(
+                TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_ENABLE_2G));
+
     }
 
     /**
@@ -2248,6 +2327,33 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         mPhoneUT.dial(TEST_EMERGENCY_NUMBER, dialArgs);
 
         verify(mImsPhone).dial(anyString(), any(PhoneInternalInterface.DialArgs.class));
+
+        extras = dialArgs.intentExtras;
+
+        assertFalse(extras.containsKey(ImsCallProfile.EXTRA_CALL_RAT_TYPE));
+    }
+
+    @Test
+    public void testDomainSelectionEmergencyCallNon3GppPs() throws CallStateException {
+        setupEmergencyCallScenario(false /* USE_ONLY_DIALED_SIM_ECC_LIST */,
+                false /* isEmergencyOnDialedSim */);
+
+        doReturn(false).when(mImsPhone).isImsAvailable();
+
+        Bundle extras = new Bundle();
+        extras.putInt(PhoneConstants.EXTRA_DIAL_DOMAIN, PhoneConstants.DOMAIN_NON_3GPP_PS);
+        ImsPhone.ImsDialArgs dialArgs = new ImsPhone.ImsDialArgs.Builder()
+                .setIntentExtras(extras)
+                .build();
+        mPhoneUT.dial(TEST_EMERGENCY_NUMBER, dialArgs);
+
+        verify(mImsPhone).dial(anyString(), any(PhoneInternalInterface.DialArgs.class));
+
+        extras = dialArgs.intentExtras;
+
+        assertTrue(extras.containsKey(ImsCallProfile.EXTRA_CALL_RAT_TYPE));
+        assertEquals(String.valueOf(ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN),
+                extras.getString(ImsCallProfile.EXTRA_CALL_RAT_TYPE));
     }
 
     @Test
@@ -2692,5 +2798,30 @@ public class GsmCdmaPhoneTest extends TelephonyTest {
         Message message = mPhoneUT.obtainMessage(Phone.EVENT_RADIO_AVAILABLE);
         mPhoneUT.handleMessage(message);
         verify(mSimulatedCommandsVerifier, times(2)).getImei(nullable(Message.class));
+    }
+
+    @Test
+    public void testSetAllowedNetworkTypes_admin2gRestrictionHonored() throws Exception {
+        // circumvent loading/saving to sim db. it's not behavior under test.
+        TelephonyManager.setupISubForTest(Mockito.mock(SubscriptionManagerService.class));
+        TelephonyManager.enableServiceHandleCaching();
+        mPhoneUT.loadAllowedNetworksFromSubscriptionDatabase();
+
+        // 2g is disabled by admin
+        UserManager userManagerMock = mContext.getSystemService(UserManager.class);
+        when(userManagerMock.hasUserRestriction(UserManager.DISALLOW_CELLULAR_2G)).thenReturn(true);
+        mContext.sendBroadcast(new Intent(UserManager.ACTION_USER_RESTRICTIONS_CHANGED));
+
+        // carrier requests 2g to be enabled
+        mPhoneUT.setAllowedNetworkTypes(TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER,
+                TelephonyManager.NETWORK_CLASS_BITMASK_2G, null);
+
+        // Assert that 2g was not passed as an allowed network type to the modem
+        ArgumentCaptor<Integer> captureBitMask = ArgumentCaptor.forClass(Integer.class);
+        // One call for the admin restriction update, another by this test
+        verify(mSimulatedCommandsVerifier, times(2)).setAllowedNetworkTypesBitmap(
+                captureBitMask.capture(),
+                nullable(Message.class));
+        assertEquals(0, captureBitMask.getValue() & TelephonyManager.NETWORK_CLASS_BITMASK_2G);
     }
 }

@@ -30,6 +30,7 @@ import android.telephony.Annotation.NetworkType;
 import android.telephony.DataFailCause;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
 import android.telephony.data.ApnSetting.ProtocolType;
@@ -83,14 +84,14 @@ public class DataCallSessionStats {
      * @param currentRat The data call current Network Type
      * @param apnTypeBitmask APN type bitmask
      * @param protocol Data connection protocol
-     * @param failureCause failure cause as per android.telephony.DataFailCause
+     * @param failureCause The raw failure cause from modem/IWLAN data service.
      */
     public synchronized void onSetupDataCallResponse(
             @Nullable DataCallResponse response,
             @NetworkType int currentRat,
             @ApnType int apnTypeBitmask,
             @ProtocolType int protocol,
-            @DataFailureCause int failureCause) {
+            int failureCause) {
         // there should've been a call to onSetupDataCall to initiate the atom,
         // so this method is being called out of order -> no metric will be logged
         if (mDataCallSession == null) {
@@ -270,7 +271,7 @@ public class DataCallSessionStats {
             subInfo = SubscriptionController.getInstance()
                     .getSubscriptionInfo(mPhone.getSubId());
         }
-        if (mPhone.getSubId() != SubscriptionController.getInstance().getDefaultDataSubId()
+        if (mPhone.getSubId() != SubscriptionManager.getDefaultDataSubscriptionId()
                 && ((mDataCallSession.apnTypeBitmask & ApnSetting.TYPE_DEFAULT)
                 == ApnSetting.TYPE_DEFAULT)
                 && subInfo != null && !subInfo.isOpportunistic()) {

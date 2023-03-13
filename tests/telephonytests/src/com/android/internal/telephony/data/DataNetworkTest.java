@@ -56,6 +56,7 @@ import android.telephony.LteVopsSupportInfo;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
+import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
 import android.telephony.data.DataCallResponse;
@@ -337,6 +338,8 @@ public class DataNetworkTest extends TelephonyTest {
         doReturn(DataNetwork.BANDWIDTH_SOURCE_BANDWIDTH_ESTIMATOR)
                 .when(mDataConfigManager).getBandwidthEstimateSource();
         doReturn(true).when(mDataConfigManager).isTempNotMeteredSupportedByCarrier();
+        doReturn(true).when(mDataConfigManager).isNetworkTypeUnmetered(
+                any(TelephonyDisplayInfo.class), any(ServiceState.class));
         doReturn(true).when(mDataConfigManager).isImsDelayTearDownEnabled();
         doReturn(DEFAULT_MTU).when(mDataConfigManager).getDefaultMtu();
         doReturn(FAKE_IMSI).when(mPhone).getSubscriberId();
@@ -402,6 +405,7 @@ public class DataNetworkTest extends TelephonyTest {
         // updated later.
         assertThat(linkPropertiesCaptor.getValue()).isEqualTo(new LinkProperties());
 
+        verify(mDataConfigManager).getTcpConfigString(any(TelephonyDisplayInfo.class));
         verify(mSimulatedCommandsVerifier, never()).allocatePduSessionId(any(Message.class));
         verify(mMockedWwanDataServiceManager).setupDataCall(eq(AccessNetworkType.EUTRAN),
                 eq(mInternetDataProfile), eq(false), eq(false),
@@ -1126,8 +1130,7 @@ public class DataNetworkTest extends TelephonyTest {
                 any(Handler.class), anyInt());
         verify(mMockedWlanDataServiceManager).registerForDataCallListChanged(
                 any(Handler.class), anyInt());
-        verify(mCarrierPrivilegesTracker).registerCarrierPrivilegesListener(any(Handler.class),
-                anyInt(), eq(null));
+        verify(mTelephonyManager).registerCarrierPrivilegesCallback(anyInt(), any(), any());
         verify(mLinkBandwidthEstimator).registerCallback(
                 any(LinkBandwidthEstimatorCallback.class));
         verify(mSimulatedCommandsVerifier).registerForNattKeepaliveStatus(any(Handler.class),
@@ -1150,7 +1153,7 @@ public class DataNetworkTest extends TelephonyTest {
         verify(mDisplayInfoController).unregisterForTelephonyDisplayInfoChanged(any(Handler.class));
         verify(mMockedWwanDataServiceManager).unregisterForDataCallListChanged(any(Handler.class));
         verify(mMockedWlanDataServiceManager).unregisterForDataCallListChanged(any(Handler.class));
-        verify(mCarrierPrivilegesTracker).unregisterCarrierPrivilegesListener(any(Handler.class));
+        verify(mTelephonyManager).unregisterCarrierPrivilegesCallback(any());
         verify(mLinkBandwidthEstimator).unregisterCallback(
                 any(LinkBandwidthEstimatorCallback.class));
         verify(mSimulatedCommandsVerifier).unregisterForNattKeepaliveStatus(any(Handler.class));

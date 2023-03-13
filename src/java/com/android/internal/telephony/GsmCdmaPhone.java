@@ -34,6 +34,7 @@ import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_VOI
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.ActivityManager;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ContentValues;
@@ -87,6 +88,7 @@ import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.UiccAccessRule;
 import android.telephony.UssdResponse;
+import android.telephony.ims.ImsCallProfile;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
@@ -98,6 +100,7 @@ import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.internal.telephony.data.DataNetworkController;
 import com.android.internal.telephony.data.LinkBandwidthEstimator;
+import com.android.internal.telephony.domainselection.DomainSelectionResolver;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.gsm.GsmMmiCode;
 import com.android.internal.telephony.gsm.SsData;
@@ -477,6 +480,10 @@ public class GsmCdmaPhone extends Phone {
         mCDM = new CarrierKeyDownloadManager(this);
         mCIM = mTelephonyComponentFactory.inject(CarrierInfoManager.class.getName())
                 .makeCarrierInfoManager(this);
+
+        if (isSubscriptionManagerServiceEnabled()) {
+            initializeCarrierApps();
+        }
     }
 
     private void initRatSpecific(int precisePhoneType) {
@@ -563,6 +570,31 @@ public class GsmCdmaPhone extends Phone {
             // Sets current entry in the telephony carrier table
             updateCurrentCarrierInProvider(operatorNumeric);
         }
+    }
+
+    /**
+     * Initialize the carrier apps.
+     */
+    private void initializeCarrierApps() {
+        // Only perform on the default phone. There is no need to do it twice on the DSDS device.
+        if (mPhoneId != 0) return;
+
+        logd("initializeCarrierApps");
+        mContext.registerReceiverForAllUsers(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                // Remove this line after testing
+                if (Intent.ACTION_USER_FOREGROUND.equals(intent.getAction())) {
+                    UserHandle userHandle = intent.getParcelableExtra(Intent.EXTRA_USER);
+                    // If couldn't get current user ID, guess it's 0.
+                    CarrierAppUtils.disableCarrierAppsUntilPrivileged(mContext.getOpPackageName(),
+                            TelephonyManager.getDefault(),
+                            userHandle != null ? userHandle.getIdentifier() : 0, mContext);
+                }
+            }
+        }, new IntentFilter(Intent.ACTION_USER_FOREGROUND), null, null);
+        CarrierAppUtils.disableCarrierAppsUntilPrivileged(mContext.getOpPackageName(),
+                TelephonyManager.getDefault(), ActivityManager.getCurrentUser(), mContext);
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -1432,7 +1464,17 @@ public class GsmCdmaPhone extends Phone {
                     // should not reach here
                     loge("dial unexpected Ut domain selection, ignored");
                 }
+            } else if (domain == PhoneConstants.DOMAIN_NON_3GPP_PS) {
+                if (isEmergency) {
+                    useImsForEmergency = true;
+                    extras.putString(ImsCallProfile.EXTRA_CALL_RAT_TYPE,
+                            String.valueOf(ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN));
+                } else {
+                    // should not reach here
+                    loge("dial DOMAIN_NON_3GPP_PS should be used only for emergency calls");
+                }
             }
+
             extras.remove(PhoneConstants.EXTRA_DIAL_DOMAIN);
         }
 
@@ -1535,10 +1577,13 @@ public class GsmCdmaPhone extends Phone {
         }
         if (DBG) logd("Trying (non-IMS) CS call");
         if (isDialedNumberSwapped && isEmergency) {
-            // Triggers ECM when CS call ends only for test emergency calls using
-            // ril.test.emergencynumber.
-            mIsTestingEmergencyCallbackMode = true;
-            mCi.testingEmergencyCall();
+            // If domain selection is enabled, ECM testing is handled in EmergencyStateTracker
+            if (!DomainSelectionResolver.getInstance().isDomainSelectionSupported()) {
+                // Triggers ECM when CS call ends only for test emergency calls using
+                // ril.test.emergencynumber.
+                mIsTestingEmergencyCallbackMode = true;
+                mCi.testingEmergencyCall();
+            }
         }
 
         chosenPhoneConsumer.accept(this);
@@ -4730,6 +4775,8 @@ public class GsmCdmaPhone extends Phone {
             info = SubscriptionController.getInstance().getSubInfoForIccId(
                     IccUtils.stripTrailingFs(iccId));
         }
+
+        logd("reapplyUiccAppsEnablementIfNeeded: retries=" + retries + ", subInfo=" + info);
 
         // If info is null, it could be a new subscription. By default we enable it.
         boolean expectedValue = info == null || info.areUiccApplicationsEnabled();

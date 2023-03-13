@@ -56,6 +56,7 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +67,8 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * The subscription database manager is the wrapper of {@link SimInfo}
@@ -233,7 +236,10 @@ public class SubscriptionDatabaseManager extends Handler {
                     SubscriptionInfoInternal::getLastUsedTPMessageReference),
             new AbstractMap.SimpleImmutableEntry<>(
                     SimInfo.COLUMN_USER_HANDLE,
-                    SubscriptionInfoInternal::getUserId)
+                    SubscriptionInfoInternal::getUserId),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SATELLITE_ENABLED,
+                    SubscriptionInfoInternal::getSatelliteEnabled)
     );
 
     /**
@@ -319,7 +325,10 @@ public class SubscriptionDatabaseManager extends Handler {
                     SubscriptionDatabaseManager::setLastUsedTPMessageReference),
             new AbstractMap.SimpleImmutableEntry<>(
                     SimInfo.COLUMN_USER_HANDLE,
-                    SubscriptionDatabaseManager::setUserId)
+                    SubscriptionDatabaseManager::setUserId),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SATELLITE_ENABLED,
+                    SubscriptionDatabaseManager::setSatelliteEnabled)
     );
 
     /**
@@ -496,8 +505,9 @@ public class SubscriptionDatabaseManager extends Handler {
     private final Map<Integer, SubscriptionInfoInternal> mAllSubscriptionInfoInternalCache =
             new HashMap<>(16);
 
-    /** Whether database has been loaded into the cache after boot up. */
-    private boolean mDatabaseLoaded = false;
+    /** Whether database has been initialized after boot up. */
+    @GuardedBy("mDatabaseInitialized")
+    private Boolean mDatabaseInitialized = false;
 
     /**
      * This is the callback used for listening events from {@link SubscriptionDatabaseManager}.
@@ -533,9 +543,9 @@ public class SubscriptionDatabaseManager extends Handler {
         }
 
         /**
-         * Called when database has been loaded into the cache.
+         * Called when database has been initialized.
          */
-        public abstract void onDatabaseLoaded();
+        public abstract void onInitialized();
 
         /**
          * Called when subscription changed.
@@ -569,7 +579,7 @@ public class SubscriptionDatabaseManager extends Handler {
         mUiccController = UiccController.getInstance();
         mAsyncMode = mContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_subscription_database_async_update);
-        loadFromDatabase();
+        initializeDatabase();
     }
 
     /**
@@ -612,7 +622,8 @@ public class SubscriptionDatabaseManager extends Handler {
     public Object getSubscriptionProperty(int subId, @NonNull String columnName) {
         SubscriptionInfoInternal subInfo = getSubscriptionInfoInternal(subId);
         if (subInfo == null) {
-            throw new IllegalArgumentException("Invalid subId " + subId);
+            throw new IllegalArgumentException("getSubscriptionProperty: Invalid subId " + subId
+                    + ", columnName=" + columnName);
         }
 
         return getSubscriptionInfoFieldByColumnName(subInfo, columnName);
@@ -747,9 +758,12 @@ public class SubscriptionDatabaseManager extends Handler {
                     + "insert. subInfo=" + subInfo);
         }
 
-        if (!mDatabaseLoaded) {
-            throw new IllegalStateException("Database has not been loaded. Can't insert new "
-                    + "record at this point.");
+        synchronized (mDatabaseInitialized) {
+            if (!mDatabaseInitialized) {
+                throw new IllegalStateException(
+                        "Database has not been initialized. Can't insert new "
+                                + "record at this point.");
+            }
         }
 
         int subId;
@@ -816,10 +830,12 @@ public class SubscriptionDatabaseManager extends Handler {
     private int updateDatabase(int subId, @NonNull ContentValues contentValues) {
         logv("updateDatabase: prepare to update sub " + subId);
 
-        if (!mDatabaseLoaded) {
-            logel("updateDatabase: Database has not been loaded. Can't update database at this "
-                    + "point. contentValues=" + contentValues);
-            return 0;
+        synchronized (mDatabaseInitialized) {
+            if (!mDatabaseInitialized) {
+                logel("updateDatabase: Database has not been initialized. Can't update database at "
+                        + "this point. contentValues=" + contentValues);
+                return 0;
+            }
         }
 
         if (mAsyncMode) {
@@ -901,6 +917,10 @@ public class SubscriptionDatabaseManager extends Handler {
                             mAllSubscriptionInfoInternalCache.put(id, builder.build());
                             mCallback.invokeFromExecutor(()
                                     -> mCallback.onSubscriptionChanged(subId));
+                            if (columnName.equals(SimInfo.COLUMN_UICC_APPLICATIONS_ENABLED)) {
+                                mCallback.invokeFromExecutor(()
+                                        -> mCallback.onUiccApplicationsEnabled(subId));
+                            }
                         }
                     }
                 }
@@ -1096,10 +1116,40 @@ public class SubscriptionDatabaseManager extends Handler {
      *
      * @throws IllegalArgumentException if the subscription does not exist.
      */
+    public void setEhplmns(int subId, @NonNull String[] ehplmns) {
+        Objects.requireNonNull(ehplmns);
+        setEhplmns(subId, Arrays.stream(ehplmns)
+                .filter(Predicate.not(TextUtils::isEmpty))
+                .collect(Collectors.joining(",")));
+    }
+
+    /**
+     * Set EHPLMNs associated with the subscription.
+     *
+     * @param subId Subscription id.
+     * @param ehplmns EHPLMNs associated with the subscription.
+     *
+     * @throws IllegalArgumentException if the subscription does not exist.
+     */
     public void setEhplmns(int subId, @NonNull String ehplmns) {
         Objects.requireNonNull(ehplmns);
         writeDatabaseAndCacheHelper(subId, SimInfo.COLUMN_EHPLMNS, ehplmns,
                 SubscriptionInfoInternal.Builder::setEhplmns);
+    }
+
+    /**
+     * Set HPLMNs associated with the subscription.
+     *
+     * @param subId Subscription id.
+     * @param hplmns HPLMNs associated with the subscription.
+     *
+     * @throws IllegalArgumentException if the subscription does not exist.
+     */
+    public void setHplmns(int subId, @NonNull String[] hplmns) {
+        Objects.requireNonNull(hplmns);
+        setHplmns(subId, Arrays.stream(hplmns)
+                .filter(Predicate.not(TextUtils::isEmpty))
+                .collect(Collectors.joining(",")));
     }
 
     /**
@@ -1177,8 +1227,8 @@ public class SubscriptionDatabaseManager extends Handler {
         try {
             SubscriptionInfoInternal subInfoCache = mAllSubscriptionInfoInternalCache.get(subId);
             if (subInfoCache == null) {
-                throw new IllegalArgumentException("Subscription doesn't exist. subId=" + subId
-                        + ", columnName=cardId");
+                throw new IllegalArgumentException("setCardId: Subscription doesn't exist. subId="
+                        + subId);
             }
             mAllSubscriptionInfoInternalCache.put(subId,
                     new SubscriptionInfoInternal.Builder(subInfoCache)
@@ -1706,39 +1756,112 @@ public class SubscriptionDatabaseManager extends Handler {
     }
 
     /**
-     * Load the entire database into the cache.
+     * Set whether satellite is enabled or not.
+     *
+     * @param subId Subscription id.
+     * @param isSatelliteEnabled if satellite is enabled or not.
+     *
+     * @throws IllegalArgumentException if the subscription does not exist.
      */
-    private void loadFromDatabase() {
-        // Perform the task in the handler thread.
-        Runnable r = () -> {
-            try (Cursor cursor = mContext.getContentResolver().query(
-                    SimInfo.CONTENT_URI, null, null, null, null)) {
-                mReadWriteLock.writeLock().lock();
-                try {
-                    mAllSubscriptionInfoInternalCache.clear();
-                    while (cursor != null && cursor.moveToNext()) {
-                        SubscriptionInfoInternal subInfo = createSubscriptionInfoFromCursor(cursor);
-                        if (subInfo != null) {
-                            mAllSubscriptionInfoInternalCache
-                                    .put(subInfo.getSubscriptionId(), subInfo);
-                        }
-                    }
-                    mDatabaseLoaded = true;
-                    mCallback.invokeFromExecutor(mCallback::onDatabaseLoaded);
-                    log("Loaded " + mAllSubscriptionInfoInternalCache.size()
-                            + " records from the subscription database.");
-                } finally {
-                    mReadWriteLock.writeLock().unlock();
-                }
-            }
-        };
+    public void setSatelliteEnabled(int subId, int isSatelliteEnabled) {
+        writeDatabaseAndCacheHelper(subId, SimInfo.COLUMN_SATELLITE_ENABLED,
+                isSatelliteEnabled,
+                SubscriptionInfoInternal.Builder::setSatelliteEnabled);
+    }
 
+    /**
+     * Set whether group of the subscription is disabled. This is only useful if it's a grouped
+     * opportunistic subscription. In this case, if all primary (non-opportunistic)
+     * subscriptions in the group are deactivated (unplugged pSIM or deactivated eSIM profile),
+     * we should disable this opportunistic subscription.
+     *
+     * @param subId Subscription id.
+     * @param isGroupDisabled if group of the subscription is disabled.
+     *
+     * @throws IllegalArgumentException if the subscription does not exist.
+     */
+    public void setGroupDisabled(int subId, boolean isGroupDisabled) {
+        // group disabled does not have a corresponding SimInfo column. So we only update the cache.
+
+        // Grab the write lock so no other threads can read or write the cache.
+        mReadWriteLock.writeLock().lock();
+        try {
+            SubscriptionInfoInternal subInfoCache = mAllSubscriptionInfoInternalCache.get(subId);
+            if (subInfoCache == null) {
+                throw new IllegalArgumentException("setGroupDisabled: Subscription doesn't exist. "
+                        + "subId=" + subId);
+            }
+            mAllSubscriptionInfoInternalCache.put(subId,
+                    new SubscriptionInfoInternal.Builder(subInfoCache)
+                            .setGroupDisabled(isGroupDisabled).build());
+        } finally {
+            mReadWriteLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Reload the database from content provider to the cache.
+     */
+    public void reloadDatabase() {
+        if (mAsyncMode) {
+            post(this::loadDatabaseInternal);
+        } else {
+            loadDatabaseInternal();
+        }
+    }
+
+    /**
+     * Load the database from content provider to the cache.
+     */
+    private void loadDatabaseInternal() {
+        logl("loadDatabaseInternal");
+        try (Cursor cursor = mContext.getContentResolver().query(
+                SimInfo.CONTENT_URI, null, null, null, null)) {
+            mReadWriteLock.writeLock().lock();
+            try {
+                Map<Integer, SubscriptionInfoInternal> newAllSubscriptionInfoInternalCache =
+                        new HashMap<>();
+                while (cursor != null && cursor.moveToNext()) {
+                    SubscriptionInfoInternal subInfo = createSubscriptionInfoFromCursor(cursor);
+                    newAllSubscriptionInfoInternalCache.put(subInfo.getSubscriptionId(), subInfo);
+                    if (!Objects.equals(mAllSubscriptionInfoInternalCache
+                            .get(subInfo.getSubscriptionId()), subInfo)) {
+                        mCallback.invokeFromExecutor(() -> mCallback.onSubscriptionChanged(
+                                subInfo.getSubscriptionId()));
+                    }
+                }
+
+                mAllSubscriptionInfoInternalCache.clear();
+                mAllSubscriptionInfoInternalCache.putAll(newAllSubscriptionInfoInternalCache);
+
+                logl("Loaded " + mAllSubscriptionInfoInternalCache.size()
+                        + " records from the subscription database.");
+            } finally {
+                mReadWriteLock.writeLock().unlock();
+            }
+        }
+    }
+
+    /**
+     * Initialize the database cache. Load the entire database into the cache.
+     */
+    private void initializeDatabase() {
         if (mAsyncMode) {
             // Load the database asynchronously.
-            post(r);
+            post(() -> {
+                synchronized (mDatabaseInitialized) {
+                    loadDatabaseInternal();
+                    mDatabaseInitialized = true;
+                    mCallback.invokeFromExecutor(mCallback::onInitialized);
+                }
+            });
         } else {
             // Load the database synchronously.
-            r.run();
+            synchronized (mDatabaseInitialized) {
+                loadDatabaseInternal();
+                mDatabaseInitialized = true;
+                mCallback.invokeFromExecutor(mCallback::onInitialized);
+            }
         }
     }
 
@@ -1749,7 +1872,7 @@ public class SubscriptionDatabaseManager extends Handler {
      *
      * @return The subscription info from a single database record.
      */
-    @Nullable
+    @NonNull
     private SubscriptionInfoInternal createSubscriptionInfoFromCursor(@NonNull Cursor cursor) {
         SubscriptionInfoInternal.Builder builder = new SubscriptionInfoInternal.Builder();
         int id = cursor.getInt(cursor.getColumnIndexOrThrow(
@@ -1870,8 +1993,9 @@ public class SubscriptionDatabaseManager extends Handler {
                 .setLastUsedTPMessageReference(cursor.getInt(cursor.getColumnIndexOrThrow(
                         SimInfo.COLUMN_TP_MESSAGE_REF)))
                 .setUserId(cursor.getInt(cursor.getColumnIndexOrThrow(
-                        SimInfo.COLUMN_USER_HANDLE)));
-
+                        SimInfo.COLUMN_USER_HANDLE)))
+                .setSatelliteEnabled(cursor.getInt(cursor.getColumnIndexOrThrow(
+                        SimInfo.COLUMN_SATELLITE_ENABLED)));
         return builder.build();
     }
 
@@ -1945,12 +2069,6 @@ public class SubscriptionDatabaseManager extends Handler {
         }
     }
 
-    /**
-     * @return {@code true} if the database has been loaded into the cache.
-     */
-    public boolean isDatabaseLoaded() {
-        return mDatabaseLoaded;
-    }
     /**
      * Log debug messages.
      *

@@ -376,6 +376,12 @@ public class SubscriptionInfoInternal {
      */
     private final int mUserId;
 
+    /**
+     * Whether satellite is enabled or disabled.
+     * By default, its disabled. It is intended to use integer to fit the database format.
+     */
+    private final int mIsSatelliteEnabled;
+
     // Below are the fields that do not exist in the SimInfo table.
     /**
      * The card ID of the SIM card. This maps uniquely to {@link #mCardString}.
@@ -445,6 +451,7 @@ public class SubscriptionInfoInternal {
         this.mUsageSetting = builder.mUsageSetting;
         this.mLastUsedTPMessageReference = builder.mLastUsedTPMessageReference;
         this.mUserId = builder.mUserId;
+        this.mIsSatelliteEnabled = builder.mIsSatelliteEnabled;
 
         // Below are the fields that do not exist in the SimInfo table.
         this.mCardId = builder.mCardId;
@@ -958,6 +965,13 @@ public class SubscriptionInfoInternal {
         return mUserId;
     }
 
+    /**
+     * @return {@code 1} if satellite is enabled.
+     */
+    public int getSatelliteEnabled() {
+        return mIsSatelliteEnabled;
+    }
+
     // Below are the fields that do not exist in SimInfo table.
     /**
      * @return The card ID of the SIM card which contains the subscription.
@@ -1102,6 +1116,7 @@ public class SubscriptionInfoInternal {
                 + " numberFromCarrier=" + mNumberFromCarrier
                 + " numberFromIms=" + mNumberFromIms
                 + " userId=" + mUserId
+                + " isSatelliteEnabled=" + mIsSatelliteEnabled
                 + " isGroupDisabled=" + mIsGroupDisabled
                 + "]";
     }
@@ -1148,7 +1163,8 @@ public class SubscriptionInfoInternal {
                 && mAllowedNetworkTypesForReasons.equals(that.mAllowedNetworkTypesForReasons)
                 && mDeviceToDeviceStatusSharingContacts.equals(
                 that.mDeviceToDeviceStatusSharingContacts) && mNumberFromCarrier.equals(
-                that.mNumberFromCarrier) && mNumberFromIms.equals(that.mNumberFromIms);
+                that.mNumberFromCarrier) && mNumberFromIms.equals(that.mNumberFromIms)
+                && mIsSatelliteEnabled == that.mIsSatelliteEnabled;
     }
 
     @Override
@@ -1165,7 +1181,7 @@ public class SubscriptionInfoInternal {
                 mDeviceToDeviceStatusSharingContacts, mIsNrAdvancedCallingEnabled,
                 mNumberFromCarrier,
                 mNumberFromIms, mPortIndex, mUsageSetting, mLastUsedTPMessageReference, mUserId,
-                mCardId, mIsGroupDisabled);
+                mIsSatelliteEnabled, mCardId, mIsGroupDisabled);
         result = 31 * result + Arrays.hashCode(mNativeAccessRules);
         result = 31 * result + Arrays.hashCode(mCarrierConfigAccessRules);
         result = 31 * result + Arrays.hashCode(mRcsConfig);
@@ -1292,17 +1308,17 @@ public class SubscriptionInfoInternal {
         /**
          * Whether enhanced 4G mode is enabled by the user or not.
          */
-        private int mIsEnhanced4GModeEnabled = 0;
+        private int mIsEnhanced4GModeEnabled = -1;
 
         /**
          * Whether video telephony is enabled by the user or not.
          */
-        private int mIsVideoTelephonyEnabled = 0;
+        private int mIsVideoTelephonyEnabled = -1;
 
         /**
          * Whether Wi-Fi calling is enabled by the user or not when the device is not roaming.
          */
-        private int mIsWifiCallingEnabled = 0;
+        private int mIsWifiCallingEnabled = -1;
 
         /**
          * Wi-Fi calling mode when the device is not roaming.
@@ -1319,7 +1335,7 @@ public class SubscriptionInfoInternal {
         /**
          * Whether Wi-Fi calling is enabled by the user or not when the device is roaming.
          */
-        private int mIsWifiCallingEnabledForRoaming = 0;
+        private int mIsWifiCallingEnabledForRoaming = -1;
 
         /**
          * Whether the subscription is opportunistic or not.
@@ -1381,7 +1397,7 @@ public class SubscriptionInfoInternal {
         /**
          * Whether Uicc applications are configured to enable or not.
          */
-        private int mAreUiccApplicationsEnabled = 0;
+        private int mAreUiccApplicationsEnabled = 1;
 
         /**
          * Whether the user has enabled IMS RCS User Capability Exchange (UCE) for this
@@ -1463,6 +1479,11 @@ public class SubscriptionInfoInternal {
          */
         private int mUserId = UserHandle.USER_NULL;
 
+        /**
+         * Whether satellite is enabled or not.
+         */
+        private int mIsSatelliteEnabled = -1;
+
         // The following fields do not exist in the SimInfo table.
         /**
          * The card ID of the SIM card which contains the subscription.
@@ -1537,6 +1558,7 @@ public class SubscriptionInfoInternal {
             mUsageSetting = info.mUsageSetting;
             mLastUsedTPMessageReference = info.getLastUsedTPMessageReference();
             mUserId = info.mUserId;
+            mIsSatelliteEnabled = info.mIsSatelliteEnabled;
             // Below are the fields that do not exist in the SimInfo table.
             mCardId = info.mCardId;
             mIsGroupDisabled = info.mIsGroupDisabled;
@@ -2228,6 +2250,17 @@ public class SubscriptionInfoInternal {
         @NonNull
         public Builder setUserId(@UserIdInt int userId) {
             mUserId = userId;
+            return this;
+        }
+
+        /**
+         * Set whether satellite is enabled or not.
+         * @param isSatelliteEnabled {@code 1} if satellite is enabled.
+         * @return The builder.
+         */
+        @NonNull
+        public Builder setSatelliteEnabled(int isSatelliteEnabled) {
+            mIsSatelliteEnabled = isSatelliteEnabled;
             return this;
         }
 

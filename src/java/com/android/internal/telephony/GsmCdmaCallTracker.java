@@ -45,6 +45,8 @@ import android.util.EventLog;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.PhoneInternalInterface.DialArgs;
 import com.android.internal.telephony.cdma.CdmaCallWaitingNotification;
+import com.android.internal.telephony.domainselection.DomainSelectionResolver;
+import com.android.internal.telephony.emergency.EmergencyStateTracker;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.telephony.Rlog;
 
@@ -545,8 +547,21 @@ public class GsmCdmaCallTracker extends CallTracker {
             if (!isPhoneInEmergencyMode || (isPhoneInEmergencyMode && isEmergencyCall)) {
                 mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
                         mPendingMO.getEmergencyNumberInfo(),
-                        mPendingMO.hasKnownUserIntentEmergency(),
-                        clirMode, obtainCompleteMessage());
+                        mPendingMO.hasKnownUserIntentEmergency(), clirMode,
+                        obtainCompleteMessage());
+            } else if (DomainSelectionResolver.getInstance().isDomainSelectionSupported()) {
+                mPendingCallInEcm = true;
+                final int finalClirMode = clirMode;
+                Runnable onComplete = new Runnable() {
+                    @Override
+                    public void run() {
+                        mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
+                        mPendingMO.getEmergencyNumberInfo(),
+                        mPendingMO.hasKnownUserIntentEmergency(), finalClirMode,
+                        obtainCompleteMessage());
+                    }
+                };
+                EmergencyStateTracker.getInstance().exitEmergencyCallbackMode(onComplete);
             } else {
                 exitEmergencyMode();
                 mPendingCallClirMode=clirMode;
@@ -1903,6 +1918,10 @@ public class GsmCdmaCallTracker extends CallTracker {
     }
 
     private boolean isEmcRetryCause(int causeCode) {
+        if (DomainSelectionResolver.getInstance().isDomainSelectionSupported()) {
+            log("isEmcRetryCause AP based domain selection ignores the cause");
+            return false;
+        }
         if (causeCode == CallFailCause.EMC_REDIAL_ON_IMS ||
             causeCode == CallFailCause.EMC_REDIAL_ON_VOWIFI) {
             return true;

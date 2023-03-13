@@ -518,7 +518,7 @@ public class DataProfileManagerTest extends TelephonyTest {
 
         public void setPreferredApn(String apnName) {
             for (Object apnSetting : mAllApnSettings) {
-                if (apnName == ((Object[]) apnSetting)[3]) {
+                if (Objects.equals(apnName, ((Object[]) apnSetting)[3])) {
                     mPreferredApnId = (int) ((Object[]) apnSetting)[0];
                     mPreferredApnSet = (int) ((Object[]) apnSetting)[28];
                     logd("mPreferredApnId=" + mPreferredApnId + " ,mPreferredApnSet="
@@ -1065,7 +1065,6 @@ public class DataProfileManagerTest extends TelephonyTest {
                 tnr, TelephonyManager.NETWORK_TYPE_LTE, false);
         assertThat(dataProfile.getApnSetting().getApnName()).isEqualTo(GENERAL_PURPOSE_APN);
         dataProfile.setLastSetupTimestamp(SystemClock.elapsedRealtime());
-        dataProfile.setPreferred(true);
         mDataNetworkControllerCallback.onInternetDataNetworkConnected(List.of(dataProfile));
         processAllMessages();
 
@@ -1082,25 +1081,35 @@ public class DataProfileManagerTest extends TelephonyTest {
         assertThat(mDataProfileManagerUT.isAnyPreferredDataProfileExisting()).isTrue();
         assertThat(mDataProfileManagerUT.isDataProfilePreferred(dataProfile)).isTrue();
 
-        // no active internet, expect no preferred APN after reset
-        mDataNetworkControllerCallback.onInternetDataNetworkDisconnected();
+        // Test user selected a bad data profile, expects to adopt the last data profile that
+        // succeeded for internet setup after APN reset
+        // some bad profile that cannot be used for internet
+        mApnSettingContentProvider.setPreferredApn(MATCH_ALL_APN_SET_ID_IMS_APN);
+        mDataProfileManagerUT.obtainMessage(2 /*EVENT_APN_DATABASE_CHANGED*/).sendToTarget();
+        processAllMessages();
+
+        assertThat(mDataProfileManagerUT.isAnyPreferredDataProfileExisting()).isTrue();
+        assertThat(mDataProfileManagerUT.isDataProfilePreferred(dataProfile)).isFalse();
+
+        // APN reset, preferred APN should set to be the last data profile that succeeded for
+        // internet setup
         mPreferredApnId = -1;
         mDataProfileManagerUT.obtainMessage(2 /*EVENT_APN_DATABASE_CHANGED*/).sendToTarget();
         processAllMessages();
 
-        assertThat(mDataProfileManagerUT.isAnyPreferredDataProfileExisting()).isFalse();
-        assertThat(mDataProfileManagerUT.isDataProfilePreferred(dataProfile)).isFalse();
+        assertThat(mDataProfileManagerUT.isAnyPreferredDataProfileExisting()).isTrue();
+        assertThat(mDataProfileManagerUT.isDataProfilePreferred(dataProfile)).isTrue();
 
-        // setup internet again
+        // Test removed data profile(user created after reset) shouldn't show up
         mDataNetworkControllerCallback.onInternetDataNetworkConnected(List.of(dataProfile));
         processAllMessages();
-        //APN reset and removed GENERAL_PURPOSE_APN(as if user created) from APN DB
+        //APN reset and removed GENERAL_PURPOSE_APN from APN DB
         mPreferredApnId = -1;
         mApnSettingContentProvider.removeApnByApnId(1);
         mDataProfileManagerUT.obtainMessage(2 /*EVENT_APN_DATABASE_CHANGED*/).sendToTarget();
         processAllMessages();
 
-        // There should be no preferred APN after APN reset
+        // There should be no preferred APN after APN reset because last working profile is removed
         assertThat(mDataProfileManagerUT.isAnyPreferredDataProfileExisting()).isFalse();
         assertThat(mDataProfileManagerUT.isDataProfilePreferred(dataProfile)).isFalse();
 
@@ -1447,5 +1456,34 @@ public class DataProfileManagerTest extends TelephonyTest {
         // so this should result in getting nothing.
         assertThat(mDataProfileManagerUT.getDataProfileForNetworkRequest(tnr,
                 TelephonyManager.NETWORK_TYPE_LTE, false)).isNull();
+    }
+
+    @Test
+    public void testSimLoaded() {
+        mDataProfileManagerUT = new DataProfileManager(mPhone, mDataNetworkController,
+                mMockedWwanDataServiceManager, Looper.myLooper(), mDataProfileManagerCallback);
+
+        mDataProfileManagerUT.obtainMessage(1 /* EVENT_SIM_LOADED */).sendToTarget();
+        processAllMessages();
+
+        DataProfile dataProfile = mDataProfileManagerUT.getDataProfileForNetworkRequest(
+                new TelephonyNetworkRequest(new NetworkRequest.Builder()
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build(), mPhone),
+                TelephonyManager.NETWORK_TYPE_LTE, false);
+
+        // Because preferred APN is not set, SIM load event will not trigger loading data profiles.
+        assertThat(dataProfile).isNull();
+
+        mApnSettingContentProvider.setPreferredApn(GENERAL_PURPOSE_APN);
+        mDataProfileManagerUT.obtainMessage(1 /* EVENT_SIM_LOADED */).sendToTarget();
+        processAllMessages();
+
+        dataProfile = mDataProfileManagerUT.getDataProfileForNetworkRequest(
+                new TelephonyNetworkRequest(new NetworkRequest.Builder()
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build(), mPhone),
+                TelephonyManager.NETWORK_TYPE_LTE, false);
+        assertThat(dataProfile.getApnSetting().getApnName()).isEqualTo(GENERAL_PURPOSE_APN);
     }
 }

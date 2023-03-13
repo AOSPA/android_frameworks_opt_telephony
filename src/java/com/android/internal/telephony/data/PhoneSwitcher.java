@@ -577,10 +577,14 @@ public class PhoneSwitcher extends Handler {
                 mDataSettingsManagerCallbacks.computeIfAbsent(phoneId,
                         v -> new DataSettingsManagerCallback(this::post) {
                             @Override
-                            public void onDataDuringCallChanged(boolean enabled) {
-                                evaluateIfImmediateDataSwitchIsNeeded(
-                                        "EVENT_DATA_DURING_CALL_ENABLED_CHANGED",
-                                        DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
+                            public void onDataEnabledOverrideChanged(boolean enabled,
+                                    @TelephonyManager.MobileDataPolicy int policy) {
+                                if (policy == TelephonyManager
+                                        .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL) {
+                                    evaluateIfImmediateDataSwitchIsNeeded(
+                                            "EVENT_DATA_DURING_CALL_ENABLED_CHANGED",
+                                            DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
+                                }
                             }
 
                             @Override
@@ -729,7 +733,7 @@ public class PhoneSwitcher extends Handler {
                     log("EVENT_SUBSCRIPTION_CHANGED reevaluate after call");
                     break;
                 }
-                onEvaluate(REQUESTS_UNCHANGED, "subChanged");
+                onEvaluate(REQUESTS_UNCHANGED, "subscription changed");
                 break;
             }
             case EVENT_SERVICE_STATE_CHANGED: {
@@ -1410,6 +1414,10 @@ public class PhoneSwitcher extends Handler {
                     mAutoSelectedDataSubId = DEFAULT_SUBSCRIPTION_ID;
                 }
                 mPhoneSubscriptions[i] = sub;
+                // Listen to IMS radio tech change for new sub
+                if (SubscriptionManager.isValidSubscriptionId(sub)) {
+                    registerForImsRadioTechChange(mContext, i);
+                }
                 diffDetected = true;
             }
         }
@@ -1632,7 +1640,7 @@ public class PhoneSwitcher extends Handler {
         }
     }
 
-    private int phoneIdForRequest(TelephonyNetworkRequest networkRequest) {
+    protected int phoneIdForRequest(TelephonyNetworkRequest networkRequest) {
         NetworkRequest netRequest = networkRequest.getNativeNetworkRequest();
         int subId = getSubIdFromNetworkSpecifier(netRequest.getNetworkSpecifier());
 

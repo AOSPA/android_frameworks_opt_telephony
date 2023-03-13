@@ -37,6 +37,7 @@ import android.os.ParcelUuid;
 import android.os.PersistableBundle;
 import android.os.UserHandle;
 import android.preference.PreferenceManager;
+import android.provider.DeviceConfig;
 import android.service.carrier.CarrierIdentifier;
 import android.service.euicc.EuiccProfileInfo;
 import android.service.euicc.EuiccService;
@@ -94,6 +95,8 @@ public class SubscriptionInfoUpdater extends Handler {
     private static final int EVENT_REFRESH_EMBEDDED_SUBSCRIPTIONS = 12;
     private static final int EVENT_MULTI_SIM_CONFIG_CHANGED = 13;
     private static final int EVENT_INACTIVE_SLOT_ICC_STATE_CHANGED = 14;
+    /** Device config changed. */
+    private static final int EVENT_DEVICE_CONFIG_CHANGED = 15;
 
     private static final String ICCID_STRING_FOR_NO_SIM = "";
 
@@ -116,6 +119,10 @@ public class SubscriptionInfoUpdater extends Handler {
     private SubscriptionManager mSubscriptionManager = null;
     private EuiccManager mEuiccManager;
     private Handler mBackgroundHandler;
+    /** DeviceConfig key for whether work profile telephony feature is enabled. */
+    private static final String KEY_ENABLE_WORK_PROFILE_TELEPHONY = "enable_work_profile_telephony";
+    /** {@code true} if the work profile telephony feature is enabled otherwise {@code false}. */
+    private static boolean mIsWorkProfileTelephonyEnabled = false;
 
     // The current foreground user ID.
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -176,6 +183,16 @@ public class SubscriptionInfoUpdater extends Handler {
 
         PhoneConfigurationManager.registerForMultiSimConfigChange(
                 this, EVENT_MULTI_SIM_CONFIG_CHANGED, null);
+
+        mIsWorkProfileTelephonyEnabled = DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_TELEPHONY,
+                KEY_ENABLE_WORK_PROFILE_TELEPHONY, false);
+        DeviceConfig.addOnPropertiesChangedListener(DeviceConfig.NAMESPACE_TELEPHONY, this::post,
+                properties -> {
+                    if (TextUtils.equals(DeviceConfig.NAMESPACE_TELEPHONY,
+                            properties.getNamespace())) {
+                        sendEmptyMessage(EVENT_DEVICE_CONFIG_CHANGED);
+                    }
+                });
     }
 
     private void initializeCarrierApps() {
@@ -360,6 +377,18 @@ public class SubscriptionInfoUpdater extends Handler {
 
             case EVENT_MULTI_SIM_CONFIG_CHANGED:
                 onMultiSimConfigChanged();
+                break;
+
+            case EVENT_DEVICE_CONFIG_CHANGED:
+                boolean isWorkProfileTelephonyEnabled = DeviceConfig.getBoolean(
+                        DeviceConfig.NAMESPACE_TELEPHONY, KEY_ENABLE_WORK_PROFILE_TELEPHONY,
+                        false);
+                if (isWorkProfileTelephonyEnabled != mIsWorkProfileTelephonyEnabled) {
+                    logd("EVENT_DEVICE_CONFIG_CHANGED: isWorkProfileTelephonyEnabled changed from "
+                            + mIsWorkProfileTelephonyEnabled + " to "
+                            + isWorkProfileTelephonyEnabled);
+                    mIsWorkProfileTelephonyEnabled = isWorkProfileTelephonyEnabled;
+                }
                 break;
 
             default:
@@ -690,8 +719,10 @@ public class SubscriptionInfoUpdater extends Handler {
     }
 
     private void restoreSimSpecificSettingsForPhone(int phoneId) {
-        SubscriptionManager subManager = SubscriptionManager.from(sContext);
-        subManager.restoreSimSpecificSettingsForIccIdFromBackup(sIccId[phoneId]);
+        sContext.getContentResolver().call(
+                SubscriptionManager.SIM_INFO_BACKUP_AND_RESTORE_CONTENT_URI,
+                SubscriptionManager.RESTORE_SIM_SPECIFIC_SETTINGS_METHOD_NAME,
+                sIccId[phoneId], null);
     }
 
     private void updateCarrierServices(int phoneId, String simState) {
@@ -902,6 +933,14 @@ public class SubscriptionInfoUpdater extends Handler {
      */
     public static boolean isSubInfoInitialized() {
         return sIsSubInfoInitialized;
+    }
+
+    /**
+     * Whether work profile telephony feature is enabled or not.
+     * return {@code true} if work profile telephony feature is enabled.
+     */
+    public static boolean isWorkProfileTelephonyEnabled() {
+        return mIsWorkProfileTelephonyEnabled;
     }
 
     /**

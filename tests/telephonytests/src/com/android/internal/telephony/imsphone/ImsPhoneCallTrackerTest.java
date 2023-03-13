@@ -70,7 +70,6 @@ import static org.mockito.Mockito.when;
 import android.annotation.Nullable;
 import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.NetworkStats;
@@ -126,6 +125,7 @@ import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.SrvccConnection;
 import com.android.internal.telephony.TelephonyTest;
 import com.android.internal.telephony.d2d.RtpTransport;
+import com.android.internal.telephony.domainselection.DomainSelectionResolver;
 import com.android.internal.telephony.imsphone.ImsPhoneCallTracker.VtDataUsageProvider;
 
 import org.junit.After;
@@ -171,6 +171,8 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     private INetworkStatsProviderCallback mVtDataUsageProviderCb;
     private ImsPhoneCallTracker.ConnectorFactory mConnectorFactory;
     private CommandsInterface mMockCi;
+    private DomainSelectionResolver mDomainSelectionResolver;
+    private CarrierConfigManager.CarrierConfigChangeListener mCarrierConfigChangeListener;
 
     private final Executor mExecutor = Runnable::run;
 
@@ -248,6 +250,7 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
         doReturn(ImsFeature.STATE_READY).when(mImsManager).getImsServiceState();
         doReturn(mImsCallProfile).when(mImsManager).createCallProfile(anyInt(), anyInt());
         mContextFixture.addSystemFeature(PackageManager.FEATURE_TELEPHONY_IMS);
+        mDomainSelectionResolver = mock(DomainSelectionResolver.class);
 
         doAnswer(invocation -> {
             mMmTelListener = (MmTelFeature.Listener) invocation.getArguments()[0];
@@ -283,7 +286,16 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
             return mMockConnector;
         }).when(mConnectorFactory).create(any(), anyInt(), anyString(), any(), any());
 
+        DomainSelectionResolver.setDomainSelectionResolver(mDomainSelectionResolver);
+        doReturn(false).when(mDomainSelectionResolver).isDomainSelectionSupported();
+
+        // Capture CarrierConfigChangeListener to emulate the carrier config change notification
+        ArgumentCaptor<CarrierConfigManager.CarrierConfigChangeListener> listenerArgumentCaptor =
+                ArgumentCaptor.forClass(CarrierConfigManager.CarrierConfigChangeListener.class);
         mCTUT = new ImsPhoneCallTracker(mImsPhone, mConnectorFactory, Runnable::run);
+        verify(mCarrierConfigManager).registerCarrierConfigChangeListener(any(),
+                listenerArgumentCaptor.capture());
+        mCarrierConfigChangeListener = listenerArgumentCaptor.getAllValues().get(0);
         mCTUT.setDataEnabled(true);
 
         final ArgumentCaptor<VtDataUsageProvider> vtDataUsageProviderCaptor =
@@ -2423,11 +2435,47 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
 
     @Test
     @SmallTest
-    public void testDomainSelectionAlternateService() {
+    public void testDomainSelectionAlternateServiceStartFailed() {
+        doReturn(true).when(mDomainSelectionResolver).isDomainSelectionSupported();
         startOutgoingCall();
         ImsPhoneConnection c = mCTUT.mForegroundCall.getFirstConnection();
         mImsCallProfile.setEmergencyServiceCategories(EMERGENCY_SERVICE_CATEGORY_AMBULANCE);
         mImsCallListener.onCallStartFailed(mSecondImsCall,
+                new ImsReasonInfo(ImsReasonInfo.CODE_SIP_ALTERNATE_EMERGENCY_CALL, -1));
+        processAllMessages();
+        EmergencyNumber emergencyNumber = c.getEmergencyNumberInfo();
+        assertNotNull(emergencyNumber);
+        assertEquals(EMERGENCY_SERVICE_CATEGORY_AMBULANCE,
+                emergencyNumber.getEmergencyServiceCategoryBitmask());
+    }
+
+    @Test
+    @SmallTest
+    public void testDomainSelectionAlternateServiceStartFailedNullPendingMO() {
+        doReturn(true).when(mDomainSelectionResolver).isDomainSelectionSupported();
+        startOutgoingCall();
+        ImsPhoneConnection c = mCTUT.mForegroundCall.getFirstConnection();
+        mImsCallListener.onCallProgressing(mSecondImsCall);
+        processAllMessages();
+        mImsCallProfile.setEmergencyServiceCategories(EMERGENCY_SERVICE_CATEGORY_AMBULANCE);
+        mImsCallListener.onCallStartFailed(mSecondImsCall,
+                new ImsReasonInfo(ImsReasonInfo.CODE_LOCAL_CALL_CS_RETRY_REQUIRED,
+                        ImsReasonInfo.EXTRA_CODE_CALL_RETRY_EMERGENCY));
+        processAllMessages();
+        EmergencyNumber emergencyNumber = c.getEmergencyNumberInfo();
+        assertNotNull(emergencyNumber);
+        assertEquals(EMERGENCY_SERVICE_CATEGORY_AMBULANCE,
+                emergencyNumber.getEmergencyServiceCategoryBitmask());
+    }
+
+    @Test
+    @SmallTest
+    public void testDomainSelectionAlternateServiceTerminated() {
+        doReturn(true).when(mDomainSelectionResolver).isDomainSelectionSupported();
+        startOutgoingCall();
+        ImsPhoneConnection c = mCTUT.mForegroundCall.getFirstConnection();
+        mImsCallProfile.setEmergencyServiceCategories(EMERGENCY_SERVICE_CATEGORY_AMBULANCE);
+        mImsCallListener.onCallTerminated(mSecondImsCall,
                 new ImsReasonInfo(ImsReasonInfo.CODE_SIP_ALTERNATE_EMERGENCY_CALL, -1));
         processAllMessages();
         EmergencyNumber emergencyNumber = c.getEmergencyNumberInfo();
@@ -2588,10 +2636,8 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
     }
 
     private void sendCarrierConfigChanged() {
-        Intent intent = new Intent(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
-        intent.putExtra(CarrierConfigManager.EXTRA_SUBSCRIPTION_INDEX, mPhone.getSubId());
-        intent.putExtra(CarrierConfigManager.EXTRA_SLOT_INDEX, mPhone.getPhoneId());
-        mBroadcastReceiver.onReceive(mContext, intent);
+        mCarrierConfigChangeListener.onCarrierConfigChanged(mPhone.getPhoneId(), mPhone.getSubId(),
+                TelephonyManager.UNKNOWN_CARRIER_ID, TelephonyManager.UNKNOWN_CARRIER_ID);
         processAllMessages();
     }
 
