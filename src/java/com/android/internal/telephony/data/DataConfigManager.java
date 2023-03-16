@@ -72,12 +72,6 @@ public class DataConfigManager extends Handler {
     /** The default timeout in ms for data network stuck in a transit state. */
     private static final int DEFAULT_NETWORK_TRANSIT_STATE_TIMEOUT_MS = 300000;
 
-    /** Default time threshold in ms to define a internet connection status to be stable. */
-    public static int DEFAULT_AUTO_DATA_SWITCH_STABILITY_TIME_MS = 10000;
-
-    /** The max number of retries when a pre-switching validation fails. */
-    public static int DEFAULT_AUTO_DATA_SWITCH_MAX_RETRY = 7;
-
     /** Event for carrier config changed. */
     private static final int EVENT_CARRIER_CONFIG_CHANGED = 1;
 
@@ -268,18 +262,6 @@ public class DataConfigManager extends Handler {
      */
     private boolean mIsApnConfigAnomalyReportEnabled;
 
-    /**
-     * Time threshold in ms to define a internet connection status to be stable(e.g. out of service,
-     * in service, wifi is the default active network.etc), while -1 indicates auto switch feature
-     * disabled.
-     */
-    private long mAutoDataSwitchAvailabilityStabilityTimeThreshold;
-
-    /**
-     * The maximum number of retries when a pre-switching validation fails.
-     */
-    private int mAutoDataSwitchValidationMaxRetry;
-
     private @NonNull final Phone mPhone;
     private @NonNull final String mLogTag;
 
@@ -319,6 +301,8 @@ public class DataConfigManager extends Handler {
     private @NonNull final List<HandoverRule> mHandoverRuleList = new ArrayList<>();
     /** {@code True} keep IMS network in case of moving to non VOPS area; {@code false} otherwise.*/
     private boolean mShouldKeepNetworkUpInNonVops = false;
+    /** {@code True} requires ping test before switching preferred modem; {@code false} otherwise.*/
+    private boolean mPingTestBeforeDataSwitch = true;
 
     /**
      * Constructor
@@ -438,12 +422,6 @@ public class DataConfigManager extends Handler {
                 KEY_ANOMALY_NETWORK_HANDOVER_TIMEOUT, DEFAULT_NETWORK_TRANSIT_STATE_TIMEOUT_MS);
         mIsApnConfigAnomalyReportEnabled = properties.getBoolean(
                 KEY_ANOMALY_APN_CONFIG_ENABLED, false);
-        mAutoDataSwitchAvailabilityStabilityTimeThreshold = properties.getInt(
-                KEY_AUTO_DATA_SWITCH_AVAILABILITY_STABILITY_TIME_THRESHOLD,
-                DEFAULT_AUTO_DATA_SWITCH_STABILITY_TIME_MS);
-        mAutoDataSwitchValidationMaxRetry = properties.getInt(
-                KEY_AUTO_DATA_SWITCH_VALIDATION_MAX_RETRY,
-                DEFAULT_AUTO_DATA_SWITCH_MAX_RETRY);
     }
 
     /**
@@ -478,6 +456,7 @@ public class DataConfigManager extends Handler {
         updateMeteredApnTypes();
         updateSingleDataNetworkTypeAndCapabilityExemption();
         updateVopsConfig();
+        updateDataSwitchConfig();
         updateUnmeteredNetworkTypes();
         updateBandwidths();
         updateTcpBuffers();
@@ -700,6 +679,16 @@ public class DataConfigManager extends Handler {
     }
 
     /**
+     * Update preferred modem switch(opportunistic network or visible subscription) carrier config.
+     */
+    private void updateDataSwitchConfig() {
+        synchronized (this) {
+            mPingTestBeforeDataSwitch = mCarrierConfig.getBoolean(CarrierConfigManager
+                    .KEY_PING_TEST_BEFORE_DATA_SWITCH_BOOL, true);
+        }
+    }
+
+    /**
      * @return The list of {@link NetworkType} that only supports single data networks
      */
     public @NonNull @NetworkType List<Integer> getNetworkTypesOnlySupportSingleDataNetwork() {
@@ -717,6 +706,11 @@ public class DataConfigManager extends Handler {
     /** {@code True} keep IMS network in case of moving to non VOPS area; {@code false} otherwise.*/
     public boolean shouldKeepNetworkUpInNonVops() {
         return mShouldKeepNetworkUpInNonVops;
+    }
+
+    /** {@code True} keep IMS network in case of moving to non VOPS area; {@code false} otherwise.*/
+    public boolean requirePingTestBeforeDataSwitch() {
+        return mPingTestBeforeDataSwitch;
     }
 
     /**
@@ -946,7 +940,8 @@ public class DataConfigManager extends Handler {
      * @return The maximum number of retries when a validation for switching failed.
      */
     public int getAutoDataSwitchValidationMaxRetry() {
-        return mAutoDataSwitchValidationMaxRetry;
+        return mResources.getInteger(com.android.internal.R.integer
+                .auto_data_switch_validation_max_retry);
     }
 
     /**
@@ -955,7 +950,8 @@ public class DataConfigManager extends Handler {
      * auto switch feature disabled.
      */
     public long getAutoDataSwitchAvailabilityStabilityTimeThreshold() {
-        return mAutoDataSwitchAvailabilityStabilityTimeThreshold;
+        return mResources.getInteger(com.android.internal.R.integer
+                .auto_data_switch_availability_stability_time_threshold_millis);
     }
 
     /**
@@ -1344,9 +1340,9 @@ public class DataConfigManager extends Handler {
         pw.println("mNetworkDisconnectingTimeout=" + mNetworkDisconnectingTimeout);
         pw.println("mNetworkHandoverTimeout=" + mNetworkHandoverTimeout);
         pw.println("mIsApnConfigAnomalyReportEnabled=" + mIsApnConfigAnomalyReportEnabled);
-        pw.println("mAutoDataSwitchAvailabilityStabilityTimeThreshold="
-                + mAutoDataSwitchAvailabilityStabilityTimeThreshold);
-        pw.println("mAutoDataSwitchValidationMaxRetry=" + mAutoDataSwitchValidationMaxRetry);
+        pw.println("getAutoDataSwitchAvailabilityStabilityTimeThreshold="
+                + getAutoDataSwitchAvailabilityStabilityTimeThreshold());
+        pw.println("getAutoDataSwitchValidationMaxRetry=" + getAutoDataSwitchValidationMaxRetry());
         pw.println("Metered APN types=" + mMeteredApnTypes.stream()
                 .map(ApnSetting::getApnTypeString).collect(Collectors.joining(",")));
         pw.println("Roaming metered APN types=" + mRoamingMeteredApnTypes.stream()
@@ -1357,6 +1353,7 @@ public class DataConfigManager extends Handler {
                 .stream().map(DataUtils::networkCapabilityToString)
                 .collect(Collectors.joining(",")));
         pw.println("mShouldKeepNetworkUpInNoVops=" + mShouldKeepNetworkUpInNonVops);
+        pw.println("mPingTestBeforeDataSwitch=" + mPingTestBeforeDataSwitch);
         pw.println("Unmetered network types=" + String.join(",", mUnmeteredNetworkTypes));
         pw.println("Roaming unmetered network types="
                 + String.join(",", mRoamingUnmeteredNetworkTypes));

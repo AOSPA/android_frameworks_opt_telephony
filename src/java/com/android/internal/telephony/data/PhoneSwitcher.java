@@ -297,15 +297,16 @@ public class PhoneSwitcher extends Handler {
     /** Data config manager callback for updating device config. **/
     private final DataConfigManager.DataConfigManagerCallback mDataConfigManagerCallback =
             new DataConfigManager.DataConfigManagerCallback(this::post) {
+
         @Override
-        public void onDeviceConfigChanged() {
-            log("onDeviceConfigChanged");
-            PhoneSwitcher.this.updateConfig();
+        public void onCarrierConfigChanged() {
+            log("onCarrierConfigChanged");
+            PhoneSwitcher.this.updateCarrierConfig();
         }
     };
 
     private static final int EVENT_PRIMARY_DATA_SUB_CHANGED       = 101;
-    protected static final int EVENT_SUBSCRIPTION_CHANGED           = 102;
+    protected static final int EVENT_SUBSCRIPTION_CHANGED         = 102;
     private static final int EVENT_REQUEST_NETWORK                = 103;
     private static final int EVENT_RELEASE_NETWORK                = 104;
     // ECBM has started/ended. If we just ended an emergency call and mEmergencyOverride is not
@@ -370,6 +371,12 @@ public class PhoneSwitcher extends Handler {
     protected List<Set<CommandException.Error>> mCurrentDdsSwitchFailure;
 
     /**
+     * {@code true} if requires ping test before switching preferred data modem; otherwise, switch
+     * even if ping test fails.
+     */
+    private boolean mRequirePingTestBeforeDataSwitch = true;
+
+    /**
      * Time threshold in ms to define a internet connection status to be stable(e.g. out of service,
      * in service, wifi is the default active network.etc), while -1 indicates auto switch
      * feature disabled.
@@ -379,8 +386,7 @@ public class PhoneSwitcher extends Handler {
     /**
      * The maximum number of retries when a validation for switching failed.
      */
-    private int mAutoDataSwitchValidationMaxRetry =
-            DataConfigManager.DEFAULT_AUTO_DATA_SWITCH_MAX_RETRY;
+    private int mAutoDataSwitchValidationMaxRetry;
 
     /** Data settings manager callback. Key is the phone id. */
     private final @NonNull Map<Integer, DataSettingsManagerCallback> mDataSettingsManagerCallbacks =
@@ -989,25 +995,26 @@ public class PhoneSwitcher extends Handler {
     }
 
     /**
-     * Register for device config change on the primary data phone.
+     * Register for config change on the primary data phone.
      */
     private void registerConfigChange() {
         Phone phone = getPhoneBySubId(mPrimaryDataSubId);
         if (phone != null) {
             DataConfigManager dataConfig = phone.getDataNetworkController().getDataConfigManager();
             dataConfig.registerCallback(mDataConfigManagerCallback);
-            updateConfig();
+            updateCarrierConfig();
             sendEmptyMessage(EVENT_EVALUATE_AUTO_SWITCH);
         }
     }
 
     /**
-     * Update data config.
+     * Update carrier config.
      */
-    private void updateConfig() {
+    private void updateCarrierConfig() {
         Phone phone = getPhoneBySubId(mPrimaryDataSubId);
         if (phone != null) {
             DataConfigManager dataConfig = phone.getDataNetworkController().getDataConfigManager();
+            mRequirePingTestBeforeDataSwitch = dataConfig.requirePingTestBeforeDataSwitch();
             mAutoDataSwitchAvailabilityStabilityTimeThreshold =
                     dataConfig.getAutoDataSwitchAvailabilityStabilityTimeThreshold();
             mAutoDataSwitchValidationMaxRetry =
@@ -1222,7 +1229,7 @@ public class PhoneSwitcher extends Handler {
 
             int candidateSubId = getAutoSwitchTargetSubIdIfExists();
             if (candidateSubId != INVALID_SUBSCRIPTION_ID) {
-                startAutoDataSwitchStabilityCheck(candidateSubId, true);
+                startAutoDataSwitchStabilityCheck(candidateSubId, mRequirePingTestBeforeDataSwitch);
             } else {
                 cancelPendingAutoDataSwitch();
             }
@@ -1257,7 +1264,8 @@ public class PhoneSwitcher extends Handler {
 
             if (isInService(mPhoneStates[primaryPhoneId])) {
                 // primary becomes available
-                startAutoDataSwitchStabilityCheck(DEFAULT_SUBSCRIPTION_ID, true);
+                startAutoDataSwitchStabilityCheck(DEFAULT_SUBSCRIPTION_ID,
+                        mRequirePingTestBeforeDataSwitch);
                 return;
             }
 
@@ -2161,8 +2169,8 @@ public class PhoneSwitcher extends Handler {
      * @param reason The switching reason.
      */
     private void logDataSwitchEvent(int subId, int state, int reason) {
-        logl("Data switch event. subId=" + subId + ", state=" + switchStateToString(state)
-                + ", reason=" + switchReasonToString(reason));
+        logl("Data switch state=" + switchStateToString(state) + " due to reason="
+                + switchReasonToString(reason) + " on subId " + subId);
         DataSwitch dataSwitch = new DataSwitch();
         dataSwitch.state = state;
         dataSwitch.reason = reason;
@@ -2235,6 +2243,7 @@ public class PhoneSwitcher extends Handler {
         pw.println("mAutoDataSwitchAvailabilityStabilityTimeThreshold="
                 + mAutoDataSwitchAvailabilityStabilityTimeThreshold);
         pw.println("mAutoDataSwitchValidationMaxRetry=" + mAutoDataSwitchValidationMaxRetry);
+        pw.println("mRequirePingTestBeforeDataSwitch=" + mRequirePingTestBeforeDataSwitch);
         pw.println("mLastSwitchPreferredDataReason="
                 + switchReasonToString(mLastSwitchPreferredDataReason));
         pw.println("mDisplayedAutoSwitchNotification=" + mDisplayedAutoSwitchNotification);
