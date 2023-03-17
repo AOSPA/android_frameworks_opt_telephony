@@ -82,6 +82,7 @@ public class PhoneConfigurationManager {
     private final String PERMISSION_MSIM_VOICE_CAPABILITY =
             "com.qti.permission.RECEIVE_MSIM_VOICE_CAPABILITY";
     private final String EXTRAS_MSIM_VOICE_CAPABILITY = "MsimVoiceCapability";
+    private final String EXTRAS_DSDS_TRANSITION_SUPPORTED = "DsdsTransitionSupported";
 
     private static final String ACTION_MSIM_VOICE_CAPABILITY_CHANGED =
             "org.codeaurora.intent.action.MSIM_VOICE_CAPABILITY_CHANGED";
@@ -134,8 +135,13 @@ public class PhoneConfigurationManager {
         public void onReceive(Context context, Intent intent) {
             int voiceCapability = intent.getIntExtra(EXTRAS_MSIM_VOICE_CAPABILITY,
                     TelephonyManager.MultiSimVoiceCapability.UNKNOWN);
-            log(" mConcurrentCallsReceiver: voiceCapability : " + voiceCapability);
+            boolean isDsdsTransitionSupported =
+                    intent.getBooleanExtra(EXTRAS_DSDS_TRANSITION_SUPPORTED,
+                    false);
+            log(" mConcurrentCallsReceiver: voiceCapability : " + voiceCapability +
+                    " + isDsdsTransitionSupported : " + isDsdsTransitionSupported);
             TelephonyProperties.multi_sim_voice_capability(voiceCapability);
+            TelephonyProperties.dsds_transition_supported(isDsdsTransitionSupported);
             broadcastMsimVoiceCapabilityChanged();
         }
     };
