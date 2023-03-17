@@ -498,6 +498,7 @@ public class SubscriptionInfoUpdater extends Handler {
         broadcastSimApplicationStateChanged(phoneId, TelephonyManager.SIM_STATE_NOT_READY);
     }
 
+    // FIXME any fixes made here to be ported to new SubscriptionManagserService ??
     protected void handleSimNotReady(int phoneId) {
         logd("handleSimNotReady: phoneId: " + phoneId);
         boolean isFinalState = false;

@@ -424,8 +424,16 @@ public class ServiceStateTracker extends Handler {
             setDataNetworkTypeForPhone(mSS.getRilDataRadioTechnology());
 
             if (mSpnUpdatePending) {
-                mSubscriptionController.setPlmnSpn(mPhone.getPhoneId(), mCurShowPlmn,
-                        mCurPlmn, mCurShowSpn, mCurSpn);
+                if (mPhone.isSubscriptionManagerServiceEnabled()) {
+                    if (SubscriptionManager.isValidSubscriptionId(mSubId)) {
+                        mSubscriptionManagerService.setCarrierName(mSubId, TextUtils.emptyIfNull(
+                                getCarrierName(mCurShowPlmn, mCurPlmn,
+                                        mCurShowSpn, mCurSpn)));
+                    }
+                } else {
+                    mSubscriptionController.setPlmnSpn(mPhone.getPhoneId(), mCurShowPlmn,
+                            mCurPlmn, mCurShowSpn, mCurSpn);
+                }
                 mSpnUpdatePending = false;
             }
 

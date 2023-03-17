@@ -385,9 +385,15 @@ public class DataSettingsManager extends Handler {
             return isProvisioningDataEnabled();
         } else {
             boolean userDataEnabled = isUserDataEnabled();
+            int defaultDataSubId;
+            if (mPhone.isSubscriptionManagerServiceEnabled()) {
+                defaultDataSubId = SubscriptionManagerService.getInstance().getDefaultDataSubId();
+            } else {
+                defaultDataSubId = SubscriptionController.getInstance().getDefaultDataSubId();
+            }
             // Check if data is enabled for default APN on nDDS SUB per data during call.
             if (userDataEnabled && apnType == ApnSetting.TYPE_DEFAULT
-                    && mSubId != SubscriptionController.getInstance().getDefaultDataSubId()
+                    && mSubId != defaultDataSubId
                     && mPhone.getState() != PhoneConstants.State.IDLE) {
                 final boolean isDataAllowedInVoiceCall = isMobileDataPolicyEnabled(TelephonyManager
                     .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL);

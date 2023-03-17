@@ -45,8 +45,10 @@ public class VendorGsmCdmaPhone extends GsmCdmaPhone {
                 telephonyComponentFactory);
         Rlog.d(LOG_TAG, "Constructor");
 
-        VendorSubscriptionController.getInstance().registerForAddSubscriptionRecord(this,
-                EVENT_SUBINFO_RECORD_ADDED, null);
+        if (!isSubscriptionManagerServiceEnabled()) {
+            VendorSubscriptionController.getInstance().registerForAddSubscriptionRecord(this,
+                    EVENT_SUBINFO_RECORD_ADDED, null);
+        }
     }
 
     @Override
@@ -74,7 +76,9 @@ public class VendorGsmCdmaPhone extends GsmCdmaPhone {
 
             case EVENT_GET_RADIO_CAPABILITY:
                 super.handleMessage(msg);
-                VendorSubscriptionController.getInstance().notifyRadioCapabilityAvailable();
+                if (!isSubscriptionManagerServiceEnabled()) {
+                    VendorSubscriptionController.getInstance().notifyRadioCapabilityAvailable();
+                }
                 break;
 
             default: {
