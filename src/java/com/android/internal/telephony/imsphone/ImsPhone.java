@@ -2151,11 +2151,19 @@ public class ImsPhone extends ImsPhoneBase {
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void handleEnterEmergencyCallbackMode() {
+        if (DomainSelectionResolver.getInstance().isDomainSelectionSupported()) {
+            logd("DomainSelection enabled: ignore ECBM enter event.");
+            return;
+        }
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     protected void handleExitEmergencyCallbackMode() {
+        if (DomainSelectionResolver.getInstance().isDomainSelectionSupported()) {
+            logd("DomainSelection enabled: ignore ECBM exit event.");
+            return;
+        }
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
