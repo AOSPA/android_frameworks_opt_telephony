@@ -214,8 +214,9 @@ public class PhoneFactory {
 
                 if (isSubscriptionManagerServiceEnabled()) {
                     Rlog.i(LOG_TAG, "Creating SubscriptionManagerService");
-                    sSubscriptionManagerService = new SubscriptionManagerService(context,
-                            Looper.myLooper());
+                    sSubscriptionManagerService = TelephonyComponentFactory.getInstance().inject(
+                            SubscriptionManagerService.class.getName())
+                            .makeSubscriptionManagerService(context, Looper.myLooper());
                 } else {
                     Rlog.i(LOG_TAG, "Creating SubscriptionController");
                     TelephonyComponentFactory.getInstance().inject(SubscriptionController.class
