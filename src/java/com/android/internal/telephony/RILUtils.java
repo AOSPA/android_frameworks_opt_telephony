@@ -60,6 +60,7 @@ import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DATA_REGIS
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DEACTIVATE_DATA_CALL;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DELETE_SMS_ON_SIM;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DEVICE_IDENTITY;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DEVICE_IMEI;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DIAL;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DTMF;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DTMF_START;
@@ -5399,6 +5400,8 @@ public class RILUtils {
                 return "GET_MAX_CHARACTERS_PER_SATELLITE_TEXT_MESSAGE";
             case RIL_REQUEST_GET_TIME_FOR_NEXT_SATELLITE_VISIBILITY:
                 return "GET_TIME_FOR_NEXT_SATELLITE_VISIBILITY";
+            case RIL_REQUEST_DEVICE_IMEI:
+                return "DEVICE_IMEI";
             default:
                 return "<unknown request " + request + ">";
         }

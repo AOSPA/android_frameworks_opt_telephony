@@ -265,6 +265,13 @@ public abstract class CallTracker extends Handler {
 
     /**
      * Determines if an incoming call has ACTIVE (or HELD) call on the other SUB.
+     * Returns false if
+     *     1. SINGLE SIM configuration
+     *     2. DSDA
+     *     3. DSDS and Telephony supporting DSDS transition mode. (i.e. Telephony need to behave
+     *        like DSDA In DSDS transition mode)
+     * Returns true if
+     *     1. Pseudo DSDA / UNKNOWN and call is present on other SUB.
      */
     protected boolean isPseudoDsdaCall() {
         TelephonyManager telephony = TelephonyManager.from(getPhone().getContext());
@@ -272,6 +279,11 @@ public abstract class CallTracker extends Handler {
             telephony.getActiveModemCount() <= PhoneConstants.MAX_PHONE_COUNT_SINGLE_SIM) {
             return false;
         }
+
+        if (telephony.isDsdsMode() && telephony.isDsdsTransitionSupported()) {
+            return false;
+        }
+
         for (Phone phone: PhoneFactory.getPhones()) {
             if (phone.getSubId() != getPhone().getSubId()) {
                 return phone.getState() == PhoneConstants.State.OFFHOOK;
