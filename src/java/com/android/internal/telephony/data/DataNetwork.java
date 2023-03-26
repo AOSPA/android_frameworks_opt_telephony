@@ -3170,7 +3170,7 @@ public class DataNetwork extends StateMachine {
                 && !mAttachedNetworkRequestList.isEmpty()) {
             TelephonyNetworkRequest networkRequest = mAttachedNetworkRequestList.get(0);
             DataProfile dataProfile = mDataNetworkController.getDataProfileManager()
-                    .getDataProfileForNetworkRequest(networkRequest, targetNetworkType, true);
+                    .getDataProfileForNetworkRequest(networkRequest, targetNetworkType);
             if (dataProfile != null) {
                 mHandoverDataProfile = dataProfile;
                 log("Used different data profile for handover. " + mDataProfile);
