@@ -862,7 +862,7 @@ public class SIMRecords extends IccRecords {
                     mIccId = IccUtils.bcdToString(data, 0, data.length);
                     mFullIccId = IccUtils.bchToString(data, 0, data.length);
 
-                    log("iccid: " + SubscriptionInfo.givePrintableIccid(mFullIccId));
+                    log("iccid: " + SubscriptionInfo.getPrintableId(mFullIccId));
                     break;
 
                 case EVENT_GET_AD_DONE:

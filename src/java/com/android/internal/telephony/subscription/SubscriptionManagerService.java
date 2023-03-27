@@ -233,7 +233,7 @@ public class SubscriptionManagerService extends ISub.Stub {
 
     /** The slot index subscription id map. Key is the slot index, and the value is sub id. */
     @NonNull
-    private final WatchedMap<Integer, Integer> mSlotIndexToSubId = new WatchedMap<>();
+    private final SubscriptionMap<Integer, Integer> mSlotIndexToSubId = new SubscriptionMap<>();
 
     /** Subscription manager service callbacks. */
     @NonNull
@@ -264,9 +264,14 @@ public class SubscriptionManagerService extends ISub.Stub {
     private final int[] mSimState;
 
     /**
-     * Watched map that automatically invalidate cache in {@link SubscriptionManager}.
+     * Slot index/subscription map that automatically invalidate cache in
+     * {@link SubscriptionManager}.
+     *
+     * @param <K> The type of the key.
+     * @param <V> The type of the value.
      */
-    private static class WatchedMap<K, V> extends ConcurrentHashMap<K, V> {
+    @VisibleForTesting
+    public static class SubscriptionMap<K, V> extends ConcurrentHashMap<K, V> {
         @Override
         public void clear() {
             super.clear();
@@ -378,7 +383,7 @@ public class SubscriptionManagerService extends ISub.Stub {
          *
          * @param subId The subscription id.
          */
-        public void onUiccApplicationsEnabled(int subId) {}
+        public void onUiccApplicationsEnabledChanged(int subId) {}
     }
 
     /** DeviceConfig key for whether work profile telephony feature is enabled. */
@@ -514,23 +519,6 @@ public class SubscriptionManagerService extends ISub.Stub {
                                 && telephonyRegistryManager != null) {
                             telephonyRegistryManager.notifyOpportunisticSubscriptionInfoChanged();
                         }
-
-                        // TODO: Call TelephonyMetrics.updateActiveSubscriptionInfoList when active
-                        //  subscription changes.
-                    }
-
-                    /**
-                     * Called when {@link SubscriptionInfoInternal#areUiccApplicationsEnabled()}
-                     * changed.
-                     *
-                     * @param subId The subscription id.
-                     */
-                    @Override
-                    public void onUiccApplicationsEnabled(int subId) {
-                        log("onUiccApplicationsEnabled: subId=" + subId);
-                        mSubscriptionManagerServiceCallbacks.forEach(
-                                callback -> callback.invokeFromExecutor(
-                                        () -> callback.onUiccApplicationsEnabled(subId)));
                     }
                 });
 
@@ -1291,7 +1279,7 @@ public class SubscriptionManagerService extends ISub.Stub {
         }
 
         String iccId = getIccId(phoneId);
-        log("updateSubscription: Found iccId=" + SubscriptionInfo.givePrintableIccid(iccId)
+        log("updateSubscription: Found iccId=" + SubscriptionInfo.getPrintableId(iccId)
                 + " on phone " + phoneId);
 
         // For eSIM switching, SIM absent will not happen. Below is to exam if we find ICCID
@@ -1946,10 +1934,11 @@ public class SubscriptionManagerService extends ISub.Stub {
     @RequiresPermission(Manifest.permission.MODIFY_PHONE_STATE)
     public int addSubInfo(@NonNull String iccId, @NonNull String displayName, int slotIndex,
             @SubscriptionType int subscriptionType) {
-        log("addSubInfo: iccId=" + SubscriptionInfo.givePrintableIccid(iccId) + ", slotIndex="
-                + slotIndex + ", displayName=" + displayName + ", type="
-                + SubscriptionManager.subscriptionTypeToString(subscriptionType));
         enforcePermissions("addSubInfo", Manifest.permission.MODIFY_PHONE_STATE);
+        logl("addSubInfo: iccId=" + SubscriptionInfo.getPrintableId(iccId) + ", slotIndex="
+                + slotIndex + ", displayName=" + displayName + ", type="
+                + SubscriptionManager.subscriptionTypeToString(subscriptionType) + ", "
+                + getCallingPackage());
 
         // Now that all security checks passes, perform the operation as ourselves.
         final long identity = Binder.clearCallingIdentity();
@@ -2004,6 +1993,9 @@ public class SubscriptionManagerService extends ISub.Stub {
     public int removeSubInfo(@NonNull String uniqueId, int subscriptionType) {
         enforcePermissions("removeSubInfo", Manifest.permission.MODIFY_PHONE_STATE);
 
+        logl("removeSubInfo: uniqueId=" + SubscriptionInfo.getPrintableId(uniqueId) + ", "
+                + SubscriptionManager.subscriptionTypeToString(subscriptionType) + ", "
+                + getCallingPackage());
         final long identity = Binder.clearCallingIdentity();
         try {
             SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
@@ -2016,6 +2008,7 @@ public class SubscriptionManagerService extends ISub.Stub {
                 loge("The subscription type does not match.");
                 return -1;
             }
+            mSlotIndexToSubId.remove(subInfo.getSimSlotIndex());
             mSubscriptionDatabaseManager.removeSubscriptionInfo(subInfo.getSubscriptionId());
             return 0;
         } finally {
@@ -3000,7 +2993,7 @@ public class SubscriptionManagerService extends ISub.Stub {
                         + columnName);
             }
         } catch (IllegalArgumentException e) {
-            logv("getSubscriptionProperty: Invalid subId " + subId + ", columnName=" + columnName);
+            loge("getSubscriptionProperty: Invalid subId " + subId + ", columnName=" + columnName);
             return null;
         } finally {
             Binder.restoreCallingIdentity(token);
@@ -3193,7 +3186,20 @@ public class SubscriptionManagerService extends ISub.Stub {
 
         final long identity = Binder.clearCallingIdentity();
         try {
-            mSubscriptionDatabaseManager.setUiccApplicationsEnabled(subId, enabled);
+
+            SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
+                    .getSubscriptionInfoInternal(subId);
+            if (subInfo == null) {
+                throw new IllegalArgumentException("setUiccApplicationsEnabled: Subscription "
+                        + "doesn't exist. subId=" + subId);
+            }
+
+            if (subInfo.areUiccApplicationsEnabled() != enabled) {
+                mSubscriptionDatabaseManager.setUiccApplicationsEnabled(subId, enabled);
+                mSubscriptionManagerServiceCallbacks.forEach(
+                        callback -> callback.invokeFromExecutor(
+                                () -> callback.onUiccApplicationsEnabledChanged(subId)));
+            }
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
@@ -3897,15 +3903,6 @@ public class SubscriptionManagerService extends ISub.Stub {
     }
 
     /**
-     * Log verbose messages.
-     *
-     * @param s debug messages.
-     */
-    private void logv(@NonNull String s) {
-        if (VDBG) Rlog.v(LOG_TAG, s);
-    }
-
-    /**
      * Log debug messages and also log into the local log.
      *
      * @param s debug messages
@@ -3935,7 +3932,7 @@ public class SubscriptionManagerService extends ISub.Stub {
         pw.println("ICCID:");
         pw.increaseIndent();
         for (int i = 0; i < mTelephonyManager.getActiveModemCount(); i++) {
-            pw.println("slot " + i + ": " + SubscriptionInfo.givePrintableIccid(getIccId(i)));
+            pw.println("slot " + i + ": " + SubscriptionInfo.getPrintableId(getIccId(i)));
         }
         pw.decreaseIndent();
         pw.println();

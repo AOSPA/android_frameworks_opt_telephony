@@ -63,6 +63,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 
 @RunWith(AndroidTestingRunner.class)
 @TestableLooper.RunWithLooper
@@ -113,6 +115,9 @@ public class SubscriptionDatabaseManagerTest extends TelephonyTest {
     static final int FAKE_TP_MESSAGE_REFERENCE2 = 456;
     static final int FAKE_USER_ID1 = 10;
     static final int FAKE_USER_ID2 = 11;
+
+    static final String FAKE_MAC_ADDRESS1 = "DC:E5:5B:38:7D:40";
+    static final String FAKE_MAC_ADDRESS2 = "DC:B5:4F:47:F3:4C";
 
     static final SubscriptionInfoInternal FAKE_SUBSCRIPTION_INFO1 =
             new SubscriptionInfoInternal.Builder()
@@ -907,6 +912,8 @@ public class SubscriptionDatabaseManagerTest extends TelephonyTest {
         mDatabaseManagerUT.setSubscriptionProperty(1, SimInfo.COLUMN_ENHANCED_4G_MODE_ENABLED, 1);
         assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1).getEnhanced4GModeEnabled())
                 .isEqualTo(1);
+        assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1).isEnhanced4GModeEnabled())
+                .isTrue();
     }
 
     @Test
@@ -928,6 +935,8 @@ public class SubscriptionDatabaseManagerTest extends TelephonyTest {
         mDatabaseManagerUT.setSubscriptionProperty(1, SimInfo.COLUMN_VT_IMS_ENABLED, 1);
         assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1).getVideoTelephonyEnabled())
                 .isEqualTo(1);
+        assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1).isVideoTelephonyEnabled())
+                .isTrue();
     }
 
     @Test
@@ -1044,6 +1053,8 @@ public class SubscriptionDatabaseManagerTest extends TelephonyTest {
         mDatabaseManagerUT.setSubscriptionProperty(1, SimInfo.COLUMN_VOIMS_OPT_IN_STATUS, 1);
         assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1)
                 .getVoImsOptInEnabled()).isEqualTo(1);
+        assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1).isVoImsOptInEnabled())
+                .isTrue();
     }
 
 
@@ -1294,6 +1305,8 @@ public class SubscriptionDatabaseManagerTest extends TelephonyTest {
         mDatabaseManagerUT.setSubscriptionProperty(1, SimInfo.COLUMN_IMS_RCS_UCE_ENABLED, 1);
         assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1).getRcsUceEnabled())
                 .isEqualTo(1);
+        assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1).isRcsUceEnabled())
+                .isTrue();
     }
 
     @Test
@@ -1316,6 +1329,8 @@ public class SubscriptionDatabaseManagerTest extends TelephonyTest {
         mDatabaseManagerUT.setSubscriptionProperty(1, SimInfo.COLUMN_CROSS_SIM_CALLING_ENABLED, 1);
         assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1).getCrossSimCallingEnabled())
                 .isEqualTo(1);
+        assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1).isCrossSimCallingEnabled())
+                .isTrue();
     }
 
     @Test
@@ -1417,6 +1432,8 @@ public class SubscriptionDatabaseManagerTest extends TelephonyTest {
                 1, SimInfo.COLUMN_NR_ADVANCED_CALLING_ENABLED, 1);
         assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1)
                 .getNrAdvancedCallingEnabled()).isEqualTo(1);
+        assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(1)
+                .isNrAdvancedCallingEnabled()).isTrue();
     }
 
     @Test
@@ -1669,5 +1686,39 @@ public class SubscriptionDatabaseManagerTest extends TelephonyTest {
         assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(2)).isNull();
         assertThat(mDatabaseManagerUT.getSubscriptionInfoInternal(3)).isNull();
         verify(mSubscriptionDatabaseManagerCallback).onSubscriptionChanged(eq(3));
+    }
+
+    @Test
+    public void testCallback() {
+        CountDownLatch latch = new CountDownLatch(2);
+        Executor executor = Runnable::run;
+        SubscriptionDatabaseManagerCallback callback =
+                new SubscriptionDatabaseManagerCallback(executor) {
+                    @Override
+                    public void onInitialized() {
+                        latch.countDown();
+                        logd("onInitialized");
+                    }
+
+                    @Override
+                    public void onSubscriptionChanged(int subId) {
+                        latch.countDown();
+                        logd("onSubscriptionChanged");
+                    }
+                };
+        assertThat(callback.getExecutor()).isEqualTo(executor);
+        mDatabaseManagerUT = new SubscriptionDatabaseManager(mContext, Looper.myLooper(), callback);
+        processAllMessages();
+
+        assertThat(latch.getCount()).isEqualTo(1);
+
+        mDatabaseManagerUT.insertSubscriptionInfo(
+                new SubscriptionInfoInternal.Builder()
+                        .setId(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+                        .setIccId(FAKE_ICCID1)
+                        .setSimSlotIndex(0)
+                        .build());
+        processAllMessages();
+        assertThat(latch.getCount()).isEqualTo(0);
     }
 }
