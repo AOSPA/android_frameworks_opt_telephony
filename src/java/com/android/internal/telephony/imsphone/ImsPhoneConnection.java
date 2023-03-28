@@ -153,6 +153,11 @@ public class ImsPhoneConnection extends Connection implements
      */
     private ImsReasonInfo mImsReasonInfo;
 
+    /**
+     * Used to indicate that this call is held by remote party.
+     */
+    private boolean mIsHeldByRemote = false;
+
     // Indicates whether dial needs to be deferred. By default, value
     // is INVALID meaning do not defer dial
     private DeferDial mDeferDial = DeferDial.INVALID;
@@ -1623,6 +1628,30 @@ public class ImsPhoneConnection extends Connection implements
     public void handleMergeComplete() {
         mIsMergeInProcess = false;
         onConnectionEvent(android.telecom.Connection.EVENT_MERGE_COMPLETE, null);
+    }
+
+    /**
+     * Mark the call is held by remote party and inform to the UI.
+     */
+    public void setRemotelyHeld() {
+        mIsHeldByRemote = true;
+        onConnectionEvent(android.telecom.Connection.EVENT_CALL_REMOTELY_HELD, null);
+    }
+
+    /**
+     * Mark the call is Unheld by remote party and inform to the UI.
+     */
+    public void setRemotelyUnheld() {
+        mIsHeldByRemote = false;
+        onConnectionEvent(android.telecom.Connection.EVENT_CALL_REMOTELY_UNHELD, null);
+    }
+
+    /**
+     * @return whether the remote party is holding the call.
+     */
+    public boolean isHeldByRemote() {
+        Rlog.i(LOG_TAG, "isHeldByRemote=" + mIsHeldByRemote);
+        return mIsHeldByRemote;
     }
 
     public void changeToPausedState() {
