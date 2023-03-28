@@ -1178,6 +1178,23 @@ public class MultiSimSettingController extends Handler {
 
             if ((primarySubList.size() == 1) && !voiceSelected) {
                 mSubscriptionManagerService.setDefaultVoiceSubId(autoDefaultSubId);
+            } else if (!voiceSelected) {
+                final int defVoiceSubId = mSubscriptionManagerService.getDefaultVoiceSubId();
+                TelecomManager telecomManager = mContext.getSystemService(TelecomManager.class);
+                TelephonyManager telephonyManager =
+                        mContext.getSystemService(TelephonyManager.class);
+                PhoneAccountHandle currentHandle =
+                        telecomManager.getUserSelectedOutgoingPhoneAccount();
+                int currentVoiceSubId = telephonyManager.getSubscriptionId(currentHandle);
+                if (DBG) log("defaultVoiceSubId = " + defVoiceSubId
+                        + " currentVoiceSubId = " + currentVoiceSubId);
+                if (defVoiceSubId != currentVoiceSubId) {
+                    if (primarySubList.contains(currentVoiceSubId)) {
+                        mSubscriptionManagerService.setDefaultVoiceSubId(currentVoiceSubId);
+                    } else {
+                        mSubscriptionManagerService.setDefaultVoiceSubId(defVoiceSubId);
+                    }
+                }
             }
 
             int userPrefDataSubId = getUserPrefDataSubIdFromDB();
@@ -1231,7 +1248,7 @@ public class MultiSimSettingController extends Handler {
             PhoneAccountHandle currentHandle =
                     telecomManager.getUserSelectedOutgoingPhoneAccount();
             int currentVoiceSubId = telephonyManager.getSubscriptionId(currentHandle);
-            if (DBG) log("defalutVoiceSubId = " + defVoiceSubId
+            if (DBG) log("defaultVoiceSubId = " + defVoiceSubId
                     + " currentVoiceSubId = " + currentVoiceSubId);
             if (defVoiceSubId != currentVoiceSubId) {
                 if (primarySubList.contains(currentVoiceSubId)) {
