@@ -42,7 +42,9 @@ import android.util.Pair;
 import com.android.internal.telephony.GlobalSettingsHelper;
 import com.android.internal.telephony.MultiSimSettingController;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.SubscriptionController;
+import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -523,8 +525,14 @@ public class DataEnabledSettings {
     }
 
     private static boolean isStandAloneOpportunistic(int subId, Context context) {
-        SubscriptionInfo info = SubscriptionController.getInstance().getActiveSubscriptionInfo(
-                subId, context.getOpPackageName(), context.getAttributionTag());
+        SubscriptionInfo info;
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            info = SubscriptionManagerService.getInstance().getActiveSubscriptionInfo(subId,
+                    context.getOpPackageName(), context.getAttributionTag());
+        } else {
+            info = SubscriptionController.getInstance().getActiveSubscriptionInfo(
+                    subId, context.getOpPackageName(), context.getAttributionTag());
+        }
         return (info != null) && info.isOpportunistic() && info.getGroupUuid() == null;
     }
 
