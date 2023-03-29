@@ -432,26 +432,26 @@ public class SimPhonebookRecordCache extends Handler {
     }
 
     private void handlePhonebookCapacityChanged(AdnCapacity newCapacity) {
-        AdnCapacity oldCapacity = mAdnCapacity.get();
-        if (newCapacity == null) {
-            newCapacity = new AdnCapacity();
+        if (newCapacity == null || !newCapacity.isSimValid()) {
+            logd("ADN capacity is null or invalid");
+            reset();
+            return;
         }
+        AdnCapacity oldCapacity = mAdnCapacity.get();
         mAdnCapacity.set(newCapacity);
         if (oldCapacity == null && newCapacity != null) {
             inflateWithEmptyRecords(newCapacity);
             if (!newCapacity.isSimEmpty()){
                 mIsCacheInvalidated.set(true);
                 fillCacheWithoutWaiting();
-            } else if (newCapacity.isSimValid()) {
+            } else {
                 notifyAdnLoadingWaiters();
                 tryFireUpdatePendingList();
-            } else {
-                logd("ADN capacity is invalid");
             }
             mIsInitialized.set(true); // Let's say the whole process is ready
         } else {
             // There is nothing from PB, so notify waiters directly if any
-            if (newCapacity.isSimValid() && newCapacity.isSimEmpty()) {
+            if (newCapacity.isSimEmpty()) {
                 mIsCacheInvalidated.set(false);
                 notifyAdnLoadingWaiters();
                 tryFireUpdatePendingList();
