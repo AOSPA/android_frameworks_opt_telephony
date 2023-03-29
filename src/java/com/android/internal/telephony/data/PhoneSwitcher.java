@@ -316,16 +316,16 @@ public class PhoneSwitcher extends Handler {
     private static final int EVENT_EMERGENCY_TOGGLE               = 105;
     private static final int EVENT_RADIO_CAPABILITY_CHANGED       = 106;
     private static final int EVENT_OPPT_DATA_SUB_CHANGED          = 107;
-    protected static final int EVENT_RADIO_ON                       = 108;
+    protected static final int EVENT_RADIO_ON                     = 108;
     // A call has either started or ended. If an emergency ended and DDS is overridden using
     // mEmergencyOverride, start the countdown to remove the override using the message
     // EVENT_REMOVE_DDS_EMERGENCY_OVERRIDE. The only exception to this is if the device moves to
     // ECBM, which is detected by EVENT_EMERGENCY_TOGGLE.
     public static final int EVENT_PRECISE_CALL_STATE_CHANGED     = 109;
     private static final int EVENT_NETWORK_VALIDATION_DONE        = 110;
-    private static final int EVENT_EVALUATE_AUTO_SWITCH           = 111;
-    protected static final int EVENT_MODEM_COMMAND_DONE             = 112;
-    protected static final int EVENT_MODEM_COMMAND_RETRY            = 113;
+    protected static final int EVENT_EVALUATE_AUTO_SWITCH         = 111;
+    protected static final int EVENT_MODEM_COMMAND_DONE           = 112;
+    protected static final int EVENT_MODEM_COMMAND_RETRY          = 113;
     private static final int EVENT_SERVICE_STATE_CHANGED          = 114;
     // An emergency call is about to be originated and requires the DDS to be overridden.
     // Uses EVENT_PRECISE_CALL_STATE_CHANGED message to start countdown to finish override defined
@@ -1358,13 +1358,29 @@ public class PhoneSwitcher extends Handler {
                     log("getAutoSwitchTargetSubId: found phone " + phoneId + " in HOME service");
                     Phone secondaryDataPhone = findPhoneById(phoneId);
                     if (secondaryDataPhone != null && // check auto switch feature enabled
-                            secondaryDataPhone.isDataAllowed()) {
+                            isAutoDataSwitchEnabledOnPhone(secondaryDataPhone)) {
                         return secondaryDataPhone.getSubId();
                     }
                 }
             }
         }
         return INVALID_SUBSCRIPTION_ID;
+    }
+
+    /**
+     * Check if auto data switch feature is enabled for the non-DDS.
+     * This is called while finding a suitable candidate for auto data switch
+     * from {@link #getAutoSwitchTargetSubIdIfExists()}.
+     * As the mobile data switch for the secondary phone is always in off state, data will
+     * be allowed on it only when it has been overridden by a policy, e.g., auto data switch
+     * @param secondaryDataPhone the secondary data phone evaluated by the caller
+     * @return true if data is allowed on the secondary data phone.
+     */
+    protected boolean isAutoDataSwitchEnabledOnPhone(Phone secondaryDataPhone) {
+        if (secondaryDataPhone != null && secondaryDataPhone.isDataAllowed()) {
+            return true;
+        }
+        return false;
     }
 
     private TelephonyManager getTm() {
@@ -2300,7 +2316,7 @@ public class PhoneSwitcher extends Handler {
     /**
      * Display a notification the first time auto data switch occurs.
      */
-    private void displayAutoDataSwitchNotification() {
+    protected void displayAutoDataSwitchNotification() {
         NotificationManager notificationManager = (NotificationManager)
                 mContext.getSystemService(Context.NOTIFICATION_SERVICE);
 
