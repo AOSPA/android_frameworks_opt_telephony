@@ -118,11 +118,12 @@ public class EmergencyCallDomainSelectionConnectionTest extends TelephonyTest {
 
         verify(mDomainSelectionController).selectDomain(any(), any());
 
-        mTransportCallback.onWlanSelected();
+        mTransportCallback.onWlanSelected(true);
 
         assertTrue(future.isDone());
         assertEquals((long) DOMAIN_NON_3GPP_PS, (long) future.get());
-        verify(mEmergencyStateTracker).onEmergencyTransportChanged(MODE_EMERGENCY_WLAN);
+        verify(mEmergencyStateTracker).onEmergencyTransportChanged(
+                eq(EmergencyStateTracker.EMERGENCY_TYPE_CALL), eq(MODE_EMERGENCY_WLAN));
     }
 
     @Test
@@ -154,9 +155,10 @@ public class EmergencyCallDomainSelectionConnectionTest extends TelephonyTest {
         wwanCallback = mTransportCallback.onWwanSelected();
 
         assertFalse(future.isDone());
-        verify(mEmergencyStateTracker).onEmergencyTransportChanged(MODE_EMERGENCY_WWAN);
+        verify(mEmergencyStateTracker).onEmergencyTransportChanged(
+                eq(EmergencyStateTracker.EMERGENCY_TYPE_CALL), eq(MODE_EMERGENCY_WWAN));
 
-        wwanCallback.onDomainSelected(DOMAIN_CS);
+        wwanCallback.onDomainSelected(DOMAIN_CS, false);
 
         assertTrue(future.isDone());
         assertEquals((long) DOMAIN_CS, (long) future.get());
@@ -191,9 +193,10 @@ public class EmergencyCallDomainSelectionConnectionTest extends TelephonyTest {
         wwanCallback = mTransportCallback.onWwanSelected();
 
         assertFalse(future.isDone());
-        verify(mEmergencyStateTracker).onEmergencyTransportChanged(MODE_EMERGENCY_WWAN);
+        verify(mEmergencyStateTracker).onEmergencyTransportChanged(
+                eq(EmergencyStateTracker.EMERGENCY_TYPE_CALL), eq(MODE_EMERGENCY_WWAN));
 
-        wwanCallback.onDomainSelected(DOMAIN_PS);
+        wwanCallback.onDomainSelected(DOMAIN_PS, true);
 
         assertTrue(future.isDone());
         assertEquals((long) DOMAIN_PS, (long) future.get());

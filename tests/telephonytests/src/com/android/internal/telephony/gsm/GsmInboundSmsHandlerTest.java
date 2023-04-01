@@ -36,6 +36,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import android.app.BroadcastOptions;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
@@ -72,6 +73,7 @@ import com.android.internal.util.StateMachine;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
@@ -277,8 +279,8 @@ public class GsmInboundSmsHandlerTest extends TelephonyTest {
         assertEquals("WaitingState", getCurrentState().getName());
         if (allowBgActivityStarts) {
             Bundle broadcastOptions = mContextFixture.getLastBroadcastOptions();
-            assertTrue(broadcastOptions
-                    .getBoolean("android:broadcast.allowBackgroundActivityStarts"));
+            BroadcastOptions brOptions = new BroadcastOptions(broadcastOptions);
+            assertTrue(brOptions.allowsBackgroundActivityStarts());
         }
 
         mContextFixture.sendBroadcastToOrderedBroadcastReceivers();
@@ -478,6 +480,7 @@ public class GsmInboundSmsHandlerTest extends TelephonyTest {
 
     @Test
     @MediumTest
+    @Ignore("b/269535969")
     public void testClass0Sms() {
         transitionFromStartupToIdle();
 

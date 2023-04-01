@@ -876,13 +876,15 @@ public class SubscriptionController extends ISub.Stub {
                     if (iccId.equals(si.getIccId())) {
                         if (DBG)
                             logd("[getActiveSubInfoUsingIccId]+ iccId="
-                                    + Rlog.pii(LOG_TAG, iccId) + " subInfo=" + si);
+                                    + SubscriptionInfo.givePrintableIccid(iccId)
+                                    + " subInfo=" + si);
                         return si;
                     }
                 }
             }
             if (DBG) {
-                logd("[getActiveSubInfoUsingIccId]+ iccId=" + Rlog.pii(LOG_TAG, iccId)
+                logd("[getActiveSubInfoUsingIccId]+ iccId="
+                        + SubscriptionInfo.givePrintableIccid(iccId)
                         + " subList=" + subList + " subInfo=null");
             }
         } finally {
@@ -2690,7 +2692,6 @@ public class SubscriptionController extends ISub.Stub {
      * @deprecated
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    @Override
     @Deprecated
     public int[] getSubIds(int slotIndex) {
         if (VDBG) printStackTrace("[getSubId]+ slotIndex=" + slotIndex);

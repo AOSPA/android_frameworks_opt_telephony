@@ -210,9 +210,15 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     private void onActivePhoneSwitch() {
         logl("onActivePhoneSwitch");
 
-        // TODO(b/264049472) re-apply setTransportPrimary(true/false) as necessary.
-        setScoreFilter(new NetworkScore.Builder().setLegacyInt(TELEPHONY_NETWORK_SCORE)
-                .setTransportPrimary(false).build());
+        if (mSubscriptionId == SubscriptionManager.from(mPhone.getContext())
+                .getActiveDataSubscriptionId()) {
+            logl("onActivePhoneSwitch: set primary flag for phoneId: " + mPhone.getPhoneId());
+            setScoreFilter(new NetworkScore.Builder().setLegacyInt(TELEPHONY_NETWORK_SCORE)
+                    .setTransportPrimary(true).build());
+        } else {
+            setScoreFilter(new NetworkScore.Builder().setLegacyInt(TELEPHONY_NETWORK_SCORE)
+                    .setTransportPrimary(false).build());
+        }
 
         for (Map.Entry<TelephonyNetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
             TelephonyNetworkRequest networkRequest = entry.getKey();

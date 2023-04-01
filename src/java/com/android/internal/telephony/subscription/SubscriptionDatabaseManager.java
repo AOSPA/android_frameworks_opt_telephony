@@ -506,8 +506,8 @@ public class SubscriptionDatabaseManager extends Handler {
             new HashMap<>(16);
 
     /** Whether database has been initialized after boot up. */
-    @GuardedBy("mDatabaseInitialized")
-    private Boolean mDatabaseInitialized = false;
+    @GuardedBy("this")
+    private boolean mDatabaseInitialized = false;
 
     /**
      * This is the callback used for listening events from {@link SubscriptionDatabaseManager}.
@@ -729,6 +729,7 @@ public class SubscriptionDatabaseManager extends Handler {
         if (uri != null && uri.getLastPathSegment() != null) {
             int subId = Integer.parseInt(uri.getLastPathSegment());
             if (SubscriptionManager.isValidSubscriptionId(subId)) {
+                logv("insertNewRecordIntoDatabaseSync: contentValues=" + contentValues);
                 logl("insertNewRecordIntoDatabaseSync: Successfully added subscription. subId="
                         + uri.getLastPathSegment());
                 return subId;
@@ -758,7 +759,7 @@ public class SubscriptionDatabaseManager extends Handler {
                     + "insert. subInfo=" + subInfo);
         }
 
-        synchronized (mDatabaseInitialized) {
+        synchronized (this) {
             if (!mDatabaseInitialized) {
                 throw new IllegalStateException(
                         "Database has not been initialized. Can't insert new "
@@ -830,7 +831,7 @@ public class SubscriptionDatabaseManager extends Handler {
     private int updateDatabase(int subId, @NonNull ContentValues contentValues) {
         logv("updateDatabase: prepare to update sub " + subId);
 
-        synchronized (mDatabaseInitialized) {
+        synchronized (this) {
             if (!mDatabaseInitialized) {
                 logel("updateDatabase: Database has not been initialized. Can't update database at "
                         + "this point. contentValues=" + contentValues);
@@ -1814,13 +1815,14 @@ public class SubscriptionDatabaseManager extends Handler {
      * Load the database from content provider to the cache.
      */
     private void loadDatabaseInternal() {
-        logl("loadDatabaseInternal");
+        log("loadDatabaseInternal");
         try (Cursor cursor = mContext.getContentResolver().query(
                 SimInfo.CONTENT_URI, null, null, null, null)) {
             mReadWriteLock.writeLock().lock();
             try {
                 Map<Integer, SubscriptionInfoInternal> newAllSubscriptionInfoInternalCache =
                         new HashMap<>();
+                boolean changed = false;
                 while (cursor != null && cursor.moveToNext()) {
                     SubscriptionInfoInternal subInfo = createSubscriptionInfoFromCursor(cursor);
                     newAllSubscriptionInfoInternalCache.put(subInfo.getSubscriptionId(), subInfo);
@@ -1828,14 +1830,19 @@ public class SubscriptionDatabaseManager extends Handler {
                             .get(subInfo.getSubscriptionId()), subInfo)) {
                         mCallback.invokeFromExecutor(() -> mCallback.onSubscriptionChanged(
                                 subInfo.getSubscriptionId()));
+                        changed = true;
                     }
                 }
 
-                mAllSubscriptionInfoInternalCache.clear();
-                mAllSubscriptionInfoInternalCache.putAll(newAllSubscriptionInfoInternalCache);
+                if (changed) {
+                    mAllSubscriptionInfoInternalCache.clear();
+                    mAllSubscriptionInfoInternalCache.putAll(newAllSubscriptionInfoInternalCache);
 
-                logl("Loaded " + mAllSubscriptionInfoInternalCache.size()
-                        + " records from the subscription database.");
+                    logl("Loaded " + mAllSubscriptionInfoInternalCache.size()
+                            + " records from the subscription database.");
+                    mAllSubscriptionInfoInternalCache.forEach(
+                            (subId, subInfo) -> log("  " + subInfo.toString()));
+                }
             } finally {
                 mReadWriteLock.writeLock().unlock();
             }
@@ -1849,7 +1856,7 @@ public class SubscriptionDatabaseManager extends Handler {
         if (mAsyncMode) {
             // Load the database asynchronously.
             post(() -> {
-                synchronized (mDatabaseInitialized) {
+                synchronized (this) {
                     loadDatabaseInternal();
                     mDatabaseInitialized = true;
                     mCallback.invokeFromExecutor(mCallback::onInitialized);
@@ -1857,7 +1864,7 @@ public class SubscriptionDatabaseManager extends Handler {
             });
         } else {
             // Load the database synchronously.
-            synchronized (mDatabaseInitialized) {
+            synchronized (this) {
                 loadDatabaseInternal();
                 mDatabaseInitialized = true;
                 mCallback.invokeFromExecutor(mCallback::onInitialized);
@@ -2117,7 +2124,7 @@ public class SubscriptionDatabaseManager extends Handler {
     }
 
     /**
-     * Dump the state of {@link SubscriptionManagerService}.
+     * Dump the state of {@link SubscriptionDatabaseManager}.
      *
      * @param fd File descriptor
      * @param printWriter Print writer
@@ -2126,11 +2133,27 @@ public class SubscriptionDatabaseManager extends Handler {
     public void dump(@NonNull FileDescriptor fd, @NonNull PrintWriter printWriter,
             @NonNull String[] args) {
         IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
-        pw.println(SubscriptionManagerService.class.getSimpleName() + ":");
+        pw.println(SubscriptionDatabaseManager.class.getSimpleName() + ":");
         pw.increaseIndent();
         pw.println("All subscriptions:");
         pw.increaseIndent();
-        mAllSubscriptionInfoInternalCache.forEach((subId, subInfo) -> pw.println(subInfo));
+        mReadWriteLock.readLock().lock();
+        try {
+            mAllSubscriptionInfoInternalCache.forEach((subId, subInfo) -> pw.println(subInfo));
+        } finally {
+            mReadWriteLock.readLock().unlock();
+        }
+        pw.decreaseIndent();
+        pw.println();
+        pw.println("mAsyncMode=" + mAsyncMode);
+        synchronized (this) {
+            pw.println("mDatabaseInitialized=" + mDatabaseInitialized);
+        }
+        pw.println("mReadWriteLock=" + mReadWriteLock);
+        pw.println();
+        pw.println("Local log:");
+        pw.increaseIndent();
+        mLocalLog.dump(fd, printWriter, args);
         pw.decreaseIndent();
         pw.decreaseIndent();
     }
