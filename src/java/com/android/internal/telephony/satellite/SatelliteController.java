@@ -20,6 +20,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.net.wifi.WifiManager;
 import android.os.AsyncResult;
 import android.os.Binder;
@@ -35,6 +36,7 @@ import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.telephony.Rlog;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.telephony.satellite.ISatelliteDatagramCallback;
 import android.telephony.satellite.ISatelliteProvisionStateCallback;
 import android.telephony.satellite.ISatelliteStateCallback;
@@ -44,8 +46,8 @@ import android.telephony.satellite.SatelliteDatagram;
 import android.telephony.satellite.SatelliteManager;
 import android.util.Log;
 
-
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.IIntegerConsumer;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
@@ -64,6 +66,9 @@ public class SatelliteController extends Handler {
     private static final String TAG = "SatelliteController";
     /** Whether enabling verbose debugging message or not. */
     private static final boolean DBG = false;
+    /** File used to store shared preferences related to satellite. */
+    public static final String SATELLITE_SHARED_PREF = "satellite_shared_pref";
+
 
     /** Message codes used in handleMessage() */
     //TODO: Move the Commands and events related to position updates to PointingAppController
@@ -83,22 +88,26 @@ public class SatelliteController extends Handler {
     private static final int EVENT_IS_SATELLITE_SUPPORTED_DONE = 16;
     private static final int CMD_GET_SATELLITE_CAPABILITIES = 17;
     private static final int EVENT_GET_SATELLITE_CAPABILITIES_DONE = 18;
-    private static final int CMD_POLL_PENDING_SATELLITE_DATAGRAMS = 19;
-    private static final int EVENT_POLL_PENDING_SATELLITE_DATAGRAMS_DONE = 20;
-    private static final int CMD_IS_SATELLITE_COMMUNICATION_ALLOWED = 21;
-    private static final int EVENT_IS_SATELLITE_COMMUNICATION_ALLOWED_DONE = 22;
-    private static final int CMD_GET_TIME_SATELLITE_NEXT_VISIBLE = 23;
-    private static final int EVENT_GET_TIME_SATELLITE_NEXT_VISIBLE_DONE = 24;
+    private static final int CMD_IS_SATELLITE_COMMUNICATION_ALLOWED = 19;
+    private static final int EVENT_IS_SATELLITE_COMMUNICATION_ALLOWED_DONE = 20;
+    private static final int CMD_GET_TIME_SATELLITE_NEXT_VISIBLE = 21;
+    private static final int EVENT_GET_TIME_SATELLITE_NEXT_VISIBLE_DONE = 22;
+    private static final int EVENT_RADIO_STATE_CHANGED = 23;
 
     @NonNull private static SatelliteController sInstance;
     @NonNull private final Context mContext;
     @NonNull private final SatelliteModemInterface mSatelliteModemInterface;
-    @NonNull private final SatelliteSessionController mSatelliteSessionController;
+    @NonNull private SatelliteSessionController mSatelliteSessionController;
     @NonNull private final PointingAppController mPointingAppController;
     @NonNull private final DatagramController mDatagramController;
+    private SharedPreferences mSharedPreferences = null;
+    private final CommandsInterface mCi;
 
     BluetoothAdapter mBluetoothAdapter = null;
     WifiManager mWifiManager = null;
+    /** Shared preference key to store the existing state of Bluetooth and Wifi*/
+    private static final String KEY_BLUETOOTH_DISABLED_BY_SCO = "bluetooth_disabled_by_sco";
+    private static final String KEY_WIFI_DISABLED_BY_SCO = "wifi_disabled_by_sco";
     boolean mDisabledBTFlag = false;
     boolean mDisabledWifiFlag = false;
     /**
@@ -123,6 +132,9 @@ public class SatelliteController extends Handler {
     private final Object mIsSatelliteSupportedLock = new Object();
     private final ResultReceiver mSatelliteSupportedReceiver;
     private boolean mIsDemoModeEnabled = false;
+    private Boolean mIsSatelliteEnabled = null;
+    private final Object mIsSatelliteEnabledLock = new Object();
+    private final ResultReceiver mSatelliteEnabledReceiver;
     private boolean mNeedsSatellitePointing = false;
     private final Object mNeedsSatellitePointingLock = new Object();
 
@@ -155,18 +167,15 @@ public class SatelliteController extends Handler {
      * @param context The Context for the SatelliteController.
      * @param looper The looper for the handler. It does not run on main thread.
      */
-    @VisibleForTesting
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     protected SatelliteController(@NonNull Context context, @NonNull Looper looper) {
         super(looper);
         mContext = context;
-
+        Phone phone = SatelliteServiceUtils.getPhone();
+        mCi = phone.mCi;
         // Create the SatelliteModemInterface singleton, which is used to manage connections
         // to the satellite service and HAL interface.
         mSatelliteModemInterface = SatelliteModemInterface.make(mContext);
-
-        // Create the SatelliteSessionController singleton,
-        // which is used to manage all the data during a satellite session.
-        mSatelliteSessionController = SatelliteSessionController.make(mContext);
 
         // Create the PointingUIController singleton,
         // which is used to manage interactions with PointingUI app.
@@ -174,27 +183,35 @@ public class SatelliteController extends Handler {
 
         // Create the DatagramController singleton,
         // which is used to send and receive satellite datagrams.
-        mDatagramController = DatagramController.make(mContext, looper);
+        mDatagramController = DatagramController.make(mContext, looper, mPointingAppController);
 
-        mSatelliteSupportedReceiver = new ResultReceiver(this) {
-            @Override
-            protected void onReceiveResult(int resultCode, Bundle resultData) {
-                if (resultCode == SatelliteManager.SATELLITE_ERROR_NONE
-                        && resultData.containsKey(SatelliteManager.KEY_SATELLITE_SUPPORTED)) {
-                    synchronized (mIsSatelliteSupportedLock) {
-                        mIsSatelliteSupported = resultData.getBoolean(
-                                SatelliteManager.KEY_SATELLITE_SUPPORTED);
-                    }
-                } else {
-                    synchronized (mIsSatelliteSupportedLock) {
-                        mIsSatelliteSupported = null;
-                    }
-                }
-            }
-        };
+        mSatelliteEnabledReceiver = createSatelliteEnabledResultReceiver();
+        mSatelliteSupportedReceiver = createSatelliteSupportedResultReceiver(looper);
         //TODO: reenable below code
         //requestIsSatelliteSupported(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
         //        mSatelliteSupportedReceiver);
+        mCi.registerForRadioStateChanged(this, EVENT_RADIO_STATE_CHANGED, null);
+
+        try {
+            mSharedPreferences = mContext.getSharedPreferences(SATELLITE_SHARED_PREF,
+                    Context.MODE_PRIVATE);
+        } catch (Exception e) {
+            loge("Cannot get default shared preferences: " + e);
+        }
+        //if BT and Wifi was already disabled by Satellite Controller, reset
+        if ((mSharedPreferences != null) &&
+                (mSharedPreferences.contains(KEY_BLUETOOTH_DISABLED_BY_SCO) ||
+                mSharedPreferences.contains(KEY_WIFI_DISABLED_BY_SCO))) {
+            /**
+             * read the flag from shared preference to check if the Bluetooth and Wifi was disabled
+             * by Satellite Controller
+             */
+            mDisabledBTFlag = mSharedPreferences
+                    .getBoolean(KEY_BLUETOOTH_DISABLED_BY_SCO, false);
+            mDisabledWifiFlag = mSharedPreferences
+                    .getBoolean(KEY_WIFI_DISABLED_BY_SCO, false);
+            checkAndEnableBluetoothWifiState();
+        }
     }
 
     private void internalInit() {
@@ -350,18 +367,17 @@ public class SatelliteController extends Handler {
                     int state = (int) ar.result;
                     logd("Received EVENT_SATELLITE_MODEM_STATE_CHANGE for subId=" + mSubId
                             + ", state=" + state);
-                    mListeners.values().forEach(listener -> {
-                        try {
-                            listener.onSatelliteModemStateChanged(state);
-                        } catch (RemoteException e) {
-                            logd("EVENT_SATELLITE_MODEM_STATE_CHANGE RemoteException: " + e);
-                        }
-                    });
                     break;
                 }
                 case EVENT_PENDING_DATAGRAMS: {
                     logd("Received EVENT_PENDING_DATAGRAMS for subId=" + mSubId);
-                    // TODO: call pollPendingSatelliteDatagrams
+                    IIntegerConsumer internalCallback = new IIntegerConsumer.Stub() {
+                        @Override
+                        public void accept(int result) {
+                            logd("pollPendingSatelliteDatagram result: " + result);
+                        }
+                    };
+                    sInstance.pollPendingSatelliteDatagrams(mSubId, internalCallback);
                     break;
                 }
                 default:
@@ -482,39 +498,7 @@ public class SatelliteController extends Handler {
 
             case CMD_SET_SATELLITE_ENABLED: {
                 request = (SatelliteControllerHandlerRequest) msg.obj;
-                RequestSatelliteEnabledArgument argument =
-                        (RequestSatelliteEnabledArgument) request.argument;
-                onCompleted = obtainMessage(EVENT_SET_SATELLITE_ENABLED_DONE, request);
-                if (argument.enableSatellite) {
-                    if (mBluetoothAdapter == null) {
-                        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-                    }
-                    if (mWifiManager == null) {
-                        mWifiManager = mContext.getSystemService(WifiManager.class);
-                    }
-                    if (mBluetoothAdapter.isEnabled()) {
-                        if (DBG) logd("disabling Bluetooth");
-                        mBluetoothAdapter.disable();
-                        mDisabledBTFlag = true;
-                    }
-                    if (mWifiManager.isWifiEnabled()) {
-                        if (DBG) logd("disabling Wifi");
-                        mWifiManager.setWifiEnabled(false);
-                        mDisabledWifiFlag = true;
-                    }
-                }
-                if (mSatelliteModemInterface.isSatelliteServiceSupported()) {
-                    mSatelliteModemInterface.requestSatelliteEnabled(argument.enableSatellite,
-                            argument.enableDemoMode, onCompleted);
-                    break;
-                }
-                Phone phone = request.phone;
-                if (phone != null) {
-                    phone.setSatellitePower(onCompleted, argument.enableSatellite);
-                } else {
-                    loge("requestSatelliteEnabled: No phone object");
-                    argument.callback.accept(SatelliteManager.SATELLITE_INVALID_TELEPHONY_STATE);
-                }
+                handleSatelliteEnabled(request);
                 break;
             }
 
@@ -525,21 +509,12 @@ public class SatelliteController extends Handler {
                         (RequestSatelliteEnabledArgument) request.argument;
                 int error =  SatelliteServiceUtils.getSatelliteError(ar, "setSatelliteEnabled");
                 if (error == SatelliteManager.SATELLITE_ERROR_NONE) {
-                    if (!argument.enableSatellite) {
-                        if (mBluetoothAdapter == null) {
-                            mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-                        }
-                        if (mWifiManager == null) {
-                            mWifiManager = mContext.getSystemService(WifiManager.class);
-                        }
-                        if (!mBluetoothAdapter.isEnabled() && mDisabledBTFlag) {
-                            if (DBG) logd("Enabling Bluetooth");
-                            mBluetoothAdapter.enable();
-                        }
-                        if (!mWifiManager.isWifiEnabled() && mDisabledWifiFlag) {
-                            if (DBG) logd("Enabling Wifi");
-                            mWifiManager.setWifiEnabled(true);
-                        }
+                    if (argument.enableSatellite) {
+                        //If satellite mode is enabled successfully, disable Bluetooth and wifi
+                        disableBluetoothWifiState();;
+                    } else {
+                        //Disabled satellite mode, Reset BT and Wifi if previously changed here
+                        checkAndEnableBluetoothWifiState();
                     }
                     /**
                      * TODO: check if Satellite is Acquired.
@@ -549,6 +524,8 @@ public class SatelliteController extends Handler {
                         mPointingAppController.startPointingUI(false);
                     }
                     mIsDemoModeEnabled = argument.enableDemoMode;
+                    updateSatelliteEnabledState(
+                            argument.enableSatellite, "EVENT_SET_SATELLITE_ENABLED_DONE");
                 }
                 argument.callback.accept(error);
                 // TODO: if error is ERROR_NONE, request satellite capabilities
@@ -629,10 +606,6 @@ public class SatelliteController extends Handler {
                             mIsSatelliteSupported = supported;
                         }
                     }
-                } else {
-                    synchronized (mIsSatelliteSupportedLock) {
-                        mIsSatelliteSupported = null;
-                    }
                 }
                 ((ResultReceiver) request.argument).send(error, bundle);
                 break;
@@ -677,23 +650,6 @@ public class SatelliteController extends Handler {
                     }
                 }
                 ((ResultReceiver) request.argument).send(error, bundle);
-                break;
-            }
-
-            case CMD_POLL_PENDING_SATELLITE_DATAGRAMS: {
-                request = (SatelliteControllerHandlerRequest) msg.obj;
-                onCompleted =
-                        obtainMessage(EVENT_POLL_PENDING_SATELLITE_DATAGRAMS_DONE, request);
-                mDatagramController.pollPendingSatelliteDatagrams(onCompleted, request.phone);
-                break;
-            }
-
-            case EVENT_POLL_PENDING_SATELLITE_DATAGRAMS_DONE: {
-                ar = (AsyncResult) msg.obj;
-                request = (SatelliteControllerHandlerRequest) ar.userObj;
-                int error = SatelliteServiceUtils.getSatelliteError(ar,
-                        "pollPendingSatelliteDatagrams");
-                ((Consumer<Integer>) request.argument).accept(error);
                 break;
             }
 
@@ -786,6 +742,27 @@ public class SatelliteController extends Handler {
                 break;
             }
 
+            case EVENT_RADIO_STATE_CHANGED: {
+                if (mCi.getRadioState() == TelephonyManager.RADIO_POWER_OFF
+                        || mCi.getRadioState() == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
+                    logd("Radio State Changed to " + mCi.getRadioState());
+                    IIntegerConsumer errorCallback = new IIntegerConsumer.Stub() {
+                        @Override
+                        public void accept(int result) {
+                            loge("Failed to Disable Satellite Mode, Error: " + result);
+                        }
+                    };
+                    Phone phone = SatelliteServiceUtils.getPhone();
+                    Consumer<Integer> result = FunctionalUtils
+                            .ignoreRemoteException(errorCallback::accept);
+                    RequestSatelliteEnabledArgument message =
+                            new RequestSatelliteEnabledArgument(false, false, result);
+                    request = new SatelliteControllerHandlerRequest(message, phone);
+                    handleSatelliteEnabled(request);
+                }
+                break;
+            }
+
             default:
                 Log.w(TAG, "SatelliteControllerHandler: unexpected message code: " +
                         msg.what);
@@ -850,8 +827,17 @@ public class SatelliteController extends Handler {
             return;
         }
 
-        Phone phone = SatelliteServiceUtils.getPhone();
-        sendRequest(CMD_IS_SATELLITE_ENABLED, result, phone);
+        synchronized (mIsSatelliteEnabledLock) {
+            if (mIsSatelliteEnabled != null) {
+                /* We have already successfully queried the satellite modem. */
+                Bundle bundle = new Bundle();
+                bundle.putBoolean(SatelliteManager.KEY_SATELLITE_ENABLED, mIsSatelliteEnabled);
+                result.send(SatelliteManager.SATELLITE_ERROR_NONE, bundle);
+                return;
+            }
+        }
+
+        sendRequest(CMD_IS_SATELLITE_ENABLED, result, SatelliteServiceUtils.getPhone());
     }
 
     /**
@@ -892,13 +878,12 @@ public class SatelliteController extends Handler {
                 /* We have already successfully queried the satellite modem. */
                 Bundle bundle = new Bundle();
                 bundle.putBoolean(SatelliteManager.KEY_SATELLITE_SUPPORTED, mIsSatelliteSupported);
-                result.send(SatelliteManager.SATELLITE_INVALID_TELEPHONY_STATE, bundle);
+                result.send(SatelliteManager.SATELLITE_ERROR_NONE, bundle);
                 return;
             }
         }
 
-        Phone phone = SatelliteServiceUtils.getPhone();
-        sendRequestAsync(CMD_IS_SATELLITE_SUPPORTED, result, phone);
+        sendRequestAsync(CMD_IS_SATELLITE_SUPPORTED, result, SatelliteServiceUtils.getPhone());
     }
 
     /**
@@ -1147,9 +1132,15 @@ public class SatelliteController extends Handler {
      */
     @SatelliteManager.SatelliteError public int registerForSatelliteModemStateChanged(int subId,
             @NonNull ISatelliteStateCallback callback) {
-        final int validSubId = SatelliteServiceUtils.getValidSatelliteSubId(subId, mContext);
-        Phone phone = SatelliteServiceUtils.getPhone();
+        if (mSatelliteSessionController != null) {
+            mSatelliteSessionController.registerForSatelliteModemStateChanged(callback);
+        } else {
+            loge("registerForSatelliteModemStateChanged: mSatelliteSessionController"
+                    + " is not initialized yet");
+            return SatelliteManager.SATELLITE_INVALID_TELEPHONY_STATE;
+        }
 
+        final int validSubId = SatelliteServiceUtils.getValidSatelliteSubId(subId, mContext);
         SatelliteStateListenerHandler satelliteStateListenerHandler =
                 mSatelliteStateListenerHandlers.get(validSubId);
         if (satelliteStateListenerHandler == null) {
@@ -1162,6 +1153,12 @@ public class SatelliteController extends Handler {
                 mSatelliteModemInterface.registerForPendingDatagrams(satelliteStateListenerHandler,
                         SatelliteStateListenerHandler.EVENT_PENDING_DATAGRAMS, null);
             } else {
+                Phone phone = SatelliteServiceUtils.getPhone();
+                if (phone == null) {
+                    loge("registerForSatelliteModemStateChanged: satellite phone is "
+                            + "not initialized yet");
+                    return SatelliteManager.SATELLITE_INVALID_TELEPHONY_STATE;
+                }
                 phone.registerForSatelliteModemStateChanged(satelliteStateListenerHandler,
                         SatelliteStateListenerHandler.EVENT_SATELLITE_MODEM_STATE_CHANGE, null);
                 phone.registerForPendingDatagramCount(satelliteStateListenerHandler,
@@ -1201,6 +1198,13 @@ public class SatelliteController extends Handler {
                     }
                 }
             }
+        }
+
+        if (mSatelliteSessionController != null) {
+            mSatelliteSessionController.unregisterForSatelliteModemStateChanged(callback);
+        } else {
+            loge("registerForSatelliteModemStateChanged: mSatelliteSessionController"
+                    + " is not initialized yet");
         }
     }
 
@@ -1251,9 +1255,7 @@ public class SatelliteController extends Handler {
             return;
         }
 
-        Phone phone = SatelliteServiceUtils.getPhone();
-        sendRequestAsync(CMD_POLL_PENDING_SATELLITE_DATAGRAMS, result, phone);
-        // TODO: return pending datagram count
+        mDatagramController.pollPendingSatelliteDatagrams(subId, result);
     }
 
     /**
@@ -1290,8 +1292,9 @@ public class SatelliteController extends Handler {
         if (mNeedsSatellitePointing) {
             mPointingAppController.startPointingUI(needFullScreenPointingUI);
         }
-        mDatagramController.sendSatelliteDatagram(datagramType, datagram, needFullScreenPointingUI,
-                result);
+
+        mDatagramController.sendSatelliteDatagram(validSubId, datagramType, datagram,
+                needFullScreenPointingUI, result);
     }
 
     /**
@@ -1488,7 +1491,7 @@ public class SatelliteController extends Handler {
      * @param subId The subscription id.
      * @return true if satellite is provisioned on the given subscription else return false.
      */
-    @VisibleForTesting
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     protected boolean isSatelliteProvisioned(int subId) {
         final long identity = Binder.clearCallingIdentity();
         try {
@@ -1514,6 +1517,114 @@ public class SatelliteController extends Handler {
             Binder.restoreCallingIdentity(identity);
         }
         return false;
+    }
+
+    private void handleSatelliteEnabled(SatelliteControllerHandlerRequest request) {
+        RequestSatelliteEnabledArgument argument =
+                (RequestSatelliteEnabledArgument) request.argument;
+        Message onCompleted = obtainMessage(EVENT_SET_SATELLITE_ENABLED_DONE, request);
+        if (mSatelliteModemInterface.isSatelliteServiceSupported()) {
+            mSatelliteModemInterface.requestSatelliteEnabled(argument.enableSatellite,
+                    argument.enableDemoMode, onCompleted);
+            return;
+        }
+        Phone phone = request.phone;
+        if (phone != null) {
+            phone.setSatellitePower(onCompleted, argument.enableSatellite);
+        } else {
+            loge("requestSatelliteEnabled: No phone object");
+            argument.callback.accept(SatelliteManager.SATELLITE_INVALID_TELEPHONY_STATE);
+        }
+    }
+
+    private ResultReceiver createSatelliteSupportedResultReceiver(@NonNull Looper looper) {
+        return new ResultReceiver(this) {
+            @Override
+            protected void onReceiveResult(int resultCode, Bundle resultData) {
+                if (resultCode == SatelliteManager.SATELLITE_ERROR_NONE
+                        && resultData.containsKey(SatelliteManager.KEY_SATELLITE_SUPPORTED)) {
+                    synchronized (mIsSatelliteSupportedLock) {
+                        mIsSatelliteSupported = resultData.getBoolean(
+                                SatelliteManager.KEY_SATELLITE_SUPPORTED);
+                    }
+                }
+                mSatelliteSessionController = SatelliteSessionController.make(mContext, looper,
+                        mIsSatelliteSupported != null ? mIsSatelliteSupported : false);
+                if (mIsSatelliteSupported != null && mIsSatelliteSupported) {
+                    requestIsSatelliteEnabled(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
+                            mSatelliteEnabledReceiver);
+                }
+            }
+        };
+    }
+
+    private ResultReceiver createSatelliteEnabledResultReceiver() {
+        return new ResultReceiver(this) {
+            @Override
+            protected void onReceiveResult(int resultCode, Bundle resultData) {
+                if (resultCode == SatelliteManager.SATELLITE_ERROR_NONE
+                        && resultData.containsKey(SatelliteManager.KEY_SATELLITE_ENABLED)) {
+                    updateSatelliteEnabledState(resultData.getBoolean(
+                            SatelliteManager.KEY_SATELLITE_ENABLED),
+                            "SatelliteEnabledResultReceiver.onReceiveResult");
+                }
+            }
+        };
+    }
+
+    private void updateSatelliteEnabledState(boolean enabled, String caller) {
+        synchronized (mIsSatelliteEnabledLock) {
+            mIsSatelliteEnabled = enabled;
+        }
+        if (mSatelliteSessionController != null) {
+            mSatelliteSessionController.onSatelliteEnabledStateChanged(enabled);
+        } else {
+            loge(caller + ": mSatelliteSessionController is not initialized yet");
+        }
+    }
+
+    private void disableBluetoothWifiState() {
+        if (mBluetoothAdapter == null) {
+            mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        }
+        if (mWifiManager == null) {
+            mWifiManager = mContext.getSystemService(WifiManager.class);
+        }
+        if (mBluetoothAdapter.isEnabled()) {
+            if (DBG) logd("disabling Bluetooth");
+            //Set the Flag to  indicate that Bluetooth is disabled by Satellite Controller
+            mSharedPreferences.edit().putBoolean(KEY_BLUETOOTH_DISABLED_BY_SCO, true)
+                        .apply();
+            mBluetoothAdapter.disable();
+        }
+        if (mWifiManager.isWifiEnabled()) {
+            if (DBG) logd("disabling Wifi");
+            //Set the Flag to  indicate that Wifi is disabled by Satellite Controller
+            mSharedPreferences.edit().putBoolean(KEY_WIFI_DISABLED_BY_SCO, true)
+                        .apply();
+            mWifiManager.setWifiEnabled(false);
+        }
+    }
+
+    private void checkAndEnableBluetoothWifiState() {
+        if (mBluetoothAdapter == null) {
+            mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        }
+        if (mWifiManager == null) {
+            mWifiManager = mContext.getSystemService(WifiManager.class);
+        }
+        if (!mBluetoothAdapter.isEnabled() && mDisabledBTFlag) {
+            if (DBG) logd("Enabling Bluetooth");
+            mBluetoothAdapter.enable();
+            mSharedPreferences.edit().putBoolean(KEY_BLUETOOTH_DISABLED_BY_SCO, false)
+                        .apply();
+        }
+        if (!mWifiManager.isWifiEnabled() && mDisabledWifiFlag) {
+            if (DBG) logd("Enabling Wifi");
+            mWifiManager.setWifiEnabled(true);
+            mSharedPreferences.edit().putBoolean(KEY_WIFI_DISABLED_BY_SCO, false)
+                        .apply();
+        }
     }
 
     private static void logd(@NonNull String log) {
