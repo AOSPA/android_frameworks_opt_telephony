@@ -252,6 +252,8 @@ public class DataProfileManager extends Handler {
      * @param forceUpdateIa If {@code true}, we should always send IA again to modem.
      */
     private void updateDataProfiles(boolean forceUpdateIa) {
+        /** All APN settings applicable to the current carrier */
+        ArrayList<ApnSetting> allApnSettings = new ArrayList<>();
         List<DataProfile> profiles = new ArrayList<>();
         if (mDataConfigManager.isConfigCarrierSpecific()) {
             Cursor cursor = mPhone.getContext().getContentResolver().query(
@@ -265,14 +267,7 @@ public class DataProfileManager extends Handler {
             while (cursor.moveToNext()) {
                 ApnSetting apn = ApnSetting.makeApnSetting(cursor);
                 if (apn != null) {
-                    DataProfile dataProfile = new DataProfile.Builder()
-                            .setApnSetting(apn)
-                            .setTrafficDescriptor(new TrafficDescriptor(apn.getApnName(), null))
-                            .setPreferred(false)
-                            .build();
-                    profiles.add(dataProfile);
-                    log("Added " + dataProfile);
-
+                    allApnSettings.add(apn);
                     isInternetSupported |= apn.canHandleType(ApnSetting.TYPE_DEFAULT);
                     if (mDataConfigManager.isApnConfigAnomalyReportEnabled()) {
                         checkApnSetting(apn);
@@ -280,6 +275,20 @@ public class DataProfileManager extends Handler {
                 }
             }
             cursor.close();
+
+            if (!allApnSettings.isEmpty()) {
+                filterApnSettingsWithRadioCapability(allApnSettings);
+            }
+
+            for (ApnSetting apn : allApnSettings) {
+                DataProfile dataProfile = new DataProfile.Builder()
+                        .setApnSetting(apn)
+                        .setTrafficDescriptor(new TrafficDescriptor(apn.getApnName(), null))
+                        .setPreferred(false)
+                        .build();
+                profiles.add(dataProfile);
+                log("Added " + dataProfile);
+            }
 
             if (!isInternetSupported
                     && !profiles.isEmpty() // APN database has been read successfully
