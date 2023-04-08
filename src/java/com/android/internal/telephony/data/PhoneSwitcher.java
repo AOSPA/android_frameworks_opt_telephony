@@ -836,13 +836,17 @@ public class PhoneSwitcher extends Handler {
                 // do nothing.
                 if (shouldEvaluateAfterCallStateChange && !updatesIfPhoneInVoiceCallChanged()) {
                     break;
-                } else if (isNddsPhoneIdle() && updatesIfPhoneInVoiceCallChanged()) {
+                }
+                if (isNddsPhoneIdle()) {
                     // When smart temp dds is enabled & DDS sub is PIN-1 enabled, modem would not
                     // send recommendation on voice call end if DDS sub is hot-swapped and PIN-1
                     // is not entered while call was active.  Re-evaluate voice call phoneid once
-                    // voice call ends.
-                    log("EVENT_PRECISE_CALL_STATE_CHANGED: Enforce evaluating once");
-                    // Always evaluating once after call ends.
+                    // voice call ends. Besides, When voice call is ongoing, data during call can be
+                    // toggled so that smart temp DDS is disabled, hence, need to evalute this once
+                    // after call ends because of no revoking recommendation after primary data
+                    // phone also is changed in a manner.
+                    updatesIfPhoneInVoiceCallChanged();
+                    log("EVENT_PRECISE_CALL_STATE_CHANGED Enforce evaluating once after call ends");
                     shouldEvaluateAfterCallStateChange = true;
                 }
 
