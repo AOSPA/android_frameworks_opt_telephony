@@ -89,7 +89,6 @@ import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.RadioConfig;
 import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.SubscriptionController.WatchedInt;
-import com.android.internal.telephony.SubscriptionInfoUpdater;
 import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.data.DataNetworkController.NetworkRequestList;
 import com.android.internal.telephony.data.DataSettingsManager.DataSettingsManagerCallback;
@@ -293,6 +292,7 @@ public class PhoneSwitcher extends Handler {
     protected EmergencyOverrideRequest mEmergencyOverride;
 
     private ISetOpportunisticDataCallback mSetOpptSubCallback;
+    private boolean mIsSubInfoReady = false;
 
     private static final int EVENT_PRIMARY_DATA_SUB_CHANGED       = 101;
     protected static final int EVENT_SUBSCRIPTION_CHANGED         = 102;
@@ -989,6 +989,7 @@ public class PhoneSwitcher extends Handler {
             }
             case EVENT_SUB_INFO_READY: {
                 log("Sub info is ready");
+                mIsSubInfoReady = true;
                 onEvaluate(REQUESTS_UNCHANGED, "sub_info_ready");
                 break;
             }
@@ -1370,7 +1371,7 @@ public class PhoneSwitcher extends Handler {
      * @return {@code True} if the default data subscription need to be changed.
      */
     protected boolean onEvaluate(boolean requestsChanged, String reason) {
-        if (!SubscriptionInfoUpdater.isSubInfoInitialized()) {
+        if (!mIsSubInfoReady) {
             log("subscription info isn't initialized yet");
             return false;
         }

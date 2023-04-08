@@ -5668,7 +5668,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         mNotifier.notifyCallbackModeStopped(this, type, reason);
     }
 
-    private boolean isActiveSubId(int subId) {
+    protected boolean isActiveSubId(int subId) {
         if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
             SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
                     .getSubscriptionInfoInternal(subId);

@@ -2580,7 +2580,7 @@ public class ImsPhone extends ImsPhoneBase {
         @Override
         public void handleImsSubscriberAssociatedUriChanged(Uri[] uris) {
             if (DBG) logd("handleImsSubscriberAssociatedUriChanged" + uris);
-            if (uris == null && SubscriptionController.getInstance().isActiveSubId(getSubId())) {
+            if (uris == null && isActiveSubId(getSubId())) {
                 return;
             }
             setCurrentSubscriberUris(uris);
