@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.satellite;
 
+import static com.android.internal.telephony.satellite.DatagramController.ROUNDING_UNIT;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.ContentResolver;
@@ -23,6 +25,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.database.SQLException;
 import android.net.Uri;
 import android.os.AsyncResult;
 import android.os.Handler;
@@ -40,8 +43,10 @@ import android.util.Pair;
 
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.telephony.ILongConsumer;
+import com.android.internal.telephony.IVoidConsumer;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.metrics.SatelliteStats;
+import com.android.internal.telephony.satellite.metrics.ControllerMetricsStats;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -66,6 +71,9 @@ public class DatagramReceiver extends Handler {
     @NonNull private final ContentResolver mContentResolver;
     @NonNull private SharedPreferences mSharedPreferences = null;
     @NonNull private final DatagramController mDatagramController;
+    @NonNull private final ControllerMetricsStats mControllerMetricsStats;
+
+    private long mDatagramTransferStartTime = 0;
 
     /**
      * The background handler to perform database operations. This is running on a separate thread.
@@ -107,6 +115,7 @@ public class DatagramReceiver extends Handler {
         mContext = context;
         mContentResolver = context.getContentResolver();
         mDatagramController = datagramController;
+        mControllerMetricsStats = ControllerMetricsStats.getInstance();
 
         HandlerThread backgroundThread = new HandlerThread(TAG);
         backgroundThread.start();
@@ -252,53 +261,44 @@ public class DatagramReceiver extends Handler {
         private void deleteDatagram(long datagramId) {
             String whereClause = (Telephony.SatelliteDatagrams.COLUMN_UNIQUE_KEY_DATAGRAM_ID
                     + "=" + datagramId);
-            Cursor cursor =  sInstance.mContentResolver.query(
+            try (Cursor cursor = sInstance.mContentResolver.query(
                     Telephony.SatelliteDatagrams.CONTENT_URI,
-                    null, whereClause, null, null);
-            if ((cursor != null) && (cursor.getCount() == 1)) {
-                int numRowsDeleted = sInstance.mContentResolver.delete(
-                        Telephony.SatelliteDatagrams.CONTENT_URI, whereClause, null);
-                if (numRowsDeleted == 0) {
-                    loge("Cannot delete datagram with datagramId: " + datagramId);
+                    null, whereClause, null, null)) {
+                if ((cursor != null) && (cursor.getCount() == 1)) {
+                    int numRowsDeleted = sInstance.mContentResolver.delete(
+                            Telephony.SatelliteDatagrams.CONTENT_URI, whereClause, null);
+                    if (numRowsDeleted == 0) {
+                        loge("Cannot delete datagram with datagramId: " + datagramId);
+                    } else {
+                        logd("Deleted datagram with datagramId: " + datagramId);
+                    }
                 } else {
-                    logd("Deleted datagram with datagramId: " + datagramId);
+                    loge("Datagram with datagramId: " + datagramId + " is not present in DB.");
                 }
-            } else {
-                loge("Datagram with datagramId: " + datagramId + " is not present in DB.");
+            } catch(SQLException e) {
+                loge("deleteDatagram SQLException e:" + e);
             }
         }
 
         private void onSatelliteDatagramReceived(@NonNull DatagramRetryArgument argument) {
             try {
+                IVoidConsumer internalAck = new IVoidConsumer.Stub() {
+                    /**
+                     * This callback will be used by datagram receiver app
+                     * to send ack back to Telephony. If the callback is not
+                     * received within five minutes, then Telephony will
+                     * resend the datagram again.
+                     */
+                    @Override
+                    public void accept() {
+                        logd("acknowledgeSatelliteDatagramReceived: "
+                                + "datagramId=" + argument.datagramId);
+                        sendMessage(obtainMessage(EVENT_RECEIVED_ACK, argument));
+                    }
+                };
+
                 argument.listener.onSatelliteDatagramReceived(argument.datagramId,
-                        argument.datagram, argument.pendingCount,
-                        new ILongConsumer.Stub() {
-                            /**
-                             * This callback will be used by datagram receiver app
-                             * to send ack back to Telephony. If the callback is not
-                             * received within five minutes, then Telephony will
-                             * resend the datagram again.
-                             *
-                             * @param datagramId An id that uniquely identifies
-                             *                   datagram received by satellite
-                             *                   datagram receiver app. This should
-                             *                   match with datagramId passed in
-                             *                   {@link android.telephony.satellite
-                             *                   .SatelliteDatagramCallback
-                             *                   #onSatelliteDatagramReceived(long,
-                             *                   SatelliteDatagram, int,
-                             *                   ISatelliteDatagramReceiverAck)}
-                             *                   Upon receiving the ack, Telephony
-                             *                   will remove the datagram from
-                             *                   the persistent memory.
-                             */
-                            @Override
-                            public void accept(long datagramId) {
-                                logd("acknowledgeSatelliteDatagramReceived: "
-                                        + "datagramId=" + datagramId);
-                                sendMessage(obtainMessage(EVENT_RECEIVED_ACK, argument));
-                            }
-                        });
+                        argument.datagram, argument.pendingCount, internalAck);
             } catch (RemoteException e) {
                 logd("EVENT_SATELLITE_DATAGRAM_RECEIVED RemoteException: " + e);
             }
@@ -337,6 +337,9 @@ public class DatagramReceiver extends Handler {
                                     obtainMessage(EVENT_RETRY_DELIVERING_RECEIVED_DATAGRAM,
                                     argument), getTimeoutToReceiveAck());
                         });
+
+                        sInstance.mControllerMetricsStats.reportIncomingDatagramCount(
+                                SatelliteManager.SATELLITE_ERROR_NONE);
                     }
 
                     if (pendingCount == 0) {
@@ -344,6 +347,10 @@ public class DatagramReceiver extends Handler {
                                 SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE,
                                 pendingCount, SatelliteManager.SATELLITE_ERROR_NONE);
                     }
+
+                    // Send the captured data about incoming datagram to metric
+                    sInstance.reportMetrics(
+                            satelliteDatagram, SatelliteManager.SATELLITE_ERROR_NONE);
                     break;
                 }
 
@@ -374,7 +381,7 @@ public class DatagramReceiver extends Handler {
         Message onCompleted;
         AsyncResult ar;
 
-        switch(msg.what) {
+        switch (msg.what) {
             case CMD_POLL_PENDING_SATELLITE_DATAGRAMS: {
                 request = (DatagramReceiverHandlerRequest) msg.obj;
                 onCompleted =
@@ -402,6 +409,10 @@ public class DatagramReceiver extends Handler {
                             SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE,
                             mDatagramController.getReceivePendingCount(),
                             SatelliteManager.SATELLITE_ERROR_NONE);
+
+                    reportMetrics(null, SatelliteManager.SATELLITE_INVALID_TELEPHONY_STATE);
+                    mControllerMetricsStats.reportIncomingDatagramCount(
+                                    SatelliteManager.SATELLITE_INVALID_TELEPHONY_STATE);
                 }
                 break;
             }
@@ -418,6 +429,14 @@ public class DatagramReceiver extends Handler {
                     mDatagramController.updateReceiveStatus(request.subId,
                             SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVE_FAILED,
                             mDatagramController.getReceivePendingCount(), error);
+
+                    mDatagramController.updateReceiveStatus(request.subId,
+                            SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE,
+                            mDatagramController.getReceivePendingCount(),
+                            SatelliteManager.SATELLITE_ERROR_NONE);
+
+                    reportMetrics(null, error);
+                    mControllerMetricsStats.reportIncomingDatagramCount(error);
                 }
                 break;
             }
@@ -445,8 +464,6 @@ public class DatagramReceiver extends Handler {
             satelliteDatagramListenerHandler = new SatelliteDatagramListenerHandler(
                     mBackgroundHandler.getLooper(), validSubId);
             if (SatelliteModemInterface.getInstance().isSatelliteServiceSupported()) {
-                // TODO: remove this as SatelliteModemInterface can register for incoming datagrams
-                // on boot up itself.
                 SatelliteModemInterface.getInstance().registerForSatelliteDatagramsReceived(
                         satelliteDatagramListenerHandler,
                         SatelliteDatagramListenerHandler.EVENT_SATELLITE_DATAGRAM_RECEIVED, null);
@@ -499,7 +516,7 @@ public class DatagramReceiver extends Handler {
      * This method requests modem to check if there are any pending datagrams to be received over
      * satellite. If there are any incoming datagrams, they will be received via
      * {@link android.telephony.satellite.SatelliteDatagramCallback
-     * #onSatelliteDatagramReceived(long, SatelliteDatagram, int, ILongConsumer)}
+     * #onSatelliteDatagramReceived(long, SatelliteDatagram, int, Consumer)}
      *
      * @param subId The subId of the subscription used for receiving datagrams.
      * @param callback The callback to get {@link SatelliteManager.SatelliteError} of the request.
@@ -510,6 +527,7 @@ public class DatagramReceiver extends Handler {
                 mDatagramController.getReceivePendingCount(),
                 SatelliteManager.SATELLITE_ERROR_NONE);
 
+        mDatagramTransferStartTime = System.currentTimeMillis();
         Phone phone = SatelliteServiceUtils.getPhone();
         sendRequestAsync(CMD_POLL_PENDING_SATELLITE_DATAGRAMS, callback, phone, subId);
     }
@@ -530,6 +548,31 @@ public class DatagramReceiver extends Handler {
         msg.sendToTarget();
     }
 
+    /** Report incoming datagram related metrics */
+    private void reportMetrics(@Nullable SatelliteDatagram satelliteDatagram,
+            @NonNull @SatelliteManager.SatelliteError int resultCode) {
+        int datagramSizeRoundedBytes = -1;
+        int datagramTransferTime = 0;
+
+        if (satelliteDatagram != null) {
+            if (satelliteDatagram.getSatelliteDatagram() != null) {
+                int sizeBytes = satelliteDatagram.getSatelliteDatagram().length;
+                // rounded by 10 bytes
+                datagramSizeRoundedBytes =
+                        (int) (Math.round((double) sizeBytes / ROUNDING_UNIT) * ROUNDING_UNIT);
+            }
+            datagramTransferTime = (int) (System.currentTimeMillis() - mDatagramTransferStartTime);
+            mDatagramTransferStartTime = 0;
+        }
+
+        SatelliteStats.getInstance().onSatelliteIncomingDatagramMetrics(
+                new SatelliteStats.SatelliteIncomingDatagramParams.Builder()
+                        .setResultCode(resultCode)
+                        .setDatagramSizeBytes(datagramSizeRoundedBytes)
+                        .setDatagramTransferTimeMillis(datagramTransferTime)
+                        .build());
+    }
+
     /**
      * Destroys this DatagramDispatcher. Used for tearing down static resources during testing.
      */
@@ -545,6 +588,4 @@ public class DatagramReceiver extends Handler {
     private static void loge(@NonNull String log) {
         Rlog.e(TAG, log);
     }
-
-    // TODO: An api change - do not pass the binder from Telephony to Applications
 }
