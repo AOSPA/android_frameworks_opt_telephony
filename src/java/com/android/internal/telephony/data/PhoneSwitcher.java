@@ -294,17 +294,6 @@ public class PhoneSwitcher extends Handler {
 
     private ISetOpportunisticDataCallback mSetOpptSubCallback;
 
-    /** Data config manager callback for updating device config. **/
-    private final DataConfigManager.DataConfigManagerCallback mDataConfigManagerCallback =
-            new DataConfigManager.DataConfigManagerCallback(this::post) {
-
-        @Override
-        public void onCarrierConfigChanged() {
-            log("onCarrierConfigChanged");
-            PhoneSwitcher.this.updateCarrierConfig();
-        }
-    };
-
     private static final int EVENT_PRIMARY_DATA_SUB_CHANGED       = 101;
     protected static final int EVENT_SUBSCRIPTION_CHANGED         = 102;
     private static final int EVENT_REQUEST_NETWORK                = 103;
@@ -621,6 +610,8 @@ public class PhoneSwitcher extends Handler {
             PhoneFactory.getPhone(0).mCi.registerForOn(this, EVENT_RADIO_ON, null);
         }
 
+        readDeviceResourceConfig();
+
         TelephonyRegistryManager telephonyRegistryManager = (TelephonyRegistryManager)
                 context.getSystemService(Context.TELEPHONY_REGISTRY_SERVICE);
         telephonyRegistryManager.addOnSubscriptionsChangedListener(
@@ -836,13 +827,17 @@ public class PhoneSwitcher extends Handler {
                 // do nothing.
                 if (shouldEvaluateAfterCallStateChange && !updatesIfPhoneInVoiceCallChanged()) {
                     break;
-                } else if (isNddsPhoneIdle() && updatesIfPhoneInVoiceCallChanged()) {
+                }
+                if (isNddsPhoneIdle()) {
                     // When smart temp dds is enabled & DDS sub is PIN-1 enabled, modem would not
                     // send recommendation on voice call end if DDS sub is hot-swapped and PIN-1
                     // is not entered while call was active.  Re-evaluate voice call phoneid once
-                    // voice call ends.
-                    log("EVENT_PRECISE_CALL_STATE_CHANGED: Enforce evaluating once");
-                    // Always evaluating once after call ends.
+                    // voice call ends. Besides, When voice call is ongoing, data during call can be
+                    // toggled so that smart temp DDS is disabled, hence, need to evalute this once
+                    // after call ends because of no revoking recommendation after primary data
+                    // phone also is changed in a manner.
+                    updatesIfPhoneInVoiceCallChanged();
+                    log("EVENT_PRECISE_CALL_STATE_CHANGED Enforce evaluating once after call ends");
                     shouldEvaluateAfterCallStateChange = true;
                 }
 
@@ -973,20 +968,23 @@ public class PhoneSwitcher extends Handler {
                 break;
             }
             case EVENT_PROCESS_SIM_STATE_CHANGE: {
-                int slotIndex = (int) msg.arg1;
-                int simState = (int) msg.arg2;
+                int slotIndex = msg.arg1;
+                int simState = msg.arg2;
 
                 if (!SubscriptionManager.isValidSlotIndex(slotIndex)) {
                     logl("EVENT_PROCESS_SIM_STATE_CHANGE: skip processing due to invalid slotId: "
                             + slotIndex);
-                } else if (mCurrentDdsSwitchFailure.get(slotIndex).contains(
+                } else if (TelephonyManager.SIM_STATE_LOADED == simState) {
+                    if (mCurrentDdsSwitchFailure.get(slotIndex).contains(
                         CommandException.Error.INVALID_SIM_STATE)
                         && (TelephonyManager.SIM_STATE_LOADED == simState)
                         && isSimApplicationReady(slotIndex)) {
-                    sendRilCommands(slotIndex);
+                        sendRilCommands(slotIndex);
+                    }
+                    // SIM loaded after subscriptions slot mapping are done. Evaluate for auto
+                    // data switch.
+                    sendEmptyMessage(EVENT_EVALUATE_AUTO_SWITCH);
                 }
-
-                registerConfigChange();
                 break;
             }
             case EVENT_SUB_INFO_READY: {
@@ -998,31 +996,17 @@ public class PhoneSwitcher extends Handler {
     }
 
     /**
-     * Register for config change on the primary data phone.
+     * Read the default device config from any default phone because the resource config are per
+     * device. No need to register callback for the same reason.
      */
-    private void registerConfigChange() {
-        Phone phone = getPhoneBySubId(mPrimaryDataSubId);
-        if (phone != null) {
-            DataConfigManager dataConfig = phone.getDataNetworkController().getDataConfigManager();
-            dataConfig.registerCallback(mDataConfigManagerCallback);
-            updateCarrierConfig();
-            sendEmptyMessage(EVENT_EVALUATE_AUTO_SWITCH);
-        }
-    }
-
-    /**
-     * Update carrier config.
-     */
-    private void updateCarrierConfig() {
-        Phone phone = getPhoneBySubId(mPrimaryDataSubId);
-        if (phone != null) {
-            DataConfigManager dataConfig = phone.getDataNetworkController().getDataConfigManager();
-            mRequirePingTestBeforeDataSwitch = dataConfig.requirePingTestBeforeDataSwitch();
-            mAutoDataSwitchAvailabilityStabilityTimeThreshold =
-                    dataConfig.getAutoDataSwitchAvailabilityStabilityTimeThreshold();
-            mAutoDataSwitchValidationMaxRetry =
-                    dataConfig.getAutoDataSwitchValidationMaxRetry();
-        }
+    private void readDeviceResourceConfig() {
+        Phone phone = PhoneFactory.getDefaultPhone();
+        DataConfigManager dataConfig = phone.getDataNetworkController().getDataConfigManager();
+        mRequirePingTestBeforeDataSwitch = dataConfig.isPingTestBeforeAutoDataSwitchRequired();
+        mAutoDataSwitchAvailabilityStabilityTimeThreshold =
+                dataConfig.getAutoDataSwitchAvailabilityStabilityTimeThreshold();
+        mAutoDataSwitchValidationMaxRetry =
+                dataConfig.getAutoDataSwitchValidationMaxRetry();
     }
 
     protected synchronized void onMultiSimConfigChanged(int activeModemCount) {

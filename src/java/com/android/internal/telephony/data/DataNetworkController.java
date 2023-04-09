@@ -34,6 +34,7 @@ import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.telecom.TelecomManager;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
 import android.telephony.AccessNetworkConstants.RadioAccessNetworkType;
@@ -223,6 +224,13 @@ public class DataNetworkController extends Handler {
     private static final long REEVALUATE_UNSATISFIED_NETWORK_REQUESTS_TAC_CHANGED_DELAY_MILLIS =
             TimeUnit.MILLISECONDS.toMillis(100);
 
+    /**
+     * The delay in milliseconds to re-evaluate unsatisfied network requests after network request
+     * detached.
+     */
+    private static final long REEVALUATE_UNSATISFIED_NETWORK_REQUESTS_AFTER_DETACHED_DELAY_MILLIS =
+            TimeUnit.SECONDS.toMillis(1);
+
     protected final Phone mPhone;
     private final String mLogTag;
     private final LocalLog mLocalLog = new LocalLog(128);
@@ -234,6 +242,7 @@ public class DataNetworkController extends Handler {
     protected final @NonNull AccessNetworksManager mAccessNetworksManager;
     protected final @NonNull DataRetryManager mDataRetryManager;
     private final @NonNull ImsManager mImsManager;
+    private final @NonNull TelecomManager mTelecomManager;
     private final @NonNull NetworkPolicyManager mNetworkPolicyManager;
     protected final @NonNull SparseArray<DataServiceManager> mDataServiceManagers =
             new SparseArray<>();
@@ -933,6 +942,7 @@ public class DataNetworkController extends Handler {
                 });
         mImsManager = mPhone.getContext().getSystemService(ImsManager.class);
         mNetworkPolicyManager = mPhone.getContext().getSystemService(NetworkPolicyManager.class);
+        mTelecomManager = mPhone.getContext().getSystemService(TelecomManager.class);
 
         // Use the raw one from ServiceStateTracker instead of the combined one from
         // mPhone.getServiceState().
@@ -1607,7 +1617,7 @@ public class DataNetworkController extends Handler {
                 evaluation.addDataAllowedReason(DataAllowedReason.MMS_REQUEST);
             }
         } else if (!evaluation.containsHardDisallowedReasons()) {
-            if ((mPhone.isInEmergencyCall() || mPhone.isInEcm())
+            if ((mTelecomManager.isInEmergencyCall() || mPhone.isInEcm())
                     && networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_SUPL)) {
                 // Check if it's SUPL during emergency call.
                 evaluation.addDataAllowedReason(DataAllowedReason.EMERGENCY_SUPL);
@@ -1917,7 +1927,8 @@ public class DataNetworkController extends Handler {
             // If there are reasons we should tear down the network, check if those are hard reasons
             // or soft reasons. In some scenarios, we can make exceptions if they are soft
             // disallowed reasons.
-            if ((mPhone.isInEmergencyCall() || mPhone.isInEcm()) && dataNetwork.isEmergencySupl()) {
+            if ((mTelecomManager.isInEmergencyCall() || mPhone.isInEcm())
+                    && dataNetwork.isEmergencySupl()) {
                 // Check if it's SUPL during emergency call.
                 evaluation.addDataAllowedReason(DataAllowedReason.EMERGENCY_SUPL);
             } else if (!dataNetwork.getNetworkCapabilities().hasCapability(
@@ -2228,7 +2239,8 @@ public class DataNetworkController extends Handler {
         }
 
         if (networkRequest.getAttachedNetwork() != null) {
-            networkRequest.getAttachedNetwork().detachNetworkRequest(networkRequest);
+            networkRequest.getAttachedNetwork().detachNetworkRequest(
+                        networkRequest, false /* shouldRetry */);
             log("onRemoveNetworkRequest: Network request Removed: " + networkRequest);
         }
     }
@@ -2625,6 +2637,13 @@ public class DataNetworkController extends Handler {
                     @Override
                     public void onTrackNetworkUnwanted(@NonNull DataNetwork dataNetwork) {
                         DataNetworkController.this.onTrackNetworkUnwanted();
+                    }
+
+                    @Override
+                    public void onRetryUnsatisfiedNetworkRequest(
+                            @NonNull TelephonyNetworkRequest networkRequest) {
+                        DataNetworkController.this.onRetryUnsatisfiedNetworkRequest(
+                                networkRequest);
                     }
                 }
         ));
@@ -3079,6 +3098,20 @@ public class DataNetworkController extends Handler {
     private void onAttachNetworkRequestsFailed(@NonNull DataNetwork dataNetwork,
             @NonNull NetworkRequestList requestList) {
         log("Failed to attach " + requestList + " to " + dataNetwork);
+    }
+
+    /**
+     * Called when a network request is detached from the data network and should be retried.
+     *
+     * @param networkRequest The detached network request.
+     */
+    private void onRetryUnsatisfiedNetworkRequest(
+            @NonNull TelephonyNetworkRequest networkRequest) {
+        if (!mAllNetworkRequestList.contains(networkRequest)) return;
+
+        sendMessageDelayed(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
+                        DataEvaluationReason.UNSATISFIED_REQUEST_DETACHED),
+                REEVALUATE_UNSATISFIED_NETWORK_REQUESTS_AFTER_DETACHED_DELAY_MILLIS);
     }
 
     /**
