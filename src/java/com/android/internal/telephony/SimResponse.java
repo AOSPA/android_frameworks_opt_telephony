@@ -22,11 +22,13 @@ import android.hardware.radio.RadioError;
 import android.hardware.radio.RadioResponseInfo;
 import android.hardware.radio.sim.CarrierRestrictions;
 import android.hardware.radio.sim.IRadioSimResponse;
+import android.os.SystemProperties;
 import android.telephony.CarrierRestrictionRules;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.uicc.AdnCapacity;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus;
 import com.android.internal.telephony.uicc.IccCardStatus;
 import com.android.internal.telephony.uicc.IccIoResult;
 
@@ -37,6 +39,9 @@ import java.util.ArrayList;
  */
 public class SimResponse extends IRadioSimResponse.Stub {
     private final RIL mRil;
+
+    private static final String PROPERTY_PERSO_UNLOCK_TEMP_FEATURE =
+            "persist.vendor.radio.temp_unlock_feature";
 
     public SimResponse(RIL ril) {
         mRil = ril;
@@ -189,10 +194,48 @@ public class SimResponse extends IRadioSimResponse.Stub {
             IccCardStatus iccCardStatus = RILUtils.convertHalCardStatus(cardStatus);
             mRil.riljLog("responseIccCardStatus: from AIDL: " + iccCardStatus);
             if (responseInfo.error == RadioError.NONE) {
+                // Handle PersoSubState moving to Temporary/Permanent Unlocked.
+                if (SystemProperties.getBoolean(PROPERTY_PERSO_UNLOCK_TEMP_FEATURE, false)) {
+                    if (iccCardStatus != null) {
+                        updatePersoTempUnlockStatusIfRequired(iccCardStatus);
+                    }
+                }
                 RadioResponse.sendMessageResponse(rr.mResult, iccCardStatus);
             }
             mRil.processResponseDone(rr, responseInfo, iccCardStatus);
         }
+    }
+
+    private void updatePersoTempUnlockStatusIfRequired(IccCardStatus iccCardStatus) {
+        mRil.riljLog("updatePersoTempUnlockStatusIfRequired");
+
+        int length = iccCardStatus.mApplications.length;
+        for (int i = 0; i < length; i++) {
+            IccCardApplicationStatus iccCardAppStatus = iccCardStatus.mApplications[i];
+            if (iccCardAppStatus == null) return;
+
+            if (iccCardAppStatus.app_type == IccCardApplicationStatus.AppType.APPTYPE_ISIM) {
+                continue; //Ignore ISIM as it is not generally used.
+            }
+
+            if (iccCardAppStatus.app_state == IccCardApplicationStatus.AppState.APPSTATE_READY) {
+                if (iccCardAppStatus.perso_substate == IccCardApplicationStatus.PersoSubState.
+                        PERSOSUBSTATE_SIM_TEMPORARY_UNLOCKED) {
+                    // When app state is Ready and perso substate is temporary unlocked, which means
+                    // the ready state is only for temporary period, so override ready state with
+                    // subscription perso to retain the network lock.
+                    iccCardAppStatus.app_state =
+                            IccCardApplicationStatus.AppState.APPSTATE_SUBSCRIPTION_PERSO;
+                } else if (iccCardAppStatus.perso_substate == IccCardApplicationStatus.
+                        PersoSubState.PERSOSUBSTATE_SIM_PERMANENT_UNLOCKED) {
+                    // Perso SubState permanent unlocked means the device is fully unlocked to use
+                    // so consider it as normal perso substate keeping it to ready.
+                    iccCardAppStatus.perso_substate =
+                            IccCardApplicationStatus.PersoSubState.PERSOSUBSTATE_READY;
+                }
+            }
+        }
+        mRil.riljLog("IccCardStatus: " + iccCardStatus);
     }
 
     /**
