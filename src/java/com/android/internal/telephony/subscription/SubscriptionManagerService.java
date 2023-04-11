@@ -1458,6 +1458,11 @@ public class SubscriptionManagerService extends ISub.Stub {
         if (areAllSubscriptionsLoaded()) {
             log("Notify all subscriptions loaded.");
             MultiSimSettingController.getInstance().notifyAllSubscriptionLoaded();
+
+            PhoneSwitcher phoneSwitcher = PhoneSwitcher.getInstance();
+            if (phoneSwitcher != null) {
+                phoneSwitcher.notifySubInfoReady();
+            }
         }
 
         updateGroupDisabled();
