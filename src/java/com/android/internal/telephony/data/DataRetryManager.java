@@ -124,6 +124,7 @@ public class DataRetryManager extends Handler {
                     RESET_REASON_DATA_SERVICE_BOUND,
                     RESET_REASON_DATA_CONFIG_CHANGED,
                     RESET_REASON_TAC_CHANGED,
+                    RESET_REASON_DATA_ENABLED_CHANGED,
             })
     public @interface RetryResetReason {}
 
@@ -147,6 +148,9 @@ public class DataRetryManager extends Handler {
 
     /** Reset due to tracking area code changed. */
     private static final int RESET_REASON_TAC_CHANGED = 6;
+
+    /** Reset due to data enabled changed. */
+    protected static final int RESET_REASON_DATA_ENABLED_CHANGED = 7;
 
     /** The phone instance. */
     protected final @NonNull Phone mPhone;
@@ -1831,6 +1835,8 @@ public class DataRetryManager extends Handler {
                 return "DATA_CONFIG_CHANGED";
             case RESET_REASON_TAC_CHANGED:
                 return "TAC_CHANGED";
+            case RESET_REASON_DATA_ENABLED_CHANGED:
+                return "DATA_ENABLED_CHANGED";
             default:
                 return "UNKNOWN(" + reason + ")";
         }

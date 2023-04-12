@@ -127,7 +127,9 @@ public class IccCardApplicationStatus {
         PERSOSUBSTATE_SIM_IMPI,
         PERSOSUBSTATE_SIM_IMPI_PUK,
         PERSOSUBSTATE_SIM_NS_SP,
-        PERSOSUBSTATE_SIM_NS_SP_PUK;
+        PERSOSUBSTATE_SIM_NS_SP_PUK,
+        PERSOSUBSTATE_SIM_TEMPORARY_UNLOCKED(201),
+        PERSOSUBSTATE_SIM_PERMANENT_UNLOCKED(202);
 
         private int State;
 
@@ -251,6 +253,8 @@ public class IccCardApplicationStatus {
             case 32: newSubState = PersoSubState.PERSOSUBSTATE_SIM_IMPI_PUK; break;
             case 33: newSubState = PersoSubState.PERSOSUBSTATE_SIM_NS_SP; break;
             case 34: newSubState = PersoSubState.PERSOSUBSTATE_SIM_NS_SP_PUK; break;
+            case 201: newSubState = PersoSubState.PERSOSUBSTATE_SIM_TEMPORARY_UNLOCKED; break;
+            case 202: newSubState = PersoSubState.PERSOSUBSTATE_SIM_PERMANENT_UNLOCKED; break;
 
             default:
                 newSubState = PersoSubState.PERSOSUBSTATE_UNKNOWN;
