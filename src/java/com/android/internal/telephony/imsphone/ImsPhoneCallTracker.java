@@ -824,6 +824,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     private String mLastDialString = null;
     private ImsDialArgs mLastDialArgs = null;
     private Executor mExecutor = Runnable::run;
+    private TelephonyManager mTelephonyManager;
 
     private final ImsCallInfoTracker mImsCallInfoTracker;
 
@@ -1275,6 +1276,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     @VisibleForTesting
     public ImsPhoneCallTracker(ImsPhone phone, ConnectorFactory factory, Executor executor) {
         this.mPhone = phone;
+        mTelephonyManager = (TelephonyManager) mPhone.getContext()
+                .getSystemService(Context.TELEPHONY_SERVICE);
         mConnectorFactory = factory;
         if (executor != null) {
             mExecutor = executor;
@@ -2346,7 +2349,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         if (DBG) log("acceptCall");
         mOperationLocalLog.log("accepted incoming call");
 
-        if (!isInDsdaMode() && (mForegroundCall.getState().isAlive()
+        if (!isDsdaOrDsdsTransitionMode() && (mForegroundCall.getState().isAlive()
                 && mBackgroundCall.getState().isAlive())) {
             throw new CallStateException("cannot accept call");
         } else if (hasMaximumLiveCalls()) {
@@ -4491,7 +4494,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     mPhone.stopOnHoldTone(conn);
                     mOnHoldToneStarted = false;
                 }
-                conn.onConnectionEvent(android.telecom.Connection.EVENT_CALL_REMOTELY_UNHELD, null);
+                conn.setRemotelyUnheld();
                 mImsCallInfoTracker.updateImsCallStatus(conn, false, true);
             }
 
@@ -5190,6 +5193,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 // If the dialing call had ringback, ensure it stops now,
                 // otherwise it'll keep playing afer the SRVCC completes.
                 mForegroundCall.maybeStopRingback();
+                mForegroundCall.maybeClearRemotelyHeldStatus();
+                mBackgroundCall.maybeClearRemotelyHeldStatus();
 
                 resetState();
                 transferHandoverConnections(mForegroundCall);
@@ -6356,7 +6361,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 mOnHoldToneStarted = true;
                 mOnHoldToneId = System.identityHashCode(conn);
             }
-            conn.onConnectionEvent(android.telecom.Connection.EVENT_CALL_REMOTELY_HELD, null);
+            conn.setRemotelyHeld();
             mImsCallInfoTracker.updateImsCallStatus(conn, true, false);
 
             boolean useVideoPauseWorkaround = mPhone.getContext().getResources().getBoolean(
@@ -6563,8 +6568,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         mBackgroundCall.getFirstConnection().hangup(); //hangup first held call
     }
 
-    private boolean isInDsdaMode() {
-        return TelephonyManager.isConcurrentCallsPossible();
+    private boolean isDsdaOrDsdsTransitionMode() {
+        return mTelephonyManager.isDsdaOrDsdsTransitionMode();
     }
 
     /* For non-DSDA, max call limit is reached if there is a foreground and a background call.

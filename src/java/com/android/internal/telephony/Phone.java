@@ -1596,7 +1596,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     public void updateSavedNetworkOperator(NetworkSelectMessage nsm) {
         int subId = getSubId();
-        if (SubscriptionController.getInstance().isActiveSubId(subId)) {
+        if (isActiveSubId(subId)) {
             // open the shared preferences editor, and write the value.
             // nsm.operatorNumeric is "" if we're in automatic.selection.
             SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
@@ -2172,7 +2172,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     private int getCallForwardingIndicatorFromSharedPref() {
         int status = IccRecords.CALL_FORWARDING_STATUS_DISABLED;
         int subId = getSubId();
-        if (SubscriptionController.getInstance().isActiveSubId(subId)) {
+        if (isActiveSubId(subId)) {
             SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
             status = sp.getInt(CF_STATUS + subId, IccRecords.CALL_FORWARDING_STATUS_UNKNOWN);
             Rlog.d(LOG_TAG, "getCallForwardingIndicatorFromSharedPref: for subId " + subId + "= " +
@@ -3174,7 +3174,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     public void setVoiceMessageCount(int countWaiting) {
         mVmCount = countWaiting;
         int subId = getSubId();
-        if (SubscriptionController.getInstance().isActiveSubId(subId)) {
+        if (isActiveSubId(subId)) {
 
             Rlog.d(LOG_TAG, "setVoiceMessageCount: Storing Voice Mail Count = " + countWaiting +
                     " for mVmCountKey = " + VM_COUNT + subId + " in preferences.");
@@ -3203,7 +3203,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected int getStoredVoiceMessageCount() {
         int countVoiceMessages = 0;
         int subId = getSubId();
-        if (SubscriptionController.getInstance().isActiveSubId(subId)) {
+        if (isActiveSubId(subId)) {
             int invalidCount = -2;  //-1 is not really invalid. It is used for unknown number of vm
             SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
             int countFromSP = sp.getInt(VM_COUNT + subId, invalidCount);
@@ -5274,14 +5274,24 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
-     * @return UserHandle from phone sub id, or null if subscription is invalid.
+     * @return User handle associated with the phone's subscription id. {@code null} if subscription
+     * is invalid or not found.
      */
+    @Nullable
     public UserHandle getUserHandle() {
-        SubscriptionManager subManager = mContext.getSystemService(SubscriptionManager.class);
         int subId = getSubId();
-        return subManager.isValidSubscriptionId(subId)
-                ? subManager.getSubscriptionUserHandle(subId)
-                : null;
+
+        UserHandle userHandle = null;
+        try {
+            SubscriptionManager subManager = mContext.getSystemService(SubscriptionManager.class);
+            if (subManager != null) {
+                userHandle = subManager.getSubscriptionUserHandle(subId);
+            }
+        } catch (IllegalArgumentException ex) {
+            loge("getUserHandle: ex=" + ex);
+        }
+
+        return userHandle;
     }
 
     /**
@@ -5648,6 +5658,16 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             @TelephonyManager.EmergencyCallbackModeStopReason int reason) {
         Rlog.d(LOG_TAG, "stopCallbackMode:type=" + type + ", reason=" + reason);
         mNotifier.notifyCallbackModeStopped(this, type, reason);
+    }
+
+    private boolean isActiveSubId(int subId) {
+        if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
+            SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
+                    .getSubscriptionInfoInternal(subId);
+            return (subInfo != null && subInfo.isActive());
+        } else {
+            return SubscriptionController.getInstance().isActiveSubId(subId);
+        }
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {

@@ -876,7 +876,7 @@ public class SubscriptionController extends ISub.Stub {
                     if (iccId.equals(si.getIccId())) {
                         if (DBG)
                             logd("[getActiveSubInfoUsingIccId]+ iccId="
-                                    + SubscriptionInfo.givePrintableIccid(iccId)
+                                    + SubscriptionInfo.getPrintableId(iccId)
                                     + " subInfo=" + si);
                         return si;
                     }
@@ -884,7 +884,7 @@ public class SubscriptionController extends ISub.Stub {
             }
             if (DBG) {
                 logd("[getActiveSubInfoUsingIccId]+ iccId="
-                        + SubscriptionInfo.givePrintableIccid(iccId)
+                        + SubscriptionInfo.getPrintableId(iccId)
                         + " subList=" + subList + " subInfo=null");
             }
         } finally {
@@ -1392,7 +1392,7 @@ public class SubscriptionController extends ISub.Stub {
         if (DBG) {
             String iccIdStr = uniqueId;
             if (!isSubscriptionForRemoteSim(subscriptionType)) {
-                iccIdStr = SubscriptionInfo.givePrintableIccid(uniqueId);
+                iccIdStr = SubscriptionInfo.getPrintableId(uniqueId);
             }
             logdl("[addSubInfoRecord]+ iccid: " + iccIdStr
                     + ", slotIndex: " + slotIndex

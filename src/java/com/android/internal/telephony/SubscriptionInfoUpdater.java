@@ -498,6 +498,7 @@ public class SubscriptionInfoUpdater extends Handler {
         broadcastSimApplicationStateChanged(phoneId, TelephonyManager.SIM_STATE_NOT_READY);
     }
 
+    // FIXME any fixes made here to be ported to new SubscriptionManagserService ??
     protected void handleSimNotReady(int phoneId) {
         logd("handleSimNotReady: phoneId: " + phoneId);
         boolean isFinalState = false;
@@ -854,7 +855,7 @@ public class SubscriptionInfoUpdater extends Handler {
         // If SIM is not absent, insert new record or update existing record.
         if (!ICCID_STRING_FOR_NO_SIM.equals(sIccId[phoneId]) && sIccId[phoneId] != null) {
             logd("updateSubscriptionInfoByIccId: adding subscription info record: iccid: "
-                    + SubscriptionInfo.givePrintableIccid(sIccId[phoneId])
+                    + SubscriptionInfo.getPrintableId(sIccId[phoneId])
                     + ", phoneId:" + phoneId);
             mSubscriptionManager.addSubscriptionInfoRecord(sIccId[phoneId], phoneId);
         }
