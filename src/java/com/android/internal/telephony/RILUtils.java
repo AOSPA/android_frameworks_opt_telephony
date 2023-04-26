@@ -3310,7 +3310,7 @@ public class RILUtils {
         return new CellSignalStrengthNr(CellSignalStrengthNr.flip(ss.csiRsrp),
                 CellSignalStrengthNr.flip(ss.csiRsrq), ss.csiSinr, ss.csiCqiTableIndex,
                 primitiveArrayToArrayList(ss.csiCqiReport), CellSignalStrengthNr.flip(ss.ssRsrp),
-                CellSignalStrengthNr.flip(ss.ssRsrq), ss.ssSinr, CellInfo.UNAVAILABLE);
+                CellSignalStrengthNr.flip(ss.ssRsrq), ss.ssSinr, ss.timingAdvance);
     }
 
     private static ClosedSubscriberGroupInfo convertHalClosedSubscriberGroupInfo(
