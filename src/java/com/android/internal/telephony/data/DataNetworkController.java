@@ -2821,8 +2821,9 @@ public class DataNetworkController extends Handler {
                 telephonyNetworkRequest, DataEvaluationReason.DATA_RETRY);
         if (!evaluation.containsDisallowedReasons()) {
             DataProfile dataProfile = dataSetupRetryEntry.dataProfile;
-            if (dataProfile == null) {
-                dataProfile = evaluation.getCandidateDataProfile();
+            DataProfile candidateDataProfile = evaluation.getCandidateDataProfile();
+            if (dataProfile == null || (!dataProfile.equals(candidateDataProfile))) {
+                dataProfile = candidateDataProfile;
             }
             if (dataProfile != null) {
                 setupDataNetwork(dataProfile, dataSetupRetryEntry,
