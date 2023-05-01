@@ -933,8 +933,10 @@ public class SubscriptionManagerService extends ISub.Stub {
                 .forEach(subInfo -> {
                     mSubscriptionDatabaseManager.setSimSlotIndex(subInfo.getSubscriptionId(),
                             SubscriptionManager.INVALID_SIM_SLOT_INDEX);
+                    // Sometime even though slot-port is inactive, proper iccid will be present,
+                    // hence retry the port index from UiccSlot. (Pre-U behavior)
                     mSubscriptionDatabaseManager.setPortIndex(subInfo.getSubscriptionId(),
-                            TelephonyManager.INVALID_PORT_INDEX);
+                            getPortIndex(subInfo.getIccId()));
                 });
         updateGroupDisabled();
         logl("markSubscriptionsInactive: current mapping " + slotMappingToString());
@@ -1017,7 +1019,12 @@ public class SubscriptionManagerService extends ISub.Stub {
             builder.setDisplayName(displayName);
         }
 
-        return mSubscriptionDatabaseManager.insertSubscriptionInfo(builder.build());
+        int subId = mSubscriptionDatabaseManager.insertSubscriptionInfo(builder.build());
+        logl("insertSubscriptionInfo: Inserted a new subscription. subId=" + subId
+                + ", slotIndex=" + slotIndex + ", iccId=" + SubscriptionInfo.getPrintableId(iccId)
+                + ", displayName=" + displayName + ", type="
+                + SubscriptionManager.subscriptionTypeToString(subscriptionType));
+        return subId;
     }
 
     /**
@@ -1360,8 +1367,6 @@ public class SubscriptionManagerService extends ISub.Stub {
                     // This is a new SIM card. Insert a new record.
                     subId = insertSubscriptionInfo(iccId, phoneId, null,
                             SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM);
-                    logl("updateSubscription: Inserted a new subscription. subId=" + subId
-                            + ", phoneId=" + phoneId);
                 } else {
                     subId = subInfo.getSubscriptionId();
                     log("updateSubscription: Found existing subscription. subId= " + subId
@@ -3818,19 +3823,45 @@ public class SubscriptionManagerService extends ISub.Stub {
     }
 
     /**
-     * Called when eSIM becomes inactive.
+     * Called when SIM becomes inactive.
      *
      * @param slotIndex The logical SIM slot index.
+     * @param iccId iccId of the SIM in inactivate slot.
      */
-    public void updateSimStateForInactivePort(int slotIndex) {
+    public void updateSimStateForInactivePort(int slotIndex, @NonNull String iccId) {
         mHandler.post(() -> {
-            logl("updateSimStateForInactivePort: slotIndex=" + slotIndex);
+            logl("updateSimStateForInactivePort: slotIndex=" + slotIndex + ", iccId="
+                    + SubscriptionInfo.getPrintableId(iccId));
             if (mSlotIndexToSubId.containsKey(slotIndex)) {
                 // Re-enable the UICC application , so it will be in enabled state when it becomes
-                // active again. (pre-U behavior)
+                // active again. (Pre-U behavior)
                 mSubscriptionDatabaseManager.setUiccApplicationsEnabled(
                         mSlotIndexToSubId.get(slotIndex), true);
                 updateSubscription(slotIndex);
+            }
+            if (!TextUtils.isEmpty(iccId)) {
+                // When port is inactive, sometimes valid iccid is present in the slot status,
+                // hence update the portIndex. (Pre-U behavior)
+                SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
+                        .getSubscriptionInfoInternalByIccId(IccUtils.stripTrailingFs(iccId));
+                int subId;
+                if (subInfo != null) {
+                    subId = subInfo.getSubscriptionId();
+                    log("updateSimStateForInactivePort: Found existing subscription. subId="
+                            + subId);
+                } else {
+                    // If iccId is new, add a subscription record in the database so it can be
+                    // activated later. (Pre-U behavior)
+                    subId = insertSubscriptionInfo(IccUtils.stripTrailingFs(iccId),
+                            SubscriptionManager.INVALID_SIM_SLOT_INDEX,
+                            mContext.getResources().getString(R.string.default_card_name),
+                            SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM);
+                    log("updateSimStateForInactivePort: Insert a new subscription for inactive SIM."
+                            + " subId=" + subId);
+                }
+                if (SubscriptionManager.isValidSubscriptionId(subId)) {
+                    mSubscriptionDatabaseManager.setPortIndex(subId, getPortIndex(iccId));
+                }
             }
         });
     }
