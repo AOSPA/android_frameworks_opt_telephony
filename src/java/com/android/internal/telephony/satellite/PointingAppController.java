@@ -34,6 +34,8 @@ import android.text.TextUtils;
 
 import com.android.internal.telephony.Phone;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
@@ -96,9 +98,25 @@ public class PointingAppController {
         mStartedSatelliteTransmissionUpdates = startedSatelliteTransmissionUpdates;
     }
 
+    private static final class DatagramTransferStateHandlerRequest {
+        public int datagramTransferState;
+        public int pendingCount;
+        public int errorCode;
+
+        DatagramTransferStateHandlerRequest(int datagramTransferState, int pendingCount,
+                int errorCode) {
+            this.datagramTransferState = datagramTransferState;
+            this.pendingCount = pendingCount;
+            this.errorCode = errorCode;
+        }
+    }
+
+
     private static final class SatelliteTransmissionUpdateHandler extends Handler {
         public static final int EVENT_POSITION_INFO_CHANGED = 1;
-        public static final int EVENT_DATAGRAM_TRANSFER_STATE_CHANGED = 2;
+        public static final int EVENT_SEND_DATAGRAM_STATE_CHANGED = 2;
+        public static final int EVENT_RECEIVE_DATAGRAM_STATE_CHANGED = 3;
+        public static final int EVENT_DATAGRAM_TRANSFER_STATE_CHANGED = 4;
 
         private final ConcurrentHashMap<IBinder, ISatelliteTransmissionUpdateCallback> mListeners;
         SatelliteTransmissionUpdateHandler(Looper looper) {
@@ -124,28 +142,67 @@ public class PointingAppController {
                 case EVENT_POSITION_INFO_CHANGED: {
                     AsyncResult ar = (AsyncResult) msg.obj;
                     PointingInfo pointingInfo = (PointingInfo) ar.result;
+                    List<IBinder> toBeRemoved = new ArrayList<>();
                     mListeners.values().forEach(listener -> {
                         try {
                             listener.onSatellitePositionChanged(pointingInfo);
                         } catch (RemoteException e) {
                             logd("EVENT_POSITION_INFO_CHANGED RemoteException: " + e);
+                            toBeRemoved.add(listener.asBinder());
                         }
+                    });
+                    toBeRemoved.forEach(listener -> {
+                        mListeners.remove(listener);
                     });
                     break;
                 }
+
                 case EVENT_DATAGRAM_TRANSFER_STATE_CHANGED: {
                     AsyncResult ar = (AsyncResult) msg.obj;
-                    int result = (int) ar.result;
+                    logd("Receive EVENT_DATAGRAM_TRANSFER_STATE_CHANGED state=" + (int) ar.result);
+                    break;
+                }
+
+                case EVENT_SEND_DATAGRAM_STATE_CHANGED: {
+                    logd("Received EVENT_SEND_DATAGRAM_STATE_CHANGED");
+                    DatagramTransferStateHandlerRequest request =
+                            (DatagramTransferStateHandlerRequest) msg.obj;
+                    List<IBinder> toBeRemoved = new ArrayList<>();
                     mListeners.values().forEach(listener -> {
                         try {
-                            // TODO: process and return the rest of the values correctly
-                            listener.onDatagramTransferStateChanged(result, 0, 0, 0);
+                            listener.onSendDatagramStateChanged(request.datagramTransferState,
+                                    request.pendingCount, request.errorCode);
                         } catch (RemoteException e) {
-                            logd("EVENT_DATAGRAM_TRANSFER_STATE_CHANGED RemoteException: " + e);
+                            logd("EVENT_SEND_DATAGRAM_STATE_CHANGED RemoteException: " + e);
+                            toBeRemoved.add(listener.asBinder());
                         }
+                    });
+                    toBeRemoved.forEach(listener -> {
+                        mListeners.remove(listener);
                     });
                     break;
                 }
+
+                case EVENT_RECEIVE_DATAGRAM_STATE_CHANGED: {
+                    logd("Received EVENT_RECEIVE_DATAGRAM_STATE_CHANGED");
+                    DatagramTransferStateHandlerRequest request =
+                            (DatagramTransferStateHandlerRequest) msg.obj;
+                    List<IBinder> toBeRemoved = new ArrayList<>();
+                    mListeners.values().forEach(listener -> {
+                        try {
+                            listener.onReceiveDatagramStateChanged(request.datagramTransferState,
+                                    request.pendingCount, request.errorCode);
+                        } catch (RemoteException e) {
+                            logd("EVENT_RECEIVE_DATAGRAM_STATE_CHANGED RemoteException: " + e);
+                            toBeRemoved.add(listener.asBinder());
+                        }
+                    });
+                    toBeRemoved.forEach(listener -> {
+                        mListeners.remove(listener);
+                    });
+                    break;
+                }
+
                 default:
                     loge("SatelliteTransmissionUpdateHandler unknown event: " + msg.what);
             }
@@ -173,11 +230,6 @@ public class PointingAppController {
                 SatelliteModemInterface.getInstance().registerForSatellitePositionInfoChanged(
                         handler, SatelliteTransmissionUpdateHandler.EVENT_POSITION_INFO_CHANGED,
                         null);
-                /**
-                 * TODO: Need to remove this call, Datagram transfer state should come from the
-                 * DatagramController based upon Transfer state.
-                 * Modem won't be able to provide this info
-                 */
                 SatelliteModemInterface.getInstance().registerForDatagramTransferStateChanged(
                         handler,
                         SatelliteTransmissionUpdateHandler.EVENT_DATAGRAM_TRANSFER_STATE_CHANGED,
@@ -185,7 +237,6 @@ public class PointingAppController {
             } else {
                 phone.registerForSatellitePositionInfoChanged(handler,
                         SatelliteTransmissionUpdateHandler.EVENT_POSITION_INFO_CHANGED, null);
-                // TODO: registerForDatagramTransferStateChanged through SatelliteController
             }
         }
     }
@@ -207,13 +258,6 @@ public class PointingAppController {
             handler.removeListener(callback);
 
             if (handler.hasListeners()) {
-                /**
-                 * TODO (b/269194948): If the calling apps crash, the handler will always have some
-                 * listener. That is, we will not request modem to stop position update and
-                 * cleaning our resources. We need to monitor the calling apps and clean up the
-                 * resources when the apps die. We need to do this for other satellite callbacks
-                 * as well.
-                 */
                 result.accept(SatelliteManager.SATELLITE_ERROR_NONE);
                 return;
             }
@@ -230,7 +274,6 @@ public class PointingAppController {
                     return;
                 }
                 phone.unregisterForSatellitePositionInfoChanged(handler);
-                // TODO: unregisterForDatagramTransferStateChanged through SatelliteController
             }
         }
     }
@@ -246,6 +289,9 @@ public class PointingAppController {
     public void startSatelliteTransmissionUpdates(@NonNull Message message, @Nullable Phone phone) {
         if (mStartedSatelliteTransmissionUpdates) {
             logd("startSatelliteTransmissionUpdates: already started");
+            AsyncResult.forMessage(message, null, new SatelliteManager.SatelliteException(
+                    SatelliteManager.SATELLITE_ERROR_NONE));
+            message.sendToTarget();
             return;
         }
         if (SatelliteModemInterface.getInstance().isSatelliteServiceSupported()) {
@@ -290,9 +336,55 @@ public class PointingAppController {
     public void startPointingUI(boolean needFullScreenPointingUI) {
         String packageName = TextUtils.emptyIfNull(mContext.getResources()
                 .getString(com.android.internal.R.string.config_pointing_ui_package));
+        if (TextUtils.isEmpty(packageName)) {
+            logd("startPointingUI: config_pointing_ui_package is not set. Ignore the request");
+            return;
+        }
+
         Intent launchIntent = mContext.getPackageManager().getLaunchIntentForPackage(packageName);
+        if (launchIntent == null) {
+            loge("startPointingUI: launchIntent is null");
+            return;
+        }
+
         launchIntent.putExtra("needFullScreen", needFullScreenPointingUI);
         mContext.startActivity(launchIntent);
+    }
+
+    public void updateSendDatagramTransferState(int subId,
+            @SatelliteManager.SatelliteDatagramTransferState int datagramTransferState,
+            int sendPendingCount, int errorCode) {
+        DatagramTransferStateHandlerRequest request = new DatagramTransferStateHandlerRequest(
+                datagramTransferState, sendPendingCount, errorCode);
+        SatelliteTransmissionUpdateHandler handler =
+                mSatelliteTransmissionUpdateHandlers.get(subId);
+
+        if (handler != null) {
+            Message msg = handler.obtainMessage(
+                    SatelliteTransmissionUpdateHandler.EVENT_SEND_DATAGRAM_STATE_CHANGED,
+                    request);
+            msg.sendToTarget();
+        } else {
+            loge("SatelliteTransmissionUpdateHandler not found for subId: " + subId);
+        }
+    }
+
+    public void updateReceiveDatagramTransferState(int subId,
+            @SatelliteManager.SatelliteDatagramTransferState int datagramTransferState,
+            int receivePendingCount, int errorCode) {
+        DatagramTransferStateHandlerRequest request = new DatagramTransferStateHandlerRequest(
+                datagramTransferState, receivePendingCount, errorCode);
+        SatelliteTransmissionUpdateHandler handler =
+                mSatelliteTransmissionUpdateHandlers.get(subId);
+
+        if (handler != null) {
+            Message msg = handler.obtainMessage(
+                    SatelliteTransmissionUpdateHandler.EVENT_RECEIVE_DATAGRAM_STATE_CHANGED,
+                    request);
+            msg.sendToTarget();
+        } else {
+            loge(" SatelliteTransmissionUpdateHandler not found for subId: " + subId);
+        }
     }
 
     private static void logd(@NonNull String log) {

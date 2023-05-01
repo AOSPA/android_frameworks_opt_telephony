@@ -99,7 +99,6 @@ import com.android.internal.telephony.data.DataNetworkController;
 import com.android.internal.telephony.data.DataSettingsManager;
 import com.android.internal.telephony.data.LinkBandwidthEstimator;
 import com.android.internal.telephony.domainselection.DomainSelectionResolver;
-import com.android.internal.telephony.dataconnection.DataEnabledSettings;
 import com.android.internal.telephony.EcbmHandler;
 import com.android.internal.telephony.emergency.EmergencyConstants;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
@@ -375,7 +374,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     protected DeviceStateMonitor mDeviceStateMonitor;
     protected DisplayInfoController mDisplayInfoController;
     protected AccessNetworksManager mAccessNetworksManager;
-    protected DataEnabledSettings mDataEnabledSettings;
     // Used for identify the carrier of current subscription
     protected CarrierResolver mCarrierResolver;
     protected SignalStrengthController mSignalStrengthController;
@@ -4722,10 +4720,6 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         return false;
     }
 
-    public DataEnabledSettings getDataEnabledSettings() {
-        return mDataEnabledSettings;
-    }
-
     @UnsupportedAppUsage
     public IccSmsInterfaceManager getIccSmsInterfaceManager(){
         return null;
@@ -5430,6 +5424,14 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     }
 
     /**
+     * Check whether the satellite modem is provisioned.
+     * @param result The Message to send the result of the operation to.
+     */
+    public void isSatelliteProvisioned(Message result) {
+        mCi.getSatelliteProvisionState(result);
+    }
+
+    /**
      * Get the satellite capabilities.
      * @param result The Message to send the result of the operation to.
      */
@@ -5660,7 +5662,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
         mNotifier.notifyCallbackModeStopped(this, type, reason);
     }
 
-    private boolean isActiveSubId(int subId) {
+    protected boolean isActiveSubId(int subId) {
         if (PhoneFactory.isSubscriptionManagerServiceEnabled()) {
             SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
                     .getSubscriptionInfoInternal(subId);

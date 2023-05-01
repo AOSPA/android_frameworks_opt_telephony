@@ -45,6 +45,7 @@ import android.telephony.ServiceState;
 import android.telephony.SmsManager;
 import android.telephony.SmsMessage;
 import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 
 import com.android.ims.ImsManager;
 import com.android.internal.annotations.VisibleForTesting;
@@ -456,17 +457,17 @@ public class SmsDispatchersController extends Handler {
         }
     }
 
-    private String getSmscAddressFromUSIM(String callingPkg) {
-        IccSmsInterfaceManager iccSmsIntMgr = mPhone.getIccSmsInterfaceManager();
-        if (iccSmsIntMgr != null) {
-            long identity = Binder.clearCallingIdentity();
-            try {
+    private String getSmscAddressFromUSIMWithPhoneIdentity(String callingPkg) {
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            IccSmsInterfaceManager iccSmsIntMgr = mPhone.getIccSmsInterfaceManager();
+            if (iccSmsIntMgr != null) {
                 return iccSmsIntMgr.getSmscAddressFromIccEf(callingPkg);
-            } finally {
-                Binder.restoreCallingIdentity(identity);
+            } else {
+                Rlog.d(TAG, "getSmscAddressFromIccEf iccSmsIntMgr is null");
             }
-        } else {
-            Rlog.d(TAG, "getSmscAddressFromIccEf iccSmsIntMgr is null");
+        } finally {
+            Binder.restoreCallingIdentity(identity);
         }
         return null;
     }
@@ -1303,8 +1304,8 @@ public class SmsDispatchersController extends Handler {
      */
     protected void sendData(String callingPackage, String destAddr, String scAddr, int destPort,
             byte[] data, PendingIntent sentIntent, PendingIntent deliveryIntent, boolean isForVvm) {
-        if (scAddr == null) {
-            scAddr = getSmscAddressFromUSIM(callingPackage);
+        if (TextUtils.isEmpty(scAddr)) {
+            scAddr = getSmscAddressFromUSIMWithPhoneIdentity(callingPackage);
         }
 
         if (mDomainSelectionResolverProxy.isDomainSelectionSupported()) {
@@ -1542,8 +1543,8 @@ public class SmsDispatchersController extends Handler {
             PendingIntent deliveryIntent, Uri messageUri, String callingPkg, boolean persistMessage,
             int priority, boolean expectMore, int validityPeriod, boolean isForVvm,
             long messageId, boolean skipShortCodeCheck) {
-        if (scAddr == null) {
-            scAddr = getSmscAddressFromUSIM(callingPkg);
+        if (TextUtils.isEmpty(scAddr)) {
+            scAddr = getSmscAddressFromUSIMWithPhoneIdentity(callingPkg);
         }
 
         if (mDomainSelectionResolverProxy.isDomainSelectionSupported()) {
@@ -1691,8 +1692,8 @@ public class SmsDispatchersController extends Handler {
             ArrayList<PendingIntent> deliveryIntents, Uri messageUri, String callingPkg,
             boolean persistMessage, int priority, boolean expectMore, int validityPeriod,
             long messageId) {
-        if (scAddr == null) {
-            scAddr = getSmscAddressFromUSIM(callingPkg);
+        if (TextUtils.isEmpty(scAddr)) {
+            scAddr = getSmscAddressFromUSIMWithPhoneIdentity(callingPkg);
         }
 
         if (mDomainSelectionResolverProxy.isDomainSelectionSupported()) {

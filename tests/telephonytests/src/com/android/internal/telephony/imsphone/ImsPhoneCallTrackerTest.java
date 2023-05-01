@@ -1690,7 +1690,9 @@ public class ImsPhoneCallTrackerTest extends TelephonyTest {
             }
         });
         ImsCall call = connection.getImsCall();
-        call.getListener().onCallMerged(call, null, false);
+        call.getListener().onCallTerminated(
+                call, new ImsReasonInfo(
+                        ImsReasonInfo.CODE_LOCAL_ENDED_BY_CONFERENCE_MERGE, 0));
         assertTrue(result[0]);
     }
 

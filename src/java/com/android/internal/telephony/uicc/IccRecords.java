@@ -1264,6 +1264,10 @@ public abstract class IccRecords extends Handler implements IccConstants {
         return null;
     }
 
+    public void loadFdnRecords() {
+        return;
+    }
+
     /**
      * Solve authentication leakage issue. See b/147463955.
      * Returns the response of the SIM application on the UICC to authentication
