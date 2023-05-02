@@ -24,6 +24,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.LinkProperties;
 import android.net.NetworkAgent;
 import android.net.NetworkCapabilities;
 import android.net.NetworkPolicyManager;
@@ -2174,6 +2175,23 @@ public class DataNetworkController extends Handler {
             }
         }
         return false;
+    }
+
+    /**
+     * @return List of active cellular interfaces.
+     */
+    public List<String> getAllActiveCellularInterfaces() {
+        List<String> ifaces = mDataNetworkList.stream()
+                .filter(dataNetwork -> dataNetwork.getTransport()
+                        == AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                .filter(dataNetwork -> dataNetwork.isConnected())
+                .map(DataNetwork::getLinkProperties)
+                .map(LinkProperties::getInterfaceName)
+                .collect(Collectors.toList());
+        for(String iface : ifaces) {
+            log("getAllActiveCellularInterfaces All Interfaces: " + iface);
+        }
+        return ifaces;
     }
 
     /**
