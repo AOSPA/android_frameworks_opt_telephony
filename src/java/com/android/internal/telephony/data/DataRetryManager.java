@@ -1587,7 +1587,6 @@ public class DataRetryManager extends Handler {
             Stream<DataThrottlingEntry> stream = mDataThrottlingEntries.stream();
             stream = stream.filter(entry -> entry.expirationTimeMillis > now);
             if (dataProfile.getApnSetting() != null) {
-                dataProfile.getApnSetting().setPermanentFailed(false);
                 stream = stream
                         .filter(entry -> entry.dataProfile.getApnSetting() != null)
                         .filter(entry -> entry.dataProfile.getApnSetting().getApnName()
@@ -1628,6 +1627,7 @@ public class DataRetryManager extends Handler {
         final int dataRetryType = retryType;
 
         if (unthrottledProfile != null && unthrottledProfile.getApnSetting() != null) {
+            unthrottledProfile.getApnSetting().setPermanentFailed(false);
             throttleStatusList.addAll(unthrottledProfile.getApnSetting().getApnTypes().stream()
                     .map(apnType -> new ThrottleStatus.Builder()
                             .setApnType(apnType)

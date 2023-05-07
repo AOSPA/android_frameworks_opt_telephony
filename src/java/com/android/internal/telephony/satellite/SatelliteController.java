@@ -147,6 +147,7 @@ public class SatelliteController extends Handler {
     private final Object mIsSatelliteSupportedLock = new Object();
     private boolean mIsDemoModeEnabled = false;
     private Boolean mIsSatelliteEnabled = null;
+    private boolean mIsRadioOn = false;
     private final Object mIsSatelliteEnabledLock = new Object();
     private Boolean mIsSatelliteProvisioned = null;
     private final Object mIsSatelliteProvisionedLock = new Object();
@@ -216,6 +217,7 @@ public class SatelliteController extends Handler {
                     }
                 });
         mCi.registerForRadioStateChanged(this, EVENT_RADIO_STATE_CHANGED, null);
+        mIsRadioOn = phone.isRadioOn();
         registerForSatelliteProvisionStateChanged();
         registerForPendingDatagramCount();
         registerForSatelliteModemStateChanged();
@@ -444,17 +446,18 @@ public class SatelliteController extends Handler {
                     if (argument.enableSatellite) {
                         //If satellite mode is enabled successfully, disable Bluetooth and wifi
                         disableBluetoothWifiState();
+                        /**
+                         * TODO for NTN-based satellites: Check if satellite is acquired.
+                         */
+                        if (mNeedsSatellitePointing) {
+                            mPointingAppController.startPointingUI(false);
+                        }
                     } else {
                         //Disabled satellite mode, Reset BT and Wifi if previously changed here
                         checkAndEnableBluetoothWifiState();
                     }
-                    /**
-                     * TODO for NTN-based satellites: Check if satellite is acquired.
-                     */
-                    if (mNeedsSatellitePointing) {
-                        mPointingAppController.startPointingUI(false);
-                    }
                     mIsDemoModeEnabled = argument.enableDemoMode;
+                    mDatagramController.setDemoMode(mIsDemoModeEnabled);
                     updateSatelliteEnabledState(
                             argument.enableSatellite, "EVENT_SET_SATELLITE_ENABLED_DONE");
                 }
@@ -512,7 +515,7 @@ public class SatelliteController extends Handler {
                         updateSatelliteEnabledState(enabled, "EVENT_IS_SATELLITE_ENABLED_DONE");
                     }
                 } else if (error == SatelliteManager.SATELLITE_REQUEST_NOT_SUPPORTED) {
-                    updateSatelliteSupportedState(false);
+                    updateSatelliteSupportedStateWhenSatelliteServiceConnected(false);
                 }
                 ((ResultReceiver) request.argument).send(error, bundle);
                 break;
@@ -550,7 +553,7 @@ public class SatelliteController extends Handler {
                         boolean supported = (boolean) ar.result;
                         if (DBG) logd("isSatelliteSupported: " + supported);
                         bundle.putBoolean(SatelliteManager.KEY_SATELLITE_SUPPORTED, supported);
-                        updateSatelliteSupportedState(supported);
+                        updateSatelliteSupportedStateWhenSatelliteServiceConnected(supported);
                     }
                 }
                 ((ResultReceiver) request.argument).send(error, bundle);
@@ -694,11 +697,12 @@ public class SatelliteController extends Handler {
             case EVENT_RADIO_STATE_CHANGED: {
                 if (mCi.getRadioState() == TelephonyManager.RADIO_POWER_OFF
                         || mCi.getRadioState() == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
+                    mIsRadioOn = false;
                     logd("Radio State Changed to " + mCi.getRadioState());
                     IIntegerConsumer errorCallback = new IIntegerConsumer.Stub() {
                         @Override
                         public void accept(int result) {
-                            loge("Failed to Disable Satellite Mode, Error: " + result);
+                            logd("RequestSatelliteEnabled: result=" + result);
                         }
                     };
                     Phone phone = SatelliteServiceUtils.getPhone();
@@ -709,6 +713,7 @@ public class SatelliteController extends Handler {
                     request = new SatelliteControllerHandlerRequest(message, phone);
                     handleSatelliteEnabled(request);
                 } else {
+                    mIsRadioOn = true;
                     if (!mSatelliteModemInterface.isSatelliteServiceSupported()) {
                         synchronized (mIsSatelliteSupportedLock) {
                             if (mIsSatelliteSupported == null) {
@@ -850,6 +855,33 @@ public class SatelliteController extends Handler {
             return;
         }
 
+        if (enableSatellite) {
+            if (!mIsRadioOn) {
+                loge("Radio is not on, can not enable satellite");
+                result.accept(SatelliteManager.SATELLITE_INVALID_MODEM_STATE);
+                return;
+            }
+        } else {
+            /* if disable satellite, always assume demo is also disabled */
+            enableDemoMode = false;
+        }
+
+        if (mIsSatelliteEnabled != null) {
+            if (mIsSatelliteEnabled == enableSatellite) {
+                if (enableDemoMode != mIsDemoModeEnabled) {
+                    loge("Received invalid demo mode while satellite session is enabled"
+                            + " enableDemoMode = " + enableDemoMode);
+                    result.accept(SatelliteManager.SATELLITE_INVALID_ARGUMENTS);
+                    return;
+                } else {
+                    logd("Enable request matches with current state"
+                            + " enableSatellite = " + enableSatellite);
+                    result.accept(SatelliteManager.SATELLITE_ERROR_NONE);
+                    return;
+                }
+            }
+        }
+
         sendRequestAsync(CMD_SET_SATELLITE_ENABLED,
                 new RequestSatelliteEnabledArgument(enableSatellite, enableDemoMode, result),
                 SatelliteServiceUtils.getPhone());
@@ -887,6 +919,17 @@ public class SatelliteController extends Handler {
     }
 
     /**
+     * Get whether the satellite modem is enabled.
+     * This will return the cached value instead of querying the satellite modem.
+     *
+     * @return {@code true} if the satellite modem is enabled and {@code false} otherwise.
+     */
+    public boolean isSatelliteEnabled() {
+        if (mIsSatelliteEnabled == null) return false;
+        return mIsSatelliteEnabled;
+    }
+
+    /**
      * Request to get whether the satellite service demo mode is enabled.
      *
      * @param subId The subId of the subscription to check whether the satellite demo mode
@@ -918,6 +961,15 @@ public class SatelliteController extends Handler {
         final Bundle bundle = new Bundle();
         bundle.putBoolean(SatelliteManager.KEY_DEMO_MODE_ENABLED, mIsDemoModeEnabled);
         result.send(SatelliteManager.SATELLITE_ERROR_NONE, bundle);
+    }
+
+    /**
+     * Get whether the satellite service demo mode is enabled.
+     *
+     * @return {@code true} if the satellite demo mode is enabled and {@code false} otherwise.
+     */
+    public boolean isDemoModeEnabled() {
+        return mIsDemoModeEnabled;
     }
 
     /**
@@ -1410,6 +1462,16 @@ public class SatelliteController extends Handler {
     }
 
     /**
+     * Inform whether the device is aligned with satellite for demo mode.
+     *
+     * @param subId The subId of the subscription.
+     * @param isAligned {@true} means device is aligned with the satellite, otherwise {@false}.
+     */
+    public void onDeviceAlignedWithSatellite(@NonNull int subId, @NonNull boolean isAligned) {
+        mDatagramController.onDeviceAlignedWithSatellite(isAligned);
+    }
+
+    /**
      * This API can be used by only CTS to update satellite vendor service package name.
      *
      * @param servicePackageName The package name of the satellite vendor service.
@@ -1461,6 +1523,17 @@ public class SatelliteController extends Handler {
     }
 
     /**
+     * This API can be used by only CTS to update the timeout duration in milliseconds whether
+     * the device is aligned with the satellite for demo mode
+     *
+     * @param timeoutMillis The timeout duration in millisecond.
+     * @return {@code true} if the timeout duration is set successfully, {@code false} otherwise.
+     */
+    public boolean setSatelliteDeviceAlignedTimeoutDuration(long timeoutMillis) {
+        return mDatagramController.setSatelliteDeviceAlignedTimeoutDuration(timeoutMillis);
+    }
+
+    /**
      * This API can be used by only CTS to update satellite gateway service package name.
      *
      * @param servicePackageName The package name of the satellite gateway service.
@@ -1477,12 +1550,28 @@ public class SatelliteController extends Handler {
     }
 
     /**
+     * This API can be used by only CTS to update satellite pointing UI app package and class names.
+     *
+     * @param packageName The package name of the satellite pointing UI app.
+     * @param className The class name of the satellite pointing UI app.
+     * @return {@code true} if the satellite pointing UI app package and class is set successfully,
+     * {@code false} otherwise.
+     */
+    public boolean setSatellitePointingUiClassName(
+            @Nullable String packageName, @Nullable String className) {
+        return mPointingAppController.setSatellitePointingUiClassName(packageName, className);
+    }
+
+    /**
      * This function is used by {@link SatelliteModemInterface} to notify
      * {@link SatelliteController} that the satellite vendor service was just connected.
      * <p>
      * {@link SatelliteController} will send requests to satellite modem to check whether it support
-     * satellite, whether it is powered on, and whether it is provisioned.
-     * {@link SatelliteController} will use these cached values to serve requests from its clients.
+     * satellite and whether it is provisioned. {@link SatelliteController} will use these cached
+     * values to serve requests from its clients.
+     * <p>
+     * Because satellite vendor service might have just come back from a crash, we need to disable
+     * the satellite modem so that resources will be cleaned up and internal states will be reset.
      */
     void onSatelliteServiceConnected() {
         if (mSatelliteModemInterface.isSatelliteServiceSupported()) {
@@ -1684,7 +1773,7 @@ public class SatelliteController extends Handler {
         }
     }
 
-    private void updateSatelliteSupportedState(boolean supported) {
+    private void updateSatelliteSupportedStateWhenSatelliteServiceConnected(boolean supported) {
         synchronized (mIsSatelliteSupportedLock) {
             mIsSatelliteSupported = supported;
         }
@@ -1695,18 +1784,19 @@ public class SatelliteController extends Handler {
             registerForPendingDatagramCount();
             registerForSatelliteModemStateChanged();
 
-            requestIsSatelliteEnabled(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
-                    new ResultReceiver(this) {
-                        @Override
-                        protected void onReceiveResult(int resultCode, Bundle resultData) {
-                            logd("requestIsSatelliteEnabled: resultCode=" + resultCode);
-                        }
-                    });
             requestIsSatelliteProvisioned(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
                     new ResultReceiver(this) {
                         @Override
                         protected void onReceiveResult(int resultCode, Bundle resultData) {
                             logd("requestIsSatelliteProvisioned: resultCode=" + resultCode);
+                            requestSatelliteEnabled(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
+                                    false, false,
+                                    new IIntegerConsumer.Stub() {
+                                        @Override
+                                        public void accept(int result) {
+                                            logd("requestSatelliteEnabled: result=" + result);
+                                        }
+                                    });
                         }
                     });
             requestSatelliteCapabilities(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
@@ -1725,6 +1815,7 @@ public class SatelliteController extends Handler {
         }
         if (mSatelliteSessionController != null) {
             mSatelliteSessionController.onSatelliteEnabledStateChanged(enabled);
+            mSatelliteSessionController.setDemoMode(mIsDemoModeEnabled);
         } else {
             loge(caller + ": mSatelliteSessionController is not initialized yet");
         }
@@ -1861,6 +1952,7 @@ public class SatelliteController extends Handler {
             updateSatelliteEnabledState(
                     false, "handleEventSatelliteModemStateChanged");
         }
+        mDatagramController.onSatelliteModemStateChanged(state);
     }
 
     private static void logd(@NonNull String log) {
