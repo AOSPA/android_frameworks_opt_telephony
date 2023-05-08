@@ -93,6 +93,7 @@ import androidx.test.filters.FlakyTest;
 
 import com.android.internal.R;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
+import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.internal.telephony.data.DataNetworkController;
 import com.android.internal.telephony.metrics.ServiceStateStats;
 import com.android.internal.telephony.subscription.SubscriptionInfoInternal;
@@ -107,6 +108,7 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2313,6 +2315,42 @@ public class ServiceStateTrackerTest extends TelephonyTest {
     }
 
     @Test
+    public void testNotifyServiceStateChangedOnPhysicalConfigUpdates() {
+        mBundle.putBoolean(
+                CarrierConfigManager.KEY_INCLUDE_LTE_FOR_NR_ADVANCED_THRESHOLD_BANDWIDTH_BOOL,
+                true);
+
+        // LTE Cell with bandwidth = 10000
+        CellIdentityLte cellIdentity11 =
+                new CellIdentityLte(1, 1, 1, 1, new int[] {1, 2}, 10000, "1", "1", "test",
+                        "tst", Collections.emptyList(), null);
+
+        sendRegStateUpdateForLteCellId(cellIdentity11);
+
+        // Notify Service State changed for BandWidth Change
+        sendPhyChanConfigChange(new int[] {10000, 40000}, TelephonyManager.NETWORK_TYPE_LTE, 1);
+        verify(mPhone, times(1)).notifyServiceStateChanged(any(ServiceState.class));
+
+        // Notify Service State changed for NR Connection Status: LTE -> NR
+        // with context id update
+        when(mPhone.getDataNetworkController().isInternetNetwork(eq(3))).thenReturn(true);
+        sendPhyChanConfigChange(new int[] {10000, 40000}, TelephonyManager.NETWORK_TYPE_NR, 1,
+                new int[][]{{0, 1}, {2, 3}});
+        verify(mPhone, times(2)).notifyServiceStateChanged(any(ServiceState.class));
+
+        // Service State changed is not notified since no change
+        when(mPhone.getDataNetworkController().isInternetNetwork(eq(3))).thenReturn(true);
+        sendPhyChanConfigChange(new int[] {10000, 40000}, TelephonyManager.NETWORK_TYPE_NR, 1,
+                new int[][]{{0, 1}, {2, 3}});
+        verify(mPhone, times(2)).notifyServiceStateChanged(any(ServiceState.class));
+
+        // Notify Service State changed for NR Connection Status: NR -> LTE
+        when(mPhone.getDataNetworkController().isInternetNetwork(eq(3))).thenReturn(true);
+        sendPhyChanConfigChange(new int[] {10000, 40000}, TelephonyManager.NETWORK_TYPE_LTE, 1);
+        verify(mPhone, times(3)).notifyServiceStateChanged(any(ServiceState.class));
+    }
+
+    @Test
     public void testPhyChanBandwidthResetsOnOos() {
         testPhyChanBandwidthRatchetedOnPhyChanBandwidth();
         LteVopsSupportInfo lteVopsSupportInfo =
@@ -3165,5 +3203,36 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         // Check emergency
         doReturn(ServiceState.STATE_EMERGENCY_ONLY).when(mServiceState).getState();
         assertEquals(ServiceState.STATE_EMERGENCY_ONLY, sst.getCombinedRegState(mServiceState));
+    }
+
+
+    @Test
+    public void testOnChangingPreferredOnIwlan() throws Exception {
+        Field callbackField =
+                ServiceStateTracker.class.getDeclaredField("mAccessNetworksManagerCallback");
+        callbackField.setAccessible(true);
+        AccessNetworksManager.AccessNetworksManagerCallback accessNetworksManagerCallback =
+                (AccessNetworksManager.AccessNetworksManagerCallback) callbackField.get(sst);
+
+        when(mAccessNetworksManager.isAnyApnOnIwlan()).thenReturn(false);
+
+        // Start state: Cell data only LTE + IWLAN
+        CellIdentityLte cellIdentity =
+                new CellIdentityLte(1, 1, 5, 1, new int[] {1, 2}, 5000, "001", "01", "test",
+                        "tst", Collections.emptyList(), null);
+        changeRegStateWithIwlan(
+                // WWAN
+                NetworkRegistrationInfo.REGISTRATION_STATE_HOME, cellIdentity,
+                TelephonyManager.NETWORK_TYPE_UNKNOWN, TelephonyManager.NETWORK_TYPE_LTE,
+                // WLAN
+                NetworkRegistrationInfo.REGISTRATION_STATE_HOME,
+                TelephonyManager.NETWORK_TYPE_IWLAN);
+        assertFalse(sst.mSS.isIwlanPreferred());
+
+        when(mAccessNetworksManager.isAnyApnOnIwlan()).thenReturn(true);
+        accessNetworksManagerCallback.onPreferredTransportChanged(0);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+
+        assertTrue(sst.mSS.isIwlanPreferred());
     }
 }
