@@ -772,30 +772,28 @@ public class DataSettingsManager extends Handler {
                     .getDefaultDataSubId();
         }
 
+        Phone defaultDataPhone;
+        if (mPhone.isSubscriptionManagerServiceEnabled()) {
+            defaultDataPhone = PhoneFactory.getPhone(SubscriptionManagerService.getInstance()
+                    .getPhoneId(SubscriptionManagerService.getInstance()
+                            .getDefaultDataSubId()));
+        } else {
+            defaultDataPhone = PhoneFactory.getPhone(SubscriptionController.getInstance()
+                    .getPhoneId(SubscriptionController.getInstance().getDefaultDataSubId()));
+        }
+        boolean isDdsUserEnabled = defaultDataPhone != null && defaultDataPhone.isUserDataEnabled();
+
         // mobile data policy : data during call
         if (isMobileDataPolicyEnabled(TelephonyManager
                 .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL)) {
-            overridden = overridden || isNonDds && mPhone.getState() != PhoneConstants.State.IDLE;
+            overridden |= isNonDds && isDdsUserEnabled
+                    && mPhone.getState() != PhoneConstants.State.IDLE;
         }
 
         // mobile data policy : auto data switch
         if (isMobileDataPolicyEnabled(TelephonyManager.MOBILE_DATA_POLICY_AUTO_DATA_SWITCH)) {
-            Phone defaultDataPhone;
-            if (mPhone.isSubscriptionManagerServiceEnabled()) {
-                // check user enabled data on the default data phone
-                defaultDataPhone = PhoneFactory.getPhone(SubscriptionManagerService.getInstance()
-                        .getPhoneId(SubscriptionManagerService.getInstance()
-                                .getDefaultDataSubId()));
-            } else {
-                // check user enabled data on the default data phone
-                defaultDataPhone = PhoneFactory.getPhone(SubscriptionController.getInstance()
-                        .getPhoneId(SubscriptionController.getInstance().getDefaultDataSubId()));
-            }
-            if (defaultDataPhone == null) {
-                loge("isDataEnabledOverriddenForApn: unexpected defaultDataPhone is null");
-            } else {
-                overridden = overridden || isNonDds && defaultDataPhone.isUserDataEnabled();
-            }
+            // check user enabled data on the default data phone
+            overridden |= isNonDds && isDdsUserEnabled;
         }
         return overridden;
     }
