@@ -26,6 +26,7 @@ import android.telephony.satellite.ISatelliteDatagramCallback;
 import android.telephony.satellite.SatelliteDatagram;
 import android.telephony.satellite.SatelliteManager;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 
 import java.util.concurrent.TimeUnit;
@@ -49,17 +50,27 @@ public class DatagramController {
     private static final boolean DEBUG = !"user".equals(Build.TYPE);
 
     /** Variables used to update onSendDatagramStateChanged(). */
+    private final Object mLock = new Object();
+    @GuardedBy("mLock")
     private int mSendSubId;
-    private int mSendDatagramTransferState =
-            SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_UNKNOWN;
+    @GuardedBy("mLock")
+    private @SatelliteManager.SatelliteDatagramTransferState int mSendDatagramTransferState =
+            SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE;
+    @GuardedBy("mLock")
     private int mSendPendingCount = 0;
+    @GuardedBy("mLock")
     private int mSendErrorCode = SatelliteManager.SATELLITE_ERROR_NONE;
     /** Variables used to update onReceiveDatagramStateChanged(). */
+    @GuardedBy("mLock")
     private int mReceiveSubId;
-    private int mReceiveDatagramTransferState =
-            SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_UNKNOWN;
+    @GuardedBy("mLock")
+    private @SatelliteManager.SatelliteDatagramTransferState int mReceiveDatagramTransferState =
+            SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE;
+    @GuardedBy("mLock")
     private int mReceivePendingCount = 0;
+    @GuardedBy("mLock")
     private int mReceiveErrorCode = SatelliteManager.SATELLITE_ERROR_NONE;
+
     private SatelliteDatagram mDemoModeDatagram;
     private boolean mIsDemoMode = false;
     private long mAlignTimeoutDuration = SATELLITE_ALIGN_TIMEOUT;
@@ -98,7 +109,7 @@ public class DatagramController {
      * @param pointingAppController PointingAppController is used to update PointingApp
      *                              about datagram transfer state changes.
      */
-    @VisibleForTesting
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     protected DatagramController(@NonNull Context context, @NonNull Looper  looper,
             @NonNull PointingAppController pointingAppController) {
         mContext = context;
@@ -192,18 +203,21 @@ public class DatagramController {
     public void updateSendStatus(int subId,
             @SatelliteManager.SatelliteDatagramTransferState int datagramTransferState,
             int sendPendingCount, int errorCode) {
-        logd("updateSendStatus"
-                + " subId: " + subId
-                + " datagramTransferState: " + datagramTransferState
-                + " sendPendingCount: " + sendPendingCount + " errorCode: " + errorCode);
+        synchronized (mLock) {
+            logd("updateSendStatus"
+                    + " subId: " + subId
+                    + " datagramTransferState: " + datagramTransferState
+                    + " sendPendingCount: " + sendPendingCount + " errorCode: " + errorCode);
 
-        mSendSubId = subId;
-        mSendDatagramTransferState = datagramTransferState;
-        mSendPendingCount = sendPendingCount;
-        mSendErrorCode = errorCode;
-        notifyDatagramTransferStateChangedToSessionController();
-        mPointingAppController.updateSendDatagramTransferState(subId, datagramTransferState,
-                sendPendingCount, errorCode);
+            mSendSubId = subId;
+            mSendDatagramTransferState = datagramTransferState;
+            mSendPendingCount = sendPendingCount;
+            mSendErrorCode = errorCode;
+
+            notifyDatagramTransferStateChangedToSessionController();
+            mPointingAppController.updateSendDatagramTransferState(mSendSubId,
+                    mSendDatagramTransferState, mSendPendingCount, mSendErrorCode);
+        }
     }
 
     /**
@@ -217,18 +231,25 @@ public class DatagramController {
     public void updateReceiveStatus(int subId,
             @SatelliteManager.SatelliteDatagramTransferState int datagramTransferState,
             int receivePendingCount, int errorCode) {
-        logd("updateReceiveStatus"
-                + " subId: " + subId
-                + " datagramTransferState: " + datagramTransferState
-                + " receivePendingCount: " + receivePendingCount + " errorCode: " + errorCode);
+        synchronized (mLock) {
+            logd("updateReceiveStatus"
+                    + " subId: " + subId
+                    + " datagramTransferState: " + datagramTransferState
+                    + " receivePendingCount: " + receivePendingCount + " errorCode: " + errorCode);
 
-        mReceiveSubId = subId;
-        mReceiveDatagramTransferState = datagramTransferState;
-        mReceivePendingCount = receivePendingCount;
-        mReceiveErrorCode = errorCode;
-        notifyDatagramTransferStateChangedToSessionController();
-        mPointingAppController.updateReceiveDatagramTransferState(subId, datagramTransferState,
-                receivePendingCount, errorCode);
+            mReceiveSubId = subId;
+            mReceiveDatagramTransferState = datagramTransferState;
+            mReceivePendingCount = receivePendingCount;
+            mReceiveErrorCode = errorCode;
+
+            notifyDatagramTransferStateChangedToSessionController();
+            mPointingAppController.updateReceiveDatagramTransferState(mReceiveSubId,
+                    mReceiveDatagramTransferState, mReceivePendingCount, mReceiveErrorCode);
+        }
+
+        if (isPollingInIdleState()) {
+            mDatagramDispatcher.retrySendingDatagrams();
+        }
     }
 
     /**
@@ -256,15 +277,32 @@ public class DatagramController {
     }
 
     boolean isReceivingDatagrams() {
-        return (mReceiveDatagramTransferState
-                == SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVING);
+        synchronized (mLock) {
+            return (mReceiveDatagramTransferState
+                    == SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVING);
+        }
+    }
+
+    public boolean isSendingInIdleState() {
+        synchronized (mLock) {
+            return mSendDatagramTransferState ==
+                    SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE;
+        }
+    }
+
+    public boolean isPollingInIdleState() {
+        synchronized (mLock) {
+            return mReceiveDatagramTransferState ==
+                    SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE;
+        }
     }
 
     /**
      * Set variables for {@link DatagramDispatcher} and {@link DatagramReceiver} to run demo mode
      * @param isDemoMode {@code true} means demo mode is on, {@code false} otherwise.
      */
-    void setDemoMode(boolean isDemoMode) {
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    public void setDemoMode(boolean isDemoMode) {
         mIsDemoMode = isDemoMode;
         mDatagramDispatcher.setDemoMode(isDemoMode);
         mDatagramReceiver.setDemoMode(isDemoMode);
@@ -275,7 +313,7 @@ public class DatagramController {
     }
 
     /** Get the last sent datagram for demo mode */
-    @VisibleForTesting
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
     public SatelliteDatagram getDemoModeDatagram() {
         return mDemoModeDatagram;
     }
@@ -285,7 +323,7 @@ public class DatagramController {
      * @param datagramType datagram type, only DATAGRAM_TYPE_SOS_MESSAGE will be saved
      * @param datagram datagram The last datagram saved when sendSatelliteDatagramForDemo is called
      */
-    @VisibleForTesting
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     protected void setDemoModeDatagram(@SatelliteManager.DatagramType int datagramType,
             SatelliteDatagram datagram) {
         if (mIsDemoMode &&  datagramType == SatelliteManager.DATAGRAM_TYPE_SOS_MESSAGE) {
