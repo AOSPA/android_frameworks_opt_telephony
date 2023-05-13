@@ -23,6 +23,7 @@ import static com.android.internal.telephony.subscription.SubscriptionDatabaseMa
 import static com.android.internal.telephony.subscription.SubscriptionDatabaseManagerTest.FAKE_CONTACT1;
 import static com.android.internal.telephony.subscription.SubscriptionDatabaseManagerTest.FAKE_CONTACT2;
 import static com.android.internal.telephony.subscription.SubscriptionDatabaseManagerTest.FAKE_COUNTRY_CODE2;
+import static com.android.internal.telephony.subscription.SubscriptionDatabaseManagerTest.FAKE_DEFAULT_CARD_NAME;
 import static com.android.internal.telephony.subscription.SubscriptionDatabaseManagerTest.FAKE_EHPLMNS1;
 import static com.android.internal.telephony.subscription.SubscriptionDatabaseManagerTest.FAKE_HPLMNS1;
 import static com.android.internal.telephony.subscription.SubscriptionDatabaseManagerTest.FAKE_ICCID1;
@@ -166,6 +167,7 @@ public class SubscriptionManagerServiceTest extends TelephonyTest {
         doReturn(2).when(mTelephonyManager).getActiveModemCount();
         doReturn(2).when(mTelephonyManager).getSupportedModemCount();
         doReturn(mUiccProfile).when(mPhone2).getIccCard();
+        doReturn(new UiccSlot[]{mUiccSlot}).when(mUiccController).getUiccSlots();
 
         mContextFixture.putBooleanResource(com.android.internal.R.bool
                 .config_subscription_database_async_update, true);
@@ -1793,7 +1795,6 @@ public class SubscriptionManagerServiceTest extends TelephonyTest {
     public void testUserUnlockUpdateEmbeddedSubscriptions() {
         doReturn(true).when(mUiccSlot).isEuicc();
         doReturn(1).when(mUiccController).convertToPublicCardId(FAKE_ICCID1);
-        doReturn(new UiccSlot[]{mUiccSlot}).when(mUiccController).getUiccSlots();
         doReturn(TelephonyManager.INVALID_PORT_INDEX).when(mUiccSlot)
                 .getPortIndexFromIccId(anyString());
 
@@ -1956,6 +1957,8 @@ public class SubscriptionManagerServiceTest extends TelephonyTest {
                 EuiccService.RESULT_OK, new EuiccProfileInfo[0], false);
         doReturn(result).when(mEuiccController).blockingGetEuiccProfileInfoList(eq(1));
         doReturn("").when(mUiccPort).getIccId();
+        doReturn(TelephonyManager.INVALID_PORT_INDEX)
+                .when(mUiccSlot).getPortIndexFromIccId(anyString());
 
         mSubscriptionManagerServiceUT.updateEmbeddedSubscriptions(List.of(1), null);
         mSubscriptionManagerServiceUT.updateSimState(
@@ -2017,7 +2020,7 @@ public class SubscriptionManagerServiceTest extends TelephonyTest {
                 .getSubscriptionInfoInternal(1);
         assertThat(subInfo.getSimSlotIndex()).isEqualTo(
                 SubscriptionManager.INVALID_SUBSCRIPTION_ID);
-        assertThat(subInfo.getPortIndex()).isEqualTo(TelephonyManager.INVALID_PORT_INDEX);
+        assertThat(subInfo.getPortIndex()).isEqualTo(TelephonyManager.DEFAULT_PORT_INDEX);
     }
 
     @Test
@@ -2166,12 +2169,32 @@ public class SubscriptionManagerServiceTest extends TelephonyTest {
         testSetUiccApplicationsEnabled();
 
         mContextFixture.addCallingOrSelfPermission(Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
-        mSubscriptionManagerServiceUT.updateSimStateForInactivePort(0);
+        mSubscriptionManagerServiceUT.updateSimStateForInactivePort(0, null);
         processAllMessages();
 
         SubscriptionInfoInternal subInfo = mSubscriptionManagerServiceUT
                 .getSubscriptionInfoInternal(1);
         assertThat(subInfo.areUiccApplicationsEnabled()).isTrue();
+    }
+
+    @Test
+    public void testInactiveSimInserted() {
+        mContextFixture.putResource(com.android.internal.R.string.default_card_name,
+                FAKE_DEFAULT_CARD_NAME);
+
+        doReturn(0).when(mUiccSlot).getPortIndexFromIccId(eq(FAKE_ICCID1));
+
+        mContextFixture.addCallingOrSelfPermission(Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
+        mSubscriptionManagerServiceUT.updateSimStateForInactivePort(-1, FAKE_ICCID1);
+        processAllMessages();
+
+        // Make sure the inactive SIM's information was inserted.
+        SubscriptionInfoInternal subInfo = mSubscriptionManagerServiceUT
+                .getSubscriptionInfoInternal(1);
+        assertThat(subInfo.getSimSlotIndex()).isEqualTo(SubscriptionManager.INVALID_SIM_SLOT_INDEX);
+        assertThat(subInfo.getIccId()).isEqualTo(FAKE_ICCID1);
+        assertThat(subInfo.getDisplayName()).isEqualTo(FAKE_DEFAULT_CARD_NAME);
+        assertThat(subInfo.getPortIndex()).isEqualTo(0);
     }
 
     @Test

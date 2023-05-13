@@ -24,6 +24,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.LinkProperties;
 import android.net.NetworkAgent;
 import android.net.NetworkCapabilities;
 import android.net.NetworkPolicyManager;
@@ -2177,6 +2178,23 @@ public class DataNetworkController extends Handler {
     }
 
     /**
+     * @return List of active cellular interfaces.
+     */
+    public List<String> getAllActiveCellularInterfaces() {
+        List<String> ifaces = mDataNetworkList.stream()
+                .filter(dataNetwork -> dataNetwork.getTransport()
+                        == AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                .filter(dataNetwork -> dataNetwork.isConnected())
+                .map(DataNetwork::getLinkProperties)
+                .map(LinkProperties::getInterfaceName)
+                .collect(Collectors.toList());
+        for(String iface : ifaces) {
+            log("getAllActiveCellularInterfaces All Interfaces: " + iface);
+        }
+        return ifaces;
+    }
+
+    /**
      * @return {@code true} if data is dormant.
      */
     private boolean isDataDormant() {
@@ -2821,8 +2839,9 @@ public class DataNetworkController extends Handler {
                 telephonyNetworkRequest, DataEvaluationReason.DATA_RETRY);
         if (!evaluation.containsDisallowedReasons()) {
             DataProfile dataProfile = dataSetupRetryEntry.dataProfile;
-            if (dataProfile == null) {
-                dataProfile = evaluation.getCandidateDataProfile();
+            DataProfile candidateDataProfile = evaluation.getCandidateDataProfile();
+            if (dataProfile == null || (!dataProfile.equals(candidateDataProfile))) {
+                dataProfile = candidateDataProfile;
             }
             if (dataProfile != null) {
                 setupDataNetwork(dataProfile, dataSetupRetryEntry,
