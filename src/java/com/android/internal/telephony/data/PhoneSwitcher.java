@@ -516,10 +516,6 @@ public class PhoneSwitcher extends Handler {
     }
 
     private void evaluateIfImmediateDataSwitchIsNeeded(String evaluationReason, int switchReason) {
-        if (isReevaluatedAfterCall()) {
-            log(evaluationReason + " reevaluate after call");
-            return;
-        }
         if (onEvaluate(REQUESTS_UNCHANGED, evaluationReason)) {
             logDataSwitchEvent(mPreferredDataSubId.get(),
                     TelephonyEvent.EventState.EVENT_STATE_START,
@@ -726,10 +722,6 @@ public class PhoneSwitcher extends Handler {
     public void handleMessage(Message msg) {
         switch (msg.what) {
             case EVENT_SUBSCRIPTION_CHANGED: {
-                if (isReevaluatedAfterCall()) {
-                    log("EVENT_SUBSCRIPTION_CHANGED reevaluate after call");
-                    break;
-                }
                 onEvaluate(REQUESTS_UNCHANGED, "subscription changed");
                 break;
             }
@@ -747,10 +739,6 @@ public class PhoneSwitcher extends Handler {
                 break;
             }
             case EVENT_PRIMARY_DATA_SUB_CHANGED: {
-                if (isReevaluatedAfterCall()) {
-                    log("EVENT_PRIMARY_DATA_SUB_CHANGED reevaluate after call");
-                    break;
-                }
                 evaluateIfImmediateDataSwitchIsNeeded("primary data sub changed",
                         DataSwitch.Reason.DATA_SWITCH_REASON_MANUAL);
                 break;
@@ -805,10 +793,6 @@ public class PhoneSwitcher extends Handler {
                 // register for radio tech change to listen to radio tech handover in case previous
                 // attempt was not successful
                 registerForImsRadioTechChange();
-                if (isReevaluatedAfterCall()) {
-                    log("EVENT_IMS_RADIO_TECH_CHANGED reevaluate after call");
-                    break;
-                }
                 // if voice call state changes or in voice call didn't change
                 // but RAT changes(e.g. Iwlan -> cross sim), reevaluate for data switch.
                 if (updatesIfPhoneInVoiceCallChanged() || isAnyVoiceCallActiveOnDevice()) {
@@ -989,6 +973,10 @@ public class PhoneSwitcher extends Handler {
             }
             case EVENT_SUB_INFO_READY: {
                 log("Sub info is ready");
+                if (mIsSubInfoReady) {
+                    log("Ignore SUB ready event when already ready");
+                    break;
+                }
                 mIsSubInfoReady = true;
                 onEvaluate(REQUESTS_UNCHANGED, "sub_info_ready");
                 break;
@@ -2381,32 +2369,6 @@ public class PhoneSwitcher extends Handler {
             for (TelephonyNetworkRequest networkRequest : mNetworkRequestList) {
                 if (phoneIdForRequest(networkRequest) == phoneId) {
                     return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    /*
-     * Check if phone usage of DDS is reevaluated after call
-     *
-     * When emergency override is present, allow to evaluate phone usage immediately,
-     * otherise, only evaluate phone usage after call ends when smart DDS feature is
-     * enabled.
-     *
-     * @return true if the current evaluation isn't needed.
-     */
-    private boolean isReevaluatedAfterCall() {
-        // Emergency override is prior to any recommendations.
-        if (mEmergencyOverride != null) {
-            return false;
-        }
-
-        if(!isTelephonyTempDdsSwitchEnabled()) {
-            for (Phone phone : PhoneFactory.getPhones()) {
-                if ((phone != null) && (phone.getSubId() != mPrimaryDataSubId)
-                         && (isInCall(phone) || isInCall(phone.getImsPhone()))) {
-                     return true;
                 }
             }
         }
