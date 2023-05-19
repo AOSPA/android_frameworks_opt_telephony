@@ -850,7 +850,8 @@ public class UiccController extends Handler {
             }
             Rlog.d(LOG_TAG, "Broadcasting intent ACTION_SIM_CARD_STATE_CHANGED "
                     + TelephonyManager.simStateToString(state) + " for phone: " + phoneId
-                    + " slot: " + slotId + " port: " + slot.getPortIndexFromPhoneId(phoneId));
+                    + " slot: " + slotId + " port: "
+                    + (slot != null ? slot.getPortIndexFromPhoneId(phoneId) : null));
             mContext.sendBroadcast(intent, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
             TelephonyMetrics.getInstance().updateSimState(phoneId, state);
         }
@@ -889,7 +890,7 @@ public class UiccController extends Handler {
             Rlog.d(LOG_TAG, "Broadcasting intent ACTION_SIM_APPLICATION_STATE_CHANGED "
                     + TelephonyManager.simStateToString(state)
                     + " for phone: " + phoneId + " slot: " + slotId + "port: "
-                    + slot.getPortIndexFromPhoneId(phoneId));
+                    + (slot != null ? slot.getPortIndexFromPhoneId(phoneId) : null));
             mContext.sendBroadcast(intent, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
             TelephonyMetrics.getInstance().updateSimState(phoneId, state);
         }
