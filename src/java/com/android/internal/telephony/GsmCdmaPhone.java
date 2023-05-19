@@ -234,10 +234,10 @@ public class GsmCdmaPhone extends Phone {
     private final RegistrantList mVolteSilentRedialRegistrants = new RegistrantList();
     private DialArgs mDialArgs = null;
     private final RegistrantList mEmergencyDomainSelectedRegistrants = new RegistrantList();
-    private String mImei;
+    protected String mImei;
     private String mImeiSv;
     private String mVmNumber;
-    private int mImeiType = IMEI_TYPE_UNKNOWN;
+    protected int mImeiType = IMEI_TYPE_UNKNOWN;
 
     @VisibleForTesting
     public CellBroadcastConfigTracker mCellBroadcastConfigTracker =
