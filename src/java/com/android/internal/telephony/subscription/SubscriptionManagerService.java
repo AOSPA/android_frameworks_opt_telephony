@@ -46,7 +46,6 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.os.TelephonyServiceManager;
 import android.os.UserHandle;
-import android.provider.DeviceConfig;
 import android.provider.Settings;
 import android.provider.Telephony.SimInfo;
 import android.service.carrier.CarrierIdentifier;
@@ -1313,9 +1312,7 @@ public class SubscriptionManagerService extends ISub.Stub {
                 log("updateSubscription: SIM_STATE_NOT_READY is not a final state. Will update "
                         + "subscription later.");
                 return;
-            }
-
-            if (!areUiccAppsEnabledOnCard(phoneId)) {
+            } else {
                 logl("updateSubscription: UICC app disabled on slot " + phoneId);
                 markSubscriptionsInactive(phoneId);
             }
@@ -3578,7 +3575,7 @@ public class SubscriptionManagerService extends ISub.Stub {
             }
 
             UserHandle userHandle = UserHandle.of(subInfo.getUserId());
-            log("getSubscriptionUserHandle subId = " + subId + " userHandle = " + userHandle);
+            logv("getSubscriptionUserHandle subId = " + subId + " userHandle = " + userHandle);
             if (userHandle.getIdentifier() == UserHandle.USER_NULL) {
                 return null;
             }
@@ -3956,6 +3953,15 @@ public class SubscriptionManagerService extends ISub.Stub {
     private void logl(@NonNull String s) {
         log(s);
         mLocalLog.log(s);
+    }
+
+    /**
+     * Log verbose messages.
+     *
+     * @param s verbose messages
+     */
+    private void logv(@NonNull String s) {
+        Rlog.v(LOG_TAG, s);
     }
 
     /**
