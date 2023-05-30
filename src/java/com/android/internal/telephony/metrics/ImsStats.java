@@ -23,6 +23,7 @@ import static android.telephony.ims.feature.MmTelFeature.MmTelCapabilities.CAPAB
 import static android.telephony.ims.feature.MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_UT;
 import static android.telephony.ims.feature.MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO;
 import static android.telephony.ims.feature.MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE;
+import static android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_CROSS_SIM;
 import static android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN;
 import static android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_LTE;
 import static android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_NONE;
@@ -414,6 +415,7 @@ public class ImsStats {
         switch (radioTech) {
             case REGISTRATION_TECH_NONE:
                 return null;
+            case REGISTRATION_TECH_CROSS_SIM:
             case REGISTRATION_TECH_IWLAN:
                 return mLastWlanCapableFeatures;
             default:
@@ -428,6 +430,7 @@ public class ImsStats {
                 return TelephonyManager.NETWORK_TYPE_UNKNOWN;
             case REGISTRATION_TECH_LTE:
                 return TelephonyManager.NETWORK_TYPE_LTE;
+            case REGISTRATION_TECH_CROSS_SIM:
             case REGISTRATION_TECH_IWLAN:
                 return TelephonyManager.NETWORK_TYPE_IWLAN;
             case REGISTRATION_TECH_NR:
