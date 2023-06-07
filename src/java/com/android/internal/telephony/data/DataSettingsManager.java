@@ -392,7 +392,7 @@ public class DataSettingsManager extends Handler {
                 defaultDataSubId = SubscriptionController.getInstance().getDefaultDataSubId();
             }
             // Check if data is enabled for default APN on nDDS SUB per data during call.
-            if (userDataEnabled && apnType == ApnSetting.TYPE_DEFAULT
+            if (userDataEnabled && (apnType & ApnSetting.TYPE_DEFAULT) == ApnSetting.TYPE_DEFAULT
                     && mSubId != defaultDataSubId
                     && mPhone.getState() != PhoneConstants.State.IDLE) {
                 final boolean isDataAllowedInVoiceCall = isMobileDataPolicyEnabled(TelephonyManager
