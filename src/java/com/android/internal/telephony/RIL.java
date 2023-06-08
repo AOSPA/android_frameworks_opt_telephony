@@ -3781,8 +3781,13 @@ public class RIL extends BaseCommands implements CommandsInterface {
     @Override
     public void getImei(Message result) {
         RadioModemProxy modemProxy = getRadioServiceProxy(RadioModemProxy.class, result);
-        if (!modemProxy.isEmpty() &&
-                mHalVersion.get(HAL_SERVICE_MODEM).greaterOrEqual(RADIO_HAL_VERSION_2_1)) {
+        if (modemProxy.isEmpty()) {
+            if (RILJ_LOGD) {
+                Rlog.e(RILJ_LOG_TAG, "getImei: modemProxy is Empty");
+            }
+            return;
+        }
+        if (mHalVersion.get(HAL_SERVICE_MODEM).greaterOrEqual(RADIO_HAL_VERSION_2_1)) {
             RILRequest rr = obtainRequest(RIL_REQUEST_DEVICE_IMEI, result,
                     mRILDefaultWorkSource);
 
@@ -5680,6 +5685,41 @@ public class RIL extends BaseCommands implements CommandsInterface {
         } else {
             if (RILJ_LOGD) {
                 Rlog.d(RILJ_LOG_TAG, "setNullCipherAndIntegrityEnabled: REQUEST_NOT_SUPPORTED");
+            }
+            if (result != null) {
+                AsyncResult.forMessage(result, null,
+                        CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
+                result.sendToTarget();
+            }
+        }
+    }
+
+    /**
+     * Get if null ciphering / null integrity are enabled / disabled.
+     *
+     * @param result Callback message containing the success or failure status.
+     */
+    @Override
+    public void isNullCipherAndIntegrityEnabled(Message result) {
+        RadioNetworkProxy networkProxy = getRadioServiceProxy(RadioNetworkProxy.class, result);
+        if (networkProxy.isEmpty()) return;
+        if (mHalVersion.get(HAL_SERVICE_NETWORK).greaterOrEqual(RADIO_HAL_VERSION_2_1)) {
+            RILRequest rr = obtainRequest(RIL_REQUEST_IS_NULL_CIPHER_AND_INTEGRITY_ENABLED, result,
+                    mRILDefaultWorkSource);
+
+            if (RILJ_LOGD) {
+                riljLog(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
+            }
+
+            try {
+                networkProxy.isNullCipherAndIntegrityEnabled(rr.mSerial);
+            } catch (RemoteException | RuntimeException e) {
+                handleRadioProxyExceptionForRR(
+                        HAL_SERVICE_NETWORK, "isNullCipherAndIntegrityEnabled", e);
+            }
+        } else {
+            if (RILJ_LOGD) {
+                Rlog.d(RILJ_LOG_TAG, "isNullCipherAndIntegrityEnabled: REQUEST_NOT_SUPPORTED");
             }
             if (result != null) {
                 AsyncResult.forMessage(result, null,

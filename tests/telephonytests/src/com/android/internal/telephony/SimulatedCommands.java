@@ -1512,12 +1512,17 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
-    public void setNetworkSelectionModeAutomatic(Message result) {unimplemented(result);}
+    public void setNetworkSelectionModeAutomatic(Message result) {
+        SimulatedCommandsVerifier.getInstance().setNetworkSelectionModeAutomatic(result);
+        mMockNetworkSelectionMode = 0;
+    }
     @Override
     public void exitEmergencyCallbackMode(Message result) {unimplemented(result);}
     @Override
     public void setNetworkSelectionModeManual(String operatorNumeric, int ran, Message result) {
-        unimplemented(result);
+        SimulatedCommandsVerifier.getInstance().setNetworkSelectionModeManual(
+                operatorNumeric, ran, result);
+        mMockNetworkSelectionMode = 1;
     }
     @Override
     public void setNetworkSelectionModeManual(OperatorInfo network, Message result) {
@@ -1538,9 +1543,12 @@ public class SimulatedCommands extends BaseCommands
         getNetworkSelectionModeCallCount.incrementAndGet();
         int ret[] = new int[1];
 
-        ret[0] = 0;
+        ret[0] = mMockNetworkSelectionMode;
         resultSuccess(result, ret);
     }
+
+    /** 0 for automatic selection and a 1 for manual selection. */
+    private int mMockNetworkSelectionMode = 0;
 
     private final AtomicInteger getNetworkSelectionModeCallCount = new AtomicInteger(0);
 

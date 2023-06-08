@@ -191,7 +191,6 @@ public class SIMRecords extends IccRecords {
     private static final int EVENT_SET_FPLMN_DONE = 43 + SIM_RECORD_EVENT_BASE;
     protected static final int EVENT_GET_SMSS_RECORD_DONE = 46 + SIM_RECORD_EVENT_BASE;
     protected static final int EVENT_GET_PSISMSC_DONE = 47 + SIM_RECORD_EVENT_BASE;
-    protected static final int EVENT_GET_FDN_DONE = 48 + SIM_RECORD_EVENT_BASE;
 
     // ***** Constructor
 
@@ -1368,15 +1367,6 @@ public class SIMRecords extends IccRecords {
                     }
                     break;
 
-                case EVENT_GET_FDN_DONE:
-                    ar = (AsyncResult) msg.obj;
-                    if (ar.exception != null) {
-                        loge("Failed to read USIM EF_FDN field error=" + ar.exception);
-                    } else {
-                        log("EF_FDN read successfully");
-                    }
-                    break;
-
                 default:
                     super.handleMessage(msg);   // IccRecords handles generic record load responses
             }
@@ -2241,16 +2231,6 @@ public class SIMRecords extends IccRecords {
         }
 
         log("[CSP] Value Added Service Group (0xC0), not found!");
-    }
-
-    @Override
-    public void loadFdnRecords() {
-        if (mParentApp != null && mParentApp.getIccFdnEnabled()
-                && mParentApp.getIccFdnAvailable()) {
-            log("Loading FdnRecords");
-            mAdnCache.requestLoadAllAdnLike(IccConstants.EF_FDN, getExtFromEf(IccConstants.EF_FDN),
-                    obtainMessage(EVENT_GET_FDN_DONE));
-        }
     }
 
     @VisibleForTesting

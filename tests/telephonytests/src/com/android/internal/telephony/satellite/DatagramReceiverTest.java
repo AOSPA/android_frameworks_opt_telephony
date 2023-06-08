@@ -16,7 +16,12 @@
 
 package com.android.internal.telephony.satellite;
 
+import static com.android.internal.telephony.satellite.DatagramController.SATELLITE_ALIGN_TIMEOUT;
+
+import android.annotation.NonNull;
+import android.content.Context;
 import android.provider.Telephony;
+import android.telephony.satellite.ISatelliteDatagramCallback;
 import android.test.mock.MockContentResolver;
 import android.testing.AndroidTestingRunner;
 import android.testing.TestableLooper;
@@ -25,17 +30,26 @@ import static com.google.common.truth.Truth.assertThat;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 import android.os.AsyncResult;
 import android.os.Looper;
 import android.os.Message;
+import android.os.IBinder;
+import android.os.RemoteException;
 import android.telephony.satellite.SatelliteDatagram;
 import android.telephony.satellite.SatelliteManager;
 import android.util.Pair;
 
+import com.android.internal.telephony.IVoidConsumer;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.TelephonyTest;
@@ -50,6 +64,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 @RunWith(AndroidTestingRunner.class)
 @TestableLooper.RunWithLooper
@@ -57,14 +72,16 @@ public class DatagramReceiverTest extends TelephonyTest {
     private static final String TAG = "DatagramReceiverTest";
     private static final int SUB_ID = 0;
     private static final String TEST_MESSAGE = "This is a test datagram message";
+    private static final long TEST_EXPIRE_TIMER_SATELLITE_ALIGN = TimeUnit.SECONDS.toMillis(1);
 
     private DatagramReceiver mDatagramReceiverUT;
     private DatagramReceiver.SatelliteDatagramListenerHandler mSatelliteDatagramListenerHandler;
+    private TestDatagramReceiver mTestDemoModeDatagramReceiver;
 
+    @Mock private SatelliteController mMockSatelliteController;
     @Mock private DatagramController mMockDatagramController;
     @Mock private SatelliteModemInterface mMockSatelliteModemInterface;
     @Mock private ControllerMetricsStats mMockControllerMetricsStats;
-
 
     /** Variables required to receive datagrams in the unit tests. */
     LinkedBlockingQueue<Integer> mResultListener;
@@ -86,6 +103,7 @@ public class DatagramReceiverTest extends TelephonyTest {
                 Telephony.SatelliteDatagrams.PROVIDER_NAME, mFakeSatelliteProvider);
         doReturn(mMockContentResolver).when(mContext).getContentResolver();
 
+        replaceInstance(SatelliteController.class, "sInstance", null, mMockSatelliteController);
         replaceInstance(DatagramController.class, "sInstance", null,
                 mMockDatagramController);
         replaceInstance(SatelliteModemInterface.class, "sInstance", null,
@@ -95,6 +113,8 @@ public class DatagramReceiverTest extends TelephonyTest {
 
         mDatagramReceiverUT = DatagramReceiver.make(mContext, Looper.myLooper(),
                 mMockDatagramController);
+        mTestDemoModeDatagramReceiver = new TestDatagramReceiver(mContext, Looper.myLooper(),
+                mMockDatagramController);
         mSatelliteDatagramListenerHandler = new DatagramReceiver.SatelliteDatagramListenerHandler(
                 Looper.myLooper(), SUB_ID);
 
@@ -102,6 +122,8 @@ public class DatagramReceiverTest extends TelephonyTest {
         mDatagram = new SatelliteDatagram(TEST_MESSAGE.getBytes());
         mInOrder = inOrder(mMockDatagramController);
 
+        when(mMockDatagramController.isSendingInIdleState()).thenReturn(true);
+        when(mMockDatagramController.isPollingInIdleState()).thenReturn(true);
         processAllMessages();
     }
 
@@ -111,6 +133,7 @@ public class DatagramReceiverTest extends TelephonyTest {
         mFakeSatelliteProvider.shutdown();
         mDatagramReceiverUT.destroy();
         mDatagramReceiverUT = null;
+        mTestDemoModeDatagramReceiver = null;
         mResultListener = null;
         mDatagram = null;
         mInOrder = null;
@@ -306,5 +329,179 @@ public class DatagramReceiverTest extends TelephonyTest {
                 .updateReceiveStatus(eq(SUB_ID),
                         eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVE_SUCCESS),
                         eq(10), eq(SatelliteManager.SATELLITE_ERROR_NONE));
+    }
+
+    @Test
+    public void testPollPendingSatelliteDatagrams_DemoMode_Align_succeed() throws Exception {
+        // Checks invalid case only as SatelliteController does not exist in unit test
+        mTestDemoModeDatagramReceiver.setDemoMode(true);
+        mTestDemoModeDatagramReceiver.onDeviceAlignedWithSatellite(true);
+        when(mMockDatagramController.getDemoModeDatagram()).thenReturn(mDatagram);
+        mTestDemoModeDatagramReceiver.pollPendingSatelliteDatagrams(SUB_ID, mResultListener::offer);
+        processAllMessages();
+        verify(mMockDatagramController, times(1)).getDemoModeDatagram();
+        verify(mMockDatagramController)
+                .updateReceiveStatus(eq(SUB_ID),
+                        eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVING),
+                        anyInt(),
+                        eq(SatelliteManager.SATELLITE_ERROR_NONE));
+        verify(mMockDatagramController)
+                .updateReceiveStatus(eq(SUB_ID),
+                        eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVE_FAILED),
+                        anyInt(),
+                        eq(SatelliteManager.SATELLITE_INVALID_TELEPHONY_STATE));
+        verify(mMockDatagramController)
+                .updateReceiveStatus(eq(SUB_ID),
+                        eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE),
+                        anyInt(),
+                        eq(SatelliteManager.SATELLITE_ERROR_NONE));
+        assertThat(mResultListener.peek())
+                .isEqualTo(SatelliteManager.SATELLITE_INVALID_TELEPHONY_STATE);
+    }
+
+    @Test
+    public void testPollPendingSatelliteDatagrams_DemoMode_Align_failed() throws Exception {
+        // Checks invalid case only as SatelliteController does not exist in unit test
+        long previousTimer = mTestDemoModeDatagramReceiver.getSatelliteAlignedTimeoutDuration();
+        mTestDemoModeDatagramReceiver.setDemoMode(true);
+        mTestDemoModeDatagramReceiver.setDuration(TEST_EXPIRE_TIMER_SATELLITE_ALIGN);
+        mTestDemoModeDatagramReceiver.onDeviceAlignedWithSatellite(false);
+        when(mMockDatagramController.getDemoModeDatagram()).thenReturn(mDatagram);
+        mTestDemoModeDatagramReceiver.pollPendingSatelliteDatagrams(SUB_ID, mResultListener::offer);
+        processAllMessages();
+        verify(mMockDatagramController, never()).getDemoModeDatagram();
+        verify(mMockDatagramController)
+                .updateReceiveStatus(eq(SUB_ID),
+                        eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVING),
+                        anyInt(),
+                        eq(SatelliteManager.SATELLITE_ERROR_NONE));
+        processAllFutureMessages();
+        verify(mMockDatagramController)
+                .updateReceiveStatus(eq(SUB_ID),
+                        eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVE_FAILED),
+                        anyInt(),
+                        eq(SatelliteManager.SATELLITE_NOT_REACHABLE));
+        verify(mMockDatagramController)
+                .updateReceiveStatus(eq(SUB_ID),
+                        eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE),
+                        anyInt(),
+                        eq(SatelliteManager.SATELLITE_ERROR_NONE));
+        assertThat(mResultListener.peek())
+                .isEqualTo(SatelliteManager.SATELLITE_NOT_REACHABLE);
+
+        mTestDemoModeDatagramReceiver.setDemoMode(false);
+        mTestDemoModeDatagramReceiver.onDeviceAlignedWithSatellite(false);
+        mTestDemoModeDatagramReceiver.setDuration(previousTimer);
+    }
+
+    @Test
+    public void testSatelliteModemBusy_modemSendingDatagram_pollingFailure() {
+        when(mMockDatagramController.isSendingInIdleState()).thenReturn(false);
+
+        mDatagramReceiverUT.pollPendingSatelliteDatagrams(SUB_ID, mResultListener::offer);
+        processAllMessages();
+        assertThat(mResultListener.peek()).isEqualTo(SatelliteManager.SATELLITE_MODEM_BUSY);
+    }
+
+    @Test
+    public void testSatelliteModemBusy_modemPollingDatagrams_pollingFailure() {
+        when(mMockDatagramController.isSendingInIdleState()).thenReturn(false);
+        when(mMockDatagramController.isPollingInIdleState()).thenReturn(true);
+
+        mDatagramReceiverUT.pollPendingSatelliteDatagrams(SUB_ID, mResultListener::offer);
+        processAllMessages();
+        assertThat(mResultListener.peek()).isEqualTo(SatelliteManager.SATELLITE_MODEM_BUSY);
+    }
+
+    @Test
+    public void testOnSatelliteModemStateChanged_modemStateIdle() {
+        mDatagramReceiverUT.onSatelliteModemStateChanged(
+                SatelliteManager.SATELLITE_MODEM_STATE_IDLE);
+        processAllMessages();
+        verifyNoMoreInteractions(mMockDatagramController);
+    }
+
+    @Test
+    public void testOnSatelliteModemStateChanged_modemStateOff_modemReceivingDatagrams() {
+        when(mMockDatagramController.isReceivingDatagrams()).thenReturn(true);
+        when(mMockDatagramController.getReceivePendingCount()).thenReturn(10);
+
+        mDatagramReceiverUT.onSatelliteModemStateChanged(
+                SatelliteManager.SATELLITE_MODEM_STATE_OFF);
+
+        processAllMessages();
+
+        mInOrder.verify(mMockDatagramController)
+                .updateReceiveStatus(anyInt(),
+                        eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVE_FAILED),
+                        eq(10), eq(SatelliteManager.SATELLITE_REQUEST_ABORTED));
+        mInOrder.verify(mMockDatagramController)
+                .updateReceiveStatus(anyInt(),
+                        eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE),
+                        eq(0), eq(SatelliteManager.SATELLITE_ERROR_NONE));
+    }
+
+    @Test
+    public void testOnSatelliteModemStateChanged_modemStateOff_modemNotReceivingDatagrams() {
+        when(mMockDatagramController.isReceivingDatagrams()).thenReturn(false);
+
+        mDatagramReceiverUT.onSatelliteModemStateChanged(
+                SatelliteManager.SATELLITE_MODEM_STATE_OFF);
+
+        processAllMessages();
+
+        mInOrder.verify(mMockDatagramController)
+                .updateReceiveStatus(anyInt(),
+                        eq(SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE),
+                        eq(0), eq(SatelliteManager.SATELLITE_ERROR_NONE));
+    }
+
+    @Test
+    public void testRegisterForSatelliteDatagram_satelliteNotSupported() {
+        when(mMockSatelliteController.isSatelliteSupported()).thenReturn(false);
+
+        ISatelliteDatagramCallback callback = new ISatelliteDatagramCallback() {
+            @Override
+            public void onSatelliteDatagramReceived(long datagramId, SatelliteDatagram datagram,
+                    int pendingCount, IVoidConsumer callback) throws RemoteException {
+                logd("onSatelliteDatagramReceived");
+            }
+
+            @Override
+            public IBinder asBinder() {
+                return null;
+            }
+        };
+
+        assertThat(mDatagramReceiverUT.registerForSatelliteDatagram(SUB_ID, callback))
+                .isEqualTo(SatelliteManager.SATELLITE_NOT_SUPPORTED);
+    }
+
+    private static class TestDatagramReceiver extends DatagramReceiver {
+        private long mLong =  SATELLITE_ALIGN_TIMEOUT;
+
+        TestDatagramReceiver(@NonNull Context context, @NonNull Looper looper,
+                @NonNull DatagramController datagramController) {
+            super(context, looper, datagramController);
+        }
+
+        @Override
+        protected void setDemoMode(boolean isDemoMode) {
+            super.setDemoMode(isDemoMode);
+        }
+
+        @Override
+        protected void onDeviceAlignedWithSatellite(boolean isAligned) {
+            super.onDeviceAlignedWithSatellite(isAligned);
+        }
+
+        @Override
+        protected long getSatelliteAlignedTimeoutDuration() {
+            return mLong;
+        }
+
+        public void setDuration(long duration) {
+            mLong = duration;
+        }
     }
 }
