@@ -1034,6 +1034,26 @@ public class PhoneSwitcher extends Handler {
                                 @NonNull String callingPackage) {
                             PhoneSwitcher.this.onDataEnabledChanged();
                         }
+
+                        @Override
+                        public void onDataRoamingEnabledChanged(boolean enabled) {
+                            log("onDataRoamingEnabledChanged: enabled: " + enabled);
+                            evaluateIfImmediateDataSwitchIsNeeded(
+                                    "EVENT_DATA_ROAMING_ENABLED_CHANGED",
+                                    DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
+                        }
+
+                        @Override
+                        public void onDataEnabledOverrideChanged(boolean enabled,
+                                @TelephonyManager.MobileDataPolicy int policy) {
+                            // Add it when mobile data is on
+                            if (policy == TelephonyManager
+                                    .MOBILE_DATA_POLICY_DATA_ON_NON_DEFAULT_DURING_VOICE_CALL) {
+                                evaluateIfImmediateDataSwitchIsNeeded(
+                                        "EVENT_DATA_DURING_CALL_ENABLED_CHANGED",
+                                        DataSwitch.Reason.DATA_SWITCH_REASON_IN_CALL);
+                            }
+                        }
                     });
             phone.getDataSettingsManager().registerCallback(
                     mDataSettingsManagerCallbacks.get(phone.getPhoneId()));
