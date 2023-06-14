@@ -3933,6 +3933,12 @@ public class SubscriptionManagerService extends ISub.Stub {
                 .collect(Collectors.joining(", ")) + "]";
     }
 
+    public boolean isSubIdCreationPending() {
+        log("isSubIdCreationPending()...");
+
+        return false;
+    }
+
     /**
      * Log debug messages.
      *
