@@ -1479,6 +1479,9 @@ public class DataNetwork extends StateMachine {
             sendMessageDelayed(EVENT_STUCK_IN_TRANSIENT_STATE,
                     mDataConfigManager.getAnomalyNetworkDisconnectingTimeoutMs());
             notifyPreciseDataConnectionState();
+            // Once enters disconnecting, cancel teardown delay becuase it doesn't make sense to
+            // reset sockets after data network is torn down.
+            mNetworkAgent.clearTeardownDelay();
         }
 
         @Override
