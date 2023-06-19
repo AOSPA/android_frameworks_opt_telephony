@@ -1528,4 +1528,20 @@ public class DataProfileManagerTest extends TelephonyTest {
         assertThat(mDataProfileManagerUT.getDataProfileForNetworkRequest(tnr,
                 TelephonyManager.NETWORK_TYPE_LTE, false)).isNull();
     }
+
+    @Test
+    public void testClearAllDataProfilePermanentFailures() {
+        testPermanentFailureWithPreferredDataProfile();
+
+        // Reset all data profiles
+        mDataProfileManagerUT.clearAllDataProfilePermanentFailures();
+
+        NetworkRequest request = new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build();
+
+        // Verify the we can get the previously permanent failed data profile again.
+        assertThat(mDataProfileManagerUT.getDataProfileForNetworkRequest(
+                new TelephonyNetworkRequest(request, mPhone),
+                TelephonyManager.NETWORK_TYPE_LTE, false)).isNotNull();
+    }
 }
