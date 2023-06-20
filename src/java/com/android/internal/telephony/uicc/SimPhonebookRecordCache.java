@@ -423,7 +423,7 @@ public class SimPhonebookRecordCache extends Handler {
     }
 
     private void handlePhonebookChanged() {
-        if (mUpdateRequests.isEmpty()) {
+        if (mUpdateRequests.isEmpty() || isAdnCapacityInvalid()) {
             // If this event is received, means this feature is supported.
             getSimPhonebookCapacity();
         } else {
