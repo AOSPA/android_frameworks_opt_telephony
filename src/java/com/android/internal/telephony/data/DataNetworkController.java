@@ -828,13 +828,19 @@ public class DataNetworkController extends Handler {
         log("DataNetworkController created.");
 
         mAccessNetworksManager = phone.getAccessNetworksManager();
-        for (int transport : mAccessNetworksManager.getAvailableTransports()) {
-            mDataServiceManagers.put(transport,
+        mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                TelephonyComponentFactory.getInstance()
+                        .inject(DataServiceManager.class.getName())
+                        .makeDataServiceManager(mPhone, looper,
+                                AccessNetworkConstants.TRANSPORT_TYPE_WWAN));
+        if (!mAccessNetworksManager.isInLegacyMode()) {
+            mDataServiceManagers.put(AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
                     TelephonyComponentFactory.getInstance()
                             .inject(DataServiceManager.class.getName())
-                            .makeDataServiceManager(phone, looper,
-                                    transport));
+                            .makeDataServiceManager(mPhone, looper,
+                                    AccessNetworkConstants.TRANSPORT_TYPE_WLAN));
         }
+
         mDataConfigManager = TelephonyComponentFactory.getInstance().inject(
                 DataConfigManager.class.getName())
                 .makeDataConfigManager(mPhone, looper);
@@ -1015,10 +1021,12 @@ public class DataNetworkController extends Handler {
         mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
                 .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
 
-        mPhone.getServiceStateTracker().registerForServiceStateChanged(this,
-                EVENT_SERVICE_STATE_CHANGED, null);
-        mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
-                .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
+        if (!mAccessNetworksManager.isInLegacyMode()) {
+            mPhone.getServiceStateTracker().registerForServiceStateChanged(this,
+                    EVENT_SERVICE_STATE_CHANGED, null);
+            mDataServiceManagers.get(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
+                    .registerForServiceBindingChanged(this, EVENT_DATA_SERVICE_BINDING_CHANGED);
+        }
 
         mPhone.getContext().getSystemService(TelephonyRegistryManager.class)
                 .addOnSubscriptionsChangedListener(new OnSubscriptionsChangedListener() {
