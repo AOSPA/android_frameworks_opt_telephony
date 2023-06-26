@@ -373,8 +373,11 @@ public class SmsStats {
 
     private @NetworkType int getRat(boolean isOverIms) {
         if (isOverIms) {
-            if (mPhone.getImsRegistrationTech()
-                    == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN) {
+            int imsRegistrationTech = mPhone.getImsRegistrationTech();
+            if (imsRegistrationTech
+                    == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN
+                    || imsRegistrationTech
+                    == ImsRegistrationImplBase.REGISTRATION_TECH_CROSS_SIM) {
                 return TelephonyManager.NETWORK_TYPE_IWLAN;
             }
         }
