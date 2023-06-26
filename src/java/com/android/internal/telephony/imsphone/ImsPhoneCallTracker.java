@@ -6474,10 +6474,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 mPhone.getPhoneId(),mPhone.getContext())) {
             return false;
         }
+        boolean isOnWfc = mPhone.getImsRegistrationTech()
+                == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN
+                ||  mPhone.getImsRegistrationTech()
+                == ImsRegistrationImplBase.REGISTRATION_TECH_CROSS_SIM;
         if (!mPhone.getDefaultPhone().getServiceState().getRoaming()
                 || mAllowRttWhileRoaming
-                || (mPhone.getImsRegistrationTech()
-                == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN)
+                || isOnWfc
                 || isEmergency) {
             return true;
         }
