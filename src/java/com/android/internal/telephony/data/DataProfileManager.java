@@ -1017,7 +1017,6 @@ public class DataProfileManager extends Handler {
                         == Telephony.Carriers.MATCH_ALL_APN_SET_ID
                         || dp.getApnSetting().getApnSetId() == mPreferredDataProfileSetId))
                 .anyMatch(dp -> areDataProfilesSharingApn(dataProfile, dp));
-
     }
 
     /**
