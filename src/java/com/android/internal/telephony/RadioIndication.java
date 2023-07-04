@@ -1243,7 +1243,6 @@ public class RadioIndication extends IRadioIndication.Stub {
                     }
                     if (band == PhysicalChannelConfig.BAND_UNKNOWN) {
                         mRil.riljLoge("Unsupported unknown band.");
-                        return;
                     } else {
                         builder.setBand(band);
                     }
