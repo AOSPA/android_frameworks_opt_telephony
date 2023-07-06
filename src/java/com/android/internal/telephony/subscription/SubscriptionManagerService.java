@@ -1231,7 +1231,7 @@ public class SubscriptionManagerService extends ISub.Stub {
      * @return {@code true} if all the need-to-be-loaded subscriptions from SIM slots are already
      * loaded. {@code false} if more than one are still being loaded.
      */
-    private boolean areAllSubscriptionsLoaded() {
+    public boolean areAllSubscriptionsLoaded() {
         for (int phoneId = 0; phoneId < mTelephonyManager.getActiveModemCount(); phoneId++) {
             UiccSlot slot = mUiccController.getUiccSlotForPhone(phoneId);
             if (slot == null) {
@@ -1271,7 +1271,7 @@ public class SubscriptionManagerService extends ISub.Stub {
      *
      * @param phoneId The phone id (i.e. Logical SIM slot index)
      */
-    private void updateSubscription(int phoneId) {
+    public void updateSubscription(int phoneId) {
         int simState = mSimState[phoneId];
         log("updateSubscription: phoneId=" + phoneId + ", simState="
                 + TelephonyManager.simStateToString(simState));
@@ -2708,7 +2708,7 @@ public class SubscriptionManagerService extends ISub.Stub {
     /**
      * Update default sub id.
      */
-    private void updateDefaultSubId() {
+    public void updateDefaultSubId() {
         int subId;
         boolean isVoiceCapable = mTelephonyManager.isVoiceCapable();
 
