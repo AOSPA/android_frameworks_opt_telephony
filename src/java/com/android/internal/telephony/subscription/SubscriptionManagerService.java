@@ -759,21 +759,23 @@ public class SubscriptionManagerService extends ISub.Stub {
     }
 
     /**
-     * @return The list of ICCIDs from the inserted physical SIMs.
+     * @return The list of ICCIDs from the inserted SIMs.
      */
     @NonNull
-    private List<String> getIccIdsOfInsertedPhysicalSims() {
+    private List<String> getIccIdsOfInsertedSims() {
         List<String> iccidList = new ArrayList<>();
         UiccSlot[] uiccSlots = mUiccController.getUiccSlots();
         if (uiccSlots == null) return iccidList;
 
         for (UiccSlot uiccSlot : uiccSlots) {
             if (uiccSlot != null && uiccSlot.getCardState() != null
-                    && uiccSlot.getCardState().isCardPresent() && !uiccSlot.isEuicc()) {
-                // Non euicc slots will have single port, so use default port index.
-                String iccId = uiccSlot.getIccId(TelephonyManager.DEFAULT_PORT_INDEX);
-                if (!TextUtils.isEmpty(iccId)) {
-                    iccidList.add(IccUtils.stripTrailingFs(iccId));
+                    && uiccSlot.getCardState().isCardPresent()) {
+                int[] portIndexes = uiccSlot.getPortList();
+                for (int portIdx : portIndexes) {
+                    String iccId = uiccSlot.getIccId(portIdx);
+                    if (!TextUtils.isEmpty(iccId)) {
+                        iccidList.add(IccUtils.stripTrailingFs(iccId));
+                    }
                 }
             }
         }
@@ -1283,9 +1285,9 @@ public class SubscriptionManagerService extends ISub.Stub {
 
         if (simState == TelephonyManager.SIM_STATE_ABSENT) {
             if (!isDsdsToSsConfigEnabled()) {
-                // Re-enable the pSIM when it's removed, so it will be in enabled state when it gets
+                // Re-enable the SIM when it's removed, so it will be in enabled state when it gets
                 // re-inserted again. (pre-U behavior)
-                List<String> iccIds = getIccIdsOfInsertedPhysicalSims();
+                List<String> iccIds = getIccIdsOfInsertedSims();
                 mSubscriptionDatabaseManager.getAllSubscriptions().stream()
                         // All the removed pSIMs (Note this could include some erased eSIM that has
                         // embedded bit removed).
@@ -1899,11 +1901,10 @@ public class SubscriptionManagerService extends ISub.Stub {
         // Now that all security checks pass, perform the operation as ourselves.
         final long identity = Binder.clearCallingIdentity();
         try {
-            // Available eSIM profiles are reported by EuiccManager. However for physical SIMs if
-            // they are in inactive slot or programmatically disabled, they are still considered
-            // available. In this case we get their iccid from slot info and include their
-            // subscriptionInfos.
-            List<String> iccIds = getIccIdsOfInsertedPhysicalSims();
+            // Both physical SIM and eSIM if they are in inactive slot or programmatically disabled,
+            // they are still considered available.In this case we get their iccid from slot info
+            // and include their subscriptionInfos.
+            List<String> iccIds = getIccIdsOfInsertedSims();
 
             return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
                     .filter(subInfo -> subInfo.isActive() || iccIds.contains(subInfo.getIccId())
