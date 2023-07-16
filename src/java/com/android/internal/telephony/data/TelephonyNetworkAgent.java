@@ -341,6 +341,14 @@ public class TelephonyNetworkAgent extends NetworkAgent implements NotifyQosSess
     }
 
     /**
+     * Clear the delay of tearing down. When teardwon already happens, allow connectivity service
+     * to destroy native network immediately.
+     */
+    public void clearTeardownDelay() {
+        setTeardownDelayMillis(0);
+    }
+
+    /**
      * Register the callback for receiving information from {@link TelephonyNetworkAgent}.
      *
      * @param callback The callback.
