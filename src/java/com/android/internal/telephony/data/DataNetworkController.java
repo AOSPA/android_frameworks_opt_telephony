@@ -1242,13 +1242,13 @@ public class DataNetworkController extends Handler {
         }
         if (!mAllNetworkRequestList.add(networkRequest)) {
             loge("onAddNetworkRequest: Duplicate network request. " + networkRequest);
-        } else {
-            log("onAddNetworkRequest: added " + networkRequest);
+            return;
         }
         if (isPdpRejectRetryOngoing(networkRequest)) {
             loge("onAddNetworkRequest: Pdp reject retry in progress. " + networkRequest);
             return;
         }
+        log("onAddNetworkRequest: added " + networkRequest);
         onSatisfyNetworkRequest(networkRequest);
     }
 

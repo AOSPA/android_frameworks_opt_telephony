@@ -253,11 +253,6 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         if (mSubscriptionId != newSubscriptionId) {
             if (DBG) logl("onSubIdChange " + mSubscriptionId + "->" + newSubscriptionId);
             mSubscriptionId = newSubscriptionId;
-            for (Map.Entry<TelephonyNetworkRequest, Integer> entry : mNetworkRequests.entrySet()) {
-                TelephonyNetworkRequest networkRequest = entry.getKey();
-                logl("onSubIdChange reset " + networkRequest);
-                mNetworkRequests.put(networkRequest, AccessNetworkConstants.TRANSPORT_TYPE_INVALID);
-            }
             setCapabilityFilter(makeNetworkFilter(mSubscriptionId));
         }
     }
