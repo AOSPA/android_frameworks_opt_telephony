@@ -793,6 +793,12 @@ public class PhoneSwitcher extends Handler {
                 // register for radio tech change to listen to radio tech handover in case previous
                 // attempt was not successful
                 registerForImsRadioTechChange();
+                if (!isTelephonyTempDdsSwitchEnabled()) {
+                    // When smart temp DDS switch is honored, evaluating data phone usage isn't
+                    // needed for IMS radio tech changed.
+                    logl("Ignore EVENT_IMS_RADIO_TECH_CHANGED");
+                    break;
+                }
                 // if voice call state changes or in voice call didn't change
                 // but RAT changes(e.g. Iwlan -> cross sim), reevaluate for data switch.
                 if (updatesIfPhoneInVoiceCallChanged() || isAnyVoiceCallActiveOnDevice()) {
