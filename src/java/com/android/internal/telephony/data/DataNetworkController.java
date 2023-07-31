@@ -202,6 +202,9 @@ public class DataNetworkController extends Handler {
     /** Event for tracking area code changed. */
     private static final int EVENT_TAC_CHANGED = 25;
 
+    /** Event for tracking data phone switch. */
+    private static final int EVENT_ACTIVE_PHONE_SWITCH = 26;
+
     /** The supported IMS features. This is for IMS graceful tear down support. */
     private static final Collection<Integer> SUPPORTED_IMS_FEATURES =
             List.of(ImsFeature.FEATURE_MMTEL, ImsFeature.FEATURE_RCS);
@@ -1058,6 +1061,8 @@ public class DataNetworkController extends Handler {
                     }
                 }
         );
+        PhoneSwitcher.getInstance()
+                .registerForActivePhoneSwitch(this, EVENT_ACTIVE_PHONE_SWITCH, null);
     }
 
     @Override
@@ -1205,6 +1210,11 @@ public class DataNetworkController extends Handler {
                 } else {
                     loge("Unknown override mask: " + overrideMask);
                 }
+                break;
+            case EVENT_ACTIVE_PHONE_SWITCH:
+                log("EVENT_ACTIVE_PHONE_SWITCH");
+                sendMessage(obtainMessage(EVENT_REEVALUATE_UNSATISFIED_NETWORK_REQUESTS,
+                        DataEvaluationReason.DDS_SWITCHED));
                 break;
             default:
                 loge("Unexpected event " + msg.what);
