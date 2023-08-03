@@ -4067,7 +4067,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 conn.setImsReasonInfo(reasonInfo);
             }
 
-            boolean isEmergencySrvCategoryPresent = !TextUtils.isEmpty(imsCall.getCallProfile()
+            boolean isEmergencySrvCategoryPresent = imsCall.getCallProfile() != null
+                    && !TextUtils.isEmpty(imsCall.getCallProfile()
                     .getCallExtra(QtiImsUtils.EXTRA_EMERGENCY_SERVICE_CATEGORY));
 
             if (reasonInfo.getCode() == ImsReasonInfo.CODE_SIP_ALTERNATE_EMERGENCY_CALL
