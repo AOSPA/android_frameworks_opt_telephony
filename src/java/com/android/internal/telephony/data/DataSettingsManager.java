@@ -28,7 +28,6 @@ import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.sysprop.TelephonyProperties;
 import android.telephony.CarrierConfigManager;
-import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager.OnSubscriptionsChangedListener;
 import android.telephony.TelephonyManager;
 import android.telephony.TelephonyManager.MobileDataPolicy;
@@ -46,7 +45,6 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.SettingsObserver;
-import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.data.DataConfigManager.DataConfigManagerCallback;
 import com.android.internal.telephony.metrics.DeviceTelephonyPropertiesStats;
 import com.android.internal.telephony.subscription.SubscriptionInfoInternal;
@@ -396,16 +394,10 @@ public class DataSettingsManager extends Handler {
     }
 
     private boolean isStandAloneOpportunistic(int subId) {
-        if (mPhone.isSubscriptionManagerServiceEnabled()) {
-            SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
-                    .getSubscriptionInfoInternal(subId);
-            return subInfo != null && subInfo.isOpportunistic()
-                    && TextUtils.isEmpty(subInfo.getGroupUuid());
-        }
-        SubscriptionInfo info = SubscriptionController.getInstance().getActiveSubscriptionInfo(
-                subId, mPhone.getContext().getOpPackageName(),
-                mPhone.getContext().getAttributionTag());
-        return (info != null) && info.isOpportunistic() && info.getGroupUuid() == null;
+        SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
+                .getSubscriptionInfoInternal(subId);
+        return subInfo != null && subInfo.isOpportunistic()
+                && TextUtils.isEmpty(subInfo.getGroupUuid());
     }
 
     /**
@@ -584,16 +576,11 @@ public class DataSettingsManager extends Handler {
 
     /** Refresh the enabled mobile data policies from Telephony database */
     private void refreshEnabledMobileDataPolicy() {
-        if (mPhone.isSubscriptionManagerServiceEnabled()) {
-            SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
-                    .getSubscriptionInfoInternal(mSubId);
-            if (subInfo != null) {
-                mEnabledMobileDataPolicy = getMobileDataPolicyEnabled(
-                        subInfo.getEnabledMobileDataPolicies());
-            }
-        } else {
-            mEnabledMobileDataPolicy = getMobileDataPolicyEnabled(SubscriptionController
-                    .getInstance().getEnabledMobileDataPolicies(mSubId));
+        SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
+                .getSubscriptionInfoInternal(mSubId);
+        if (subInfo != null) {
+            mEnabledMobileDataPolicy = getMobileDataPolicyEnabled(
+                    subInfo.getEnabledMobileDataPolicies());
         }
     }
 
@@ -634,24 +621,12 @@ public class DataSettingsManager extends Handler {
 
         String enabledMobileDataPolicies = mEnabledMobileDataPolicy.stream().map(String::valueOf)
                 .collect(Collectors.joining(","));
-        if (mPhone.isSubscriptionManagerServiceEnabled()) {
-            SubscriptionManagerService.getInstance().setEnabledMobileDataPolicies(mSubId,
-                    enabledMobileDataPolicies);
-            logl(TelephonyUtils.mobileDataPolicyToString(mobileDataPolicy) + " changed to "
-                    + enable);
-            updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_OVERRIDE);
-            notifyDataEnabledOverrideChanged(enable, mobileDataPolicy);
-        } else {
-            if (SubscriptionController.getInstance().setEnabledMobileDataPolicies(
-                    mSubId, enabledMobileDataPolicies)) {
-                logl(TelephonyUtils.mobileDataPolicyToString(mobileDataPolicy) + " changed to "
-                        + enable);
-                updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_OVERRIDE);
-                notifyDataEnabledOverrideChanged(enable, mobileDataPolicy);
-            } else {
-                loge("onSetMobileDataPolicy: failed to set " + enabledMobileDataPolicies);
-            }
-        }
+        SubscriptionManagerService.getInstance().setEnabledMobileDataPolicies(mSubId,
+                enabledMobileDataPolicies);
+        logl(TelephonyUtils.mobileDataPolicyToString(mobileDataPolicy) + " changed to "
+                + enable);
+        updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_OVERRIDE);
+        notifyDataEnabledOverrideChanged(enable, mobileDataPolicy);
     }
 
     /**
@@ -744,24 +719,12 @@ public class DataSettingsManager extends Handler {
             overridden = apnType == ApnSetting.TYPE_MMS;
         }
 
-        boolean isNonDds;
-        if (mPhone.isSubscriptionManagerServiceEnabled()) {
-            isNonDds = mPhone.getSubId() != SubscriptionManagerService.getInstance()
-                    .getDefaultDataSubId();
-        } else {
-            isNonDds = mPhone.getSubId() != SubscriptionController.getInstance()
-                    .getDefaultDataSubId();
-        }
+        boolean isNonDds = mPhone.getSubId() != SubscriptionManagerService.getInstance()
+                .getDefaultDataSubId();
 
-        Phone defaultDataPhone;
-        if (mPhone.isSubscriptionManagerServiceEnabled()) {
-            defaultDataPhone = PhoneFactory.getPhone(SubscriptionManagerService.getInstance()
-                    .getPhoneId(SubscriptionManagerService.getInstance()
-                            .getDefaultDataSubId()));
-        } else {
-            defaultDataPhone = PhoneFactory.getPhone(SubscriptionController.getInstance()
-                    .getPhoneId(SubscriptionController.getInstance().getDefaultDataSubId()));
-        }
+        Phone defaultDataPhone = PhoneFactory.getPhone(SubscriptionManagerService.getInstance()
+                .getPhoneId(SubscriptionManagerService.getInstance().getDefaultDataSubId()));
+
         boolean isDdsUserEnabled = defaultDataPhone != null && defaultDataPhone.isUserDataEnabled();
 
         // mobile data policy : data during call
