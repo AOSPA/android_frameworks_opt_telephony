@@ -1541,9 +1541,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         sst.mSubId = subId;
         doReturn(subId).when(mSubInfo).getSubscriptionId();
 
-        doReturn(mSubInfo).when(mSubscriptionController).getActiveSubscriptionInfo(
-                anyInt(), anyString(), nullable(String.class));
-
         final NotificationManager nm = (NotificationManager)
                 mContext.getSystemService(Context.NOTIFICATION_SERVICE);
         mContextFixture.putBooleanResource(
@@ -1576,8 +1573,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         int subId = 1;
         sst.mSubId = subId;
         doReturn(subId).when(mSubInfo).getSubscriptionId();
-        doReturn(mSubInfo).when(mSubscriptionController)
-                .getActiveSubscriptionInfo(anyInt(), anyString(), nullable(String.class));
 
         final NotificationManager nm = (NotificationManager)
                 mContext.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -1612,8 +1607,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         int subId = 1;
         sst.mSubId = subId;
         doReturn(subId).when(mSubInfo).getSubscriptionId();
-        doReturn(mSubInfo).when(mSubscriptionController)
-                .getActiveSubscriptionInfo(anyInt(), anyString(), nullable(String.class));
 
         final NotificationManager nm = (NotificationManager)
                 mContext.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -1647,8 +1640,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         int subId = 1;
         sst.mSubId = subId;
         doReturn(subId).when(mSubInfo).getSubscriptionId();
-        doReturn(mSubInfo).when(mSubscriptionController)
-                .getActiveSubscriptionInfo(anyInt(), anyString(), nullable(String.class));
 
         final NotificationManager nm = (NotificationManager)
                 mContext.getSystemService(Context.NOTIFICATION_SERVICE);
