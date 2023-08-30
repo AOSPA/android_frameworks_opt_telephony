@@ -991,9 +991,10 @@ public class SubscriptionManagerService extends ISub.Stub {
                 .setType(subscriptionType)
                 .setIconTint(getColor())
                 .setAllowedNetworkTypesForReasons(defaultAllowNetworkTypes);
-        if (displayName != null) {
-            builder.setDisplayName(displayName);
+        if (TextUtils.isEmpty(displayName)) {
+            displayName = "CARD " + Integer.toString(slotIndex + 1);
         }
+        builder.setDisplayName(displayName);
 
         int subId = mSubscriptionDatabaseManager.insertSubscriptionInfo(builder.build());
         logl("insertSubscriptionInfo: Inserted a new subscription. subId=" + subId
