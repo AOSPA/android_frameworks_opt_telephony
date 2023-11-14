@@ -147,7 +147,7 @@ public class PhoneConfigurationManager {
         }
         mContext.registerReceiver(mConcurrentCallsReceiver,
                 new IntentFilter(ACTION_MSIM_VOICE_CAPABILITY), PERMISSION_MSIM_VOICE_CAPABILITY,
-                null);
+                null, Context.RECEIVER_EXPORTED);
     }
 
     private BroadcastReceiver mConcurrentCallsReceiver = new BroadcastReceiver() {
