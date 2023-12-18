@@ -238,6 +238,7 @@ public class GsmCdmaPhone extends Phone {
     private String mImeiSv;
     private String mVmNumber;
     protected int mImeiType = IMEI_TYPE_UNKNOWN;
+    private int mSimState = TelephonyManager.SIM_STATE_UNKNOWN;
 
     @VisibleForTesting
     public CellBroadcastConfigTracker mCellBroadcastConfigTracker =
@@ -421,9 +422,9 @@ public class GsmCdmaPhone extends Phone {
                 if (mPhoneId == intent.getIntExtra(
                         SubscriptionManager.EXTRA_SLOT_INDEX,
                         SubscriptionManager.INVALID_SIM_SLOT_INDEX)) {
-                    int simState = intent.getIntExtra(TelephonyManager.EXTRA_SIM_STATE,
+                    mSimState = intent.getIntExtra(TelephonyManager.EXTRA_SIM_STATE,
                             TelephonyManager.SIM_STATE_UNKNOWN);
-                    if (simState == TelephonyManager.SIM_STATE_LOADED
+                    if (mSimState == TelephonyManager.SIM_STATE_LOADED
                             && currentSlotSubIdChanged()) {
                         setNetworkSelectionModeAutomatic(null);
                     }
@@ -680,6 +681,7 @@ public class GsmCdmaPhone extends Phone {
         mTelecomVoiceServiceStateOverride = newOverride;
         if (changed && mSST != null) {
             mSST.onTelecomVoiceServiceStateOverrideChanged();
+            mSST.getServiceStateStats().onVoiceServiceStateOverrideChanged(hasService);
         }
     }
 
@@ -4411,6 +4413,12 @@ public class GsmCdmaPhone extends Phone {
             e.printStackTrace();
         }
         pw.flush();
+        try {
+            mCellBroadcastConfigTracker.dump(fd, pw, args);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        pw.flush();
     }
 
     @Override
@@ -4909,6 +4917,10 @@ public class GsmCdmaPhone extends Phone {
 
         // If no card is present, do nothing.
         if (slot == null || slot.getCardState() != IccCardStatus.CardState.CARDSTATE_PRESENT) {
+            return;
+        }
+
+        if (mSimState != TelephonyManager.SIM_STATE_LOADED) {
             return;
         }
 

@@ -1525,7 +1525,7 @@ public class ImsPhoneConnection extends Connection implements
         if (mImsCall == null) {
             return mExtras.getBoolean(ImsCallProfile.EXTRA_IS_CROSS_SIM_CALL);
         }
-        return mImsCall.isCrossSimCall();  
+        return mImsCall.isCrossSimCall();
     }
 
     /**

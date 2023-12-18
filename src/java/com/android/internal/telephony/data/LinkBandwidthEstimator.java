@@ -325,6 +325,8 @@ public class LinkBandwidthEstimator extends Handler {
         mPhone.getServiceStateTracker().registerForDataRegStateOrRatChanged(AccessNetworkConstants
                 .TRANSPORT_TYPE_WWAN, this, MSG_DATA_REG_STATE_OR_RAT_CHANGED, null);
         mDataNetworkController = mPhone.getDataNetworkController();
+        mPhone.getSignalStrengthController().registerForSignalStrengthChanged(this,
+                MSG_SIGNAL_STRENGTH_CHANGED, null);
     }
 
     @Override
@@ -347,7 +349,7 @@ public class LinkBandwidthEstimator extends Handler {
                 handleDefaultNetworkChanged((NetworkCapabilities) msg.obj);
                 break;
             case MSG_SIGNAL_STRENGTH_CHANGED:
-                handleSignalStrengthChanged((SignalStrength) msg.obj);
+                handleSignalStrengthChanged();
                 break;
             case MSG_NR_FREQUENCY_CHANGED:
                 // fall through
@@ -953,10 +955,8 @@ public class LinkBandwidthEstimator extends Handler {
                 () -> callback.onBandwidthChanged(linkBandwidthTxKps, linkBandwidthRxKps)));
     }
 
-    private void handleSignalStrengthChanged(SignalStrength signalStrength) {
-        if (signalStrength == null) {
-            return;
-        }
+    private void handleSignalStrengthChanged() {
+        SignalStrength signalStrength = mPhone.getSignalStrength();
 
         mSignalStrengthDbm = signalStrength.getDbm();
         mSignalLevel = signalStrength.getLevel();
@@ -1135,12 +1135,7 @@ public class LinkBandwidthEstimator extends Handler {
     }
 
     private class TelephonyCallbackImpl extends TelephonyCallback implements
-            TelephonyCallback.SignalStrengthsListener,
             TelephonyCallback.ActiveDataSubscriptionIdListener {
-        @Override
-        public void onSignalStrengthsChanged(SignalStrength signalStrength) {
-            obtainMessage(MSG_SIGNAL_STRENGTH_CHANGED, signalStrength).sendToTarget();
-        }
         @Override
         public void onActiveDataSubscriptionIdChanged(int subId) {
             obtainMessage(MSG_ACTIVE_PHONE_CHANGED, subId).sendToTarget();
